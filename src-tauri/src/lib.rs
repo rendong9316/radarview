@@ -37,10 +37,11 @@ fn import_adsb_file(
 
 #[tauri::command]
 fn import_radar_file(
+    app_handle: tauri::AppHandle,
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
 ) -> Result<Vec<Track>, String> {
-    let tracks = radar::parse_mat_file(&file_path)?;
+    let tracks = radar::parse_mat_file(&app_handle, &file_path)?;
     let path = db_path.0.lock().map_err(|e| e.to_string())?;
     let file_name = std::path::Path::new(&file_path)
         .file_name()

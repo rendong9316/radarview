@@ -8,6 +8,16 @@ use tiny_http::{Header, Method, Response, Server};
 
 static TILE_SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 
+fn content_type_png() -> Header {
+    Header::from_bytes("Content-Type", "image/png")
+        .expect("hardcoded Content-Type header should be valid")
+}
+
+fn cors_header() -> Header {
+    Header::from_bytes("Access-Control-Allow-Origin", "*")
+        .expect("hardcoded CORS header should be valid")
+}
+
 fn xyz_to_tms(z: u32, y: u32) -> u32 {
     (1u32 << z) - 1 - y
 }
@@ -69,8 +79,8 @@ fn handle_tile_request(request: tiny_http::Request, mbtiles_path: &PathBuf) {
     match get_tile_data(mbtiles_path, z, x, y) {
         Some(data) => {
             let resp = Response::from_data(data)
-                .with_header(Header::from_bytes("Content-Type", "image/png").unwrap())
-                .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap());
+                .with_header(content_type_png())
+                .with_header(cors_header());
             let _ = request.respond(resp);
         }
         None => {
@@ -92,7 +102,7 @@ pub fn start_tile_server(mbtiles_path: PathBuf) -> Result<u16, Box<dyn std::erro
         for request in server.incoming_requests() {
             if request.method() == &Method::Options {
                 let resp = Response::from_string("OK")
-                    .with_header(Header::from_bytes("Access-Control-Allow-Origin", "*").unwrap());
+                    .with_header(cors_header());
                 let _ = request.respond(resp);
             } else {
                 handle_tile_request(request, &mbtiles_path);
