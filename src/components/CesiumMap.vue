@@ -240,6 +240,8 @@ function clearAllEntities() {
 function syncEntities(newTracks: Track[]) {
   if (!viewer) return
 
+  console.log('[CesiumMap] syncEntities START:', entityMap.size, 'old entities,', newTracks.length, 'new tracks')
+
   try {
     viewer.entities.suspendEvents()
 
@@ -266,7 +268,10 @@ function syncEntities(newTracks: Track[]) {
 // Sync entities whenever displayTracks changes (filter, isolation, etc.)
 watch(
   () => props.tracks,
-  (newTracks) => syncEntities(newTracks),
+  (newTracks) => {
+    console.log('[CesiumMap] watch fired, syncing', newTracks.length, 'tracks, pos counts:', newTracks.map(t => t.id.slice(0,6) + ':' + t.positions.length).join(', '))
+    syncEntities(newTracks)
+  },
   { deep: false },
 )
 
