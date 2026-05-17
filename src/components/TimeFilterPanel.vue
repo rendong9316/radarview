@@ -77,8 +77,10 @@ function apply() {
     errorMsg.value = '请设置起始和结束时间'
     return
   }
-  const start = new Date(startInput.value).getTime()
-  const end = new Date(endInput.value).getTime()
+  // datetime-local inputs are always local time, but our system uses UTC.
+  // Append ':00Z' to parse the value as UTC (e.g. "2024-01-15T10:30" + ":00Z" = UTC)
+  const start = new Date(startInput.value + ':00Z').getTime()
+  const end = new Date(endInput.value + ':00Z').getTime()
   if (isNaN(start) || isNaN(end)) {
     errorMsg.value = '时间格式无效'
     return
@@ -87,6 +89,7 @@ function apply() {
     errorMsg.value = '起始时间必须早于结束时间'
     return
   }
+  console.log('[TimeFilter] apply filter:', { start: new Date(start).toISOString(), end: new Date(end).toISOString(), startMs: start, endMs: end })
   emit('apply', start, end)
 }
 
