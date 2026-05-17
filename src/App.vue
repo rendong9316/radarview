@@ -130,22 +130,32 @@ const unifiedReplayTime = computed(() =>
 onMounted(async () => {
   try {
     const saved = await invoke('load_persisted_tracks') as any[]
+    console.log('[App] load_persisted_tracks returned', saved.length, 'tracks')
     if (saved.length > 0) setAll(fromBackendTracks(saved))
-  } catch (_) { }
+  } catch (e) {
+    console.error('[App] load_persisted_tracks failed:', e)
+  }
   await refreshBatches()
 })
 
 async function refreshBatches() {
-  try { batches.value = await invoke('get_batches_cmd') } catch (_) { }
+  try { batches.value = await invoke('get_batches_cmd') } catch (e) {
+    console.error('[App] refreshBatches failed:', e)
+  }
 }
 
 async function handleImportAdsb() {
   errorMsg.value = ''
   try {
+    console.log('[App] handleImportAdsb: starting...')
     const result = await loader.loadAdsbFile()
+    console.log('[App] handleImportAdsb: got', result.length, 'tracks')
     if (result.length) addTracks(result)
     await refreshBatches()
-  } catch (e) { errorMsg.value = String(e) }
+  } catch (e) {
+    console.error('[App] handleImportAdsb error:', e)
+    errorMsg.value = String(e)
+  }
 }
 
 async function handleImportRadar() {

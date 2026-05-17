@@ -55,12 +55,16 @@ const errorMsg = ref('')
 
 const dtMin = computed(() => {
   if (!props.timeRange) return ''
-  return new Date(props.timeRange.min - 3600000).toISOString().slice(0, 16)
+  const d = new Date(props.timeRange.min - 3600000)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 })
 
 const dtMax = computed(() => {
   if (!props.timeRange) return ''
-  return new Date(props.timeRange.max + 3600000).toISOString().slice(0, 16)
+  const d = new Date(props.timeRange.max + 3600000)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 })
 
 const canApply = computed(() => startInput.value && endInput.value)
@@ -68,7 +72,7 @@ const canApply = computed(() => startInput.value && endInput.value)
 function fmtTime(ms: number) {
   const d = new Date(ms)
   const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 function apply() {
@@ -77,10 +81,10 @@ function apply() {
     errorMsg.value = '请设置起始和结束时间'
     return
   }
-  // datetime-local inputs are always local time, but our system uses UTC.
-  // Append ':00Z' to parse the value as UTC (e.g. "2024-01-15T10:30" + ":00Z" = UTC)
-  const start = new Date(startInput.value + ':00Z').getTime()
-  const end = new Date(endInput.value + ':00Z').getTime()
+  // datetime-local inputs represent local time (no timezone).
+  // Parse as local time and convert to UTC epoch millis.
+  const start = new Date(startInput.value).getTime()
+  const end = new Date(endInput.value).getTime()
   if (isNaN(start) || isNaN(end)) {
     errorMsg.value = '时间格式无效'
     return

@@ -39,18 +39,34 @@ export function useTrackLoader() {
   }
 
   async function loadAdsbFile(): Promise<Track[]> {
-    const selected = await open({
-      title: 'Select ADS-B CSV File',
-      filters: [{ name: 'ADS-B CSV', extensions: ['csv'] }],
-      multiple: false,
-    })
-    if (!selected) return []
+    let selected: string | string[] | null = null
+    try {
+      selected = await open({
+        title: 'Select ADS-B CSV File',
+        filters: [{ name: 'ADS-B CSV', extensions: ['csv'] }],
+        multiple: false,
+      })
+    } catch (e) {
+      console.error('[loadAdsbFile] open dialog failed:', e)
+      throw new Error(`Dialog error: ${e}`)
+    }
+
+    if (!selected) {
+      console.log('[loadAdsbFile] no file selected (user cancelled)')
+      return []
+    }
+
+    console.log('[loadAdsbFile] selected file:', selected)
 
     loading.value = true
     progress.value = 0
     try {
       const raw = await invoke('import_adsb_file', { filePath: selected as string }) as any[]
+      console.log('[loadAdsbFile] backend returned', raw.length, 'tracks')
       return await convertInChunks(raw)
+    } catch (e) {
+      console.error('[loadAdsbFile] import failed:', e)
+      throw e
     } finally {
       loading.value = false
     }

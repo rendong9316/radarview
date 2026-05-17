@@ -28,6 +28,7 @@ const containerRef = ref<HTMLDivElement>()
 let viewer: Cesium.Viewer | null = null
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
+let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
 const { getColor, getIcon } = useTrackStyle()
 const { visibility } = useLayerVisibility()
@@ -175,21 +176,19 @@ function createTrackEntities(track: Track) {
 
   const color = getColor(track.source)
   const icon = getIcon(track.source)
-  const last = track.positions[track.positions.length - 1]
   const isSelected = track.id === props.selectedId
 
   let polyline: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
     polyline = viewer.entities.add({
       id: `${track.id}::line`,
+      show: true,
       polyline: {
         positions: track.positions.map((p) =>
           Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
         ),
-        width: isSelected ? 4.0 : 1.5,
-        material: isSelected
-          ? new Cesium.PolylineGlowMaterialProperty({ glowPower: 0.25, color })
-          : color.withAlpha(0.7),
+        width: isSelected ? SELECTED_WIDTH : NORMAL_WIDTH,
+        material: color.withAlpha(isSelected ? SELECTED_ALPHA : NORMAL_ALPHA),
         clampToGround: false,
       },
     })
@@ -199,8 +198,10 @@ function createTrackEntities(track: Track) {
     .filter(Boolean)
     .join(' | ')
 
+  const last = track.positions[track.positions.length - 1]
   const billboard = viewer.entities.add({
     id: `${track.id}::dot`,
+    show: true,
     position: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
     billboard: {
       image: icon,
@@ -243,23 +244,25 @@ function syncEntities(newTracks: Track[]) {
   try {
     viewer.entities.suspendEvents()
 
-    // Gather IDs first, then remove — avoids Map iteration + deletion issues
-    const ids = Array.from(entityMap.keys())
-    for (const id of ids) {
-      removeTrackEntities(id)
+    const keepIds = new Set(newTracks.map((t) => t.id))
+    const oldIds = Array.from(entityMap.keys())
+
+    // Remove entities for tracks no longer in display list
+    for (const id of oldIds) {
+      if (!keepIds.has(id)) {
+        removeTrackEntities(id)
+      }
     }
 
+    // Add entities for new tracks not yet in entityMap
     for (const track of newTracks) {
-      createTrackEntities(track)
+      if (!entityMap.has(track.id)) {
+        createTrackEntities(track)
+      }
     }
   } finally {
     viewer.entities.resumeEvents()
     viewer.scene.requestRender()
-  }
-
-  // Re-apply highlight if needed
-  if (previousSelectedId && entityMap.has(previousSelectedId)) {
-    applyHighlight(previousSelectedId)
   }
 }
 
@@ -323,8 +326,6 @@ watch(
 
 // Highlight selected track
 let previousSelectedId: string | null = null
-const highlightConfig = { width: 4.0, glowPower: 0.25 }
-const normalConfig = { width: 1.5 }
 
 function applyHighlight(trackId: string | null) {
   if (!viewer) return
@@ -334,8 +335,8 @@ function applyHighlight(trackId: string | null) {
     const prev = entityMap.get(previousSelectedId)
     if (prev?.polyline) {
       const color = getColor(prev.source as import('../types/track').DataSource)
-      ;(prev.polyline.polyline as any).material = color.withAlpha(0.7)
-      ;(prev.polyline.polyline as any).width = normalConfig.width
+      ;(prev.polyline.polyline as any).material = color.withAlpha(NORMAL_ALPHA)
+      ;(prev.polyline.polyline as any).width = NORMAL_WIDTH
     }
     if (prev?.billboard) {
       ;(prev.billboard.billboard as any).scale = 0.7
@@ -347,11 +348,8 @@ function applyHighlight(trackId: string | null) {
     const entry = entityMap.get(trackId)
     if (entry?.polyline) {
       const color = getColor(entry.source as import('../types/track').DataSource)
-      ;(entry.polyline.polyline as any).material = new Cesium.PolylineGlowMaterialProperty({
-        glowPower: highlightConfig.glowPower,
-        color,
-      })
-      ;(entry.polyline.polyline as any).width = highlightConfig.width
+      ;(entry.polyline.polyline as any).material = color.withAlpha(SELECTED_ALPHA)
+      ;(entry.polyline.polyline as any).width = SELECTED_WIDTH
     }
     if (entry?.billboard) {
       ;(entry.billboard.billboard as any).scale = 1.2
@@ -360,6 +358,80 @@ function applyHighlight(trackId: string | null) {
 
   previousSelectedId = trackId
   viewer.scene.requestRender()
+}
+
+// Hover highlight — bright red + thick, unmistakable
+let hoveredTrackId: string | null = null
+const HOVER_COLOR = Cesium.Color.fromCssColorString('#ff3333')
+const HOVER_WIDTH = 5.0
+const HOVER_BILLBOARD_SCALE = 1.3
+const NORMAL_ALPHA = 0.88
+const NORMAL_WIDTH = 2.0
+const SELECTED_WIDTH = 4.0
+const SELECTED_ALPHA = 1.0
+
+function applyHoverHighlight(trackId: string) {
+  const entry = entityMap.get(trackId)
+  if (!entry) return
+
+  // If this track is already click-selected, don't override with red
+  if (previousSelectedId === trackId) return
+
+  if (entry.polyline) {
+    const p = entry.polyline
+    ;(p.polyline as any).material = HOVER_COLOR
+    ;(p.polyline as any).width = HOVER_WIDTH
+  }
+  if (entry.billboard) {
+    ;(entry.billboard.billboard as any).scale = HOVER_BILLBOARD_SCALE
+  }
+}
+
+function removeHoverHighlight() {
+  if (!hoveredTrackId) return
+  const entry = entityMap.get(hoveredTrackId)
+  if (entry) {
+    const originalColor = getColor(entry.source as import('../types/track').DataSource)
+    const isSelected = hoveredTrackId === previousSelectedId
+    if (entry.polyline) {
+      const p = entry.polyline
+      ;(p.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : NORMAL_ALPHA)
+      ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : NORMAL_WIDTH
+    }
+    if (entry.billboard) {
+      ;(entry.billboard.billboard as any).scale = isSelected ? 1.2 : 0.7
+    }
+  }
+  hoveredTrackId = null
+}
+
+function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent) {
+  const picked = viewer!.scene.pick(movement.endPosition)
+  if (!Cesium.defined(picked) || !picked.id || !(picked.id instanceof Cesium.Entity)) {
+    removeHoverHighlight()
+    viewer!.scene.requestRender()
+    return
+  }
+  const entityId = (picked.id as Cesium.Entity).id
+  if (!entityId || typeof entityId !== 'string' || entityId.startsWith('flag-')) {
+    removeHoverHighlight()
+    viewer!.scene.requestRender()
+    return
+  }
+  const trackId = entityId.endsWith('::dot') || entityId.endsWith('::line')
+    ? entityId.slice(0, entityId.lastIndexOf('::'))
+    : entityId
+  if (!entityMap.has(trackId)) {
+    removeHoverHighlight()
+    viewer!.scene.requestRender()
+    return
+  }
+  if (hoveredTrackId === trackId) return
+
+  removeHoverHighlight()
+  hoveredTrackId = trackId
+  applyHoverHighlight(trackId)
+  viewer!.scene.requestRender()
 }
 
 watch(() => props.selectedId, (newId) => {
@@ -511,6 +583,10 @@ onMounted(async () => {
     }, 300)
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 
+  // MOUSE_MOVE handler for hover highlight
+  moveHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  moveHandler.setInputAction(onMouseMove, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
+
   // Disable default double-click zoom and use for flag placement/removal
   viewer.cesiumWidget.screenSpaceEventHandler.removeInputAction(
     Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK,
@@ -558,6 +634,10 @@ onUnmounted(() => {
   if (clickHandler) {
     clickHandler.destroy()
     clickHandler = null
+  }
+  if (moveHandler) {
+    moveHandler.destroy()
+    moveHandler = null
   }
   if (viewer) {
     viewer.destroy()
