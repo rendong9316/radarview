@@ -12,6 +12,8 @@ import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import type { Flag } from '../composables/useFlags'
+import { useTrackFilter } from '../composables/useTrackFilter'
+import { useTracks } from '../composables/useTracks'
 
 const props = defineProps<{
   tracks: Track[]
@@ -33,6 +35,8 @@ const { getColor, getIcon } = useTrackStyle()
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, selectedPair } = useFlags()
+const { filteredTracks } = useTrackFilter()
+const { isolatedTrackId: globalIsoId } = useTracks()
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -260,9 +264,19 @@ function syncEntities(newTracks: Track[]) {
   }
 }
 
+// Direct watch on filtered tracks — primary path for time filter
+// Bypasses the App.vue → displayTracks → props chain for reliability
+watch([filteredTracks, globalIsoId], ([tracks, isoId]) => {
+  if (!viewer || isoId) return
+  syncEntities(tracks)
+}, { deep: false })
+
 watch(
   () => props.tracks,
-  (newTracks) => syncEntities(newTracks),
+  (newTracks) => {
+    if (!viewer || !globalIsoId.value) return
+    syncEntities(newTracks)
+  },
   { deep: false },
 )
 
