@@ -1,20 +1,19 @@
-import { computed, reactive, type Ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 import type { Track } from '../types/track'
 
 export interface SourceRange {
   min: number
   max: number
-  currentMin: number
-  currentMax: number
-  active: boolean
 }
 
 export function useTrackFilter(tracks: Ref<Track[]>) {
-  const ranges = reactive<Record<string, SourceRange>>({})
+  const ranges = ref<Record<string, SourceRange>>({})
+  const activeMin = ref<number | null>(null)
+  const activeMax = ref<number | null>(null)
+  const hasActiveFilter = ref(false)
 
-  function computeRanges() {
+  function updateRangeBounds() {
     const sourceMinMax: Record<string, { min: number; max: number }> = {}
-
     for (const t of tracks.value) {
       const src = t.source
       for (const p of t.positions) {
@@ -27,58 +26,53 @@ export function useTrackFilter(tracks: Ref<Track[]>) {
         }
       }
     }
-
+    const result: Record<string, SourceRange> = {}
     for (const [src, mm] of Object.entries(sourceMinMax)) {
-      if (!ranges[src]) {
-        ranges[src] = {
-          min: mm.min, max: mm.max,
-          currentMin: mm.min, currentMax: mm.max,
-          active: false,
-        }
-      } else {
-        if (mm.min < ranges[src].min) {
-          ranges[src].min = mm.min
-          ranges[src].currentMin = mm.min
-        }
-        if (mm.max > ranges[src].max) {
-          ranges[src].max = mm.max
-          ranges[src].currentMax = mm.max
-        }
-      }
+      result[src] = { min: mm.min, max: mm.max }
     }
+    ranges.value = result
+  }
+
+  /** Returns the overall min/max across all sources (for time filter UI) */
+  const globalTimeRange = computed(() => {
+    let min = Infinity
+    let max = -Infinity
+    for (const r of Object.values(ranges.value)) {
+      if (r.min < min) min = r.min
+      if (r.max > max) max = r.max
+    }
+    return min < max ? { min, max } : null
+  })
+
+  function setUniversalTimeRange(min: number, max: number) {
+    activeMin.value = min
+    activeMax.value = max
+    hasActiveFilter.value = true
+  }
+
+  function clearAllTimeRanges() {
+    activeMin.value = null
+    activeMax.value = null
+    hasActiveFilter.value = false
   }
 
   const filteredTracks = computed<Track[]>(() => {
-    computeRanges()
+    updateRangeBounds()
 
-    // Check if any range is actually filtered (non-default)
-    let hasActive = false
-    for (const r of Object.values(ranges)) {
-      if (r.currentMin > r.min || r.currentMax < r.max) {
-        r.active = true
-        hasActive = true
-      } else {
-        r.active = false
-      }
+    if (!hasActiveFilter.value || activeMin.value == null || activeMax.value == null) {
+      return tracks.value
     }
-
-    if (!hasActive) return tracks.value
 
     return tracks.value
       .map((track) => {
-        const range = ranges[track.source]
-        if (!range || !range.active) return track
-
         const filtered = track.positions.filter(
-          (p) => p.timestamp >= range.currentMin && p.timestamp <= range.currentMax,
+          (p) => p.timestamp >= activeMin.value! && p.timestamp <= activeMax.value!,
         )
-
         if (filtered.length === 0) return null
-
         return { ...track, positions: filtered }
       })
       .filter((t): t is Track => t !== null)
   })
 
-  return { ranges, filteredTracks }
+  return { ranges, filteredTracks, globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter }
 }

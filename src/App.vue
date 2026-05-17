@@ -1,6 +1,6 @@
 <template>
   <div class="app-root" @dragover.prevent="dragOver = true" @dragleave="onDragLeave">
-    <CesiumMap ref="mapRef" :tracks="displayTracks" :replay-time="globalReplayTime" />
+    <CesiumMap ref="mapRef" :tracks="displayTracks" :replay-time="unifiedReplayTime" :selected-id="selectedId" @track-pick="onTrackPick" />
 
     <div v-if="dragOver" class="drop-overlay" @drop.prevent="onDrop" @dragleave.prevent="onDragLeave">
       <div class="drop-hint">释放文件以导入</div>
@@ -9,6 +9,8 @@
     <LayerControl />
 
     <div class="right-bar">
+      <FlagPanel />
+      <TimeFilterPanel />
       <button v-if="isolatedTrackId" class="side-btn back-all-btn" @click="onClearIsolation">
         返回全部航迹
       </button>
@@ -51,34 +53,19 @@
     </div>
 
     <div class="layout-bottom">
-      <div v-if="tracksBySource.adsb?.length" class="playback-row adsb-row">
-        <span class="source-tag adsb-tag">ADS-B</span>
+      <div v-if="trackCount" class="playback-row unified-row">
+        <span class="source-tag unified-tag">Replay</span>
         <PlaybackBar
-          :is-playing="replayAdsb.isPlaying.value"
-          :has-data="replayAdsb.hasData.value"
-          :progress="replayAdsb.progress.value"
-          :speed="replayAdsb.speed.value"
-          :speed-options="replayAdsb.speedOptions"
-          :current-time-formatted="replayAdsb.currentTimeFormatted.value"
-          :duration-formatted="replayAdsb.durationFormatted.value"
-          @toggle="replayAdsb.isPlaying.value ? replayAdsb.pause() : replayAdsb.play()"
-          @seek="replayAdsb.seek($event)"
-          @speed="replayAdsb.setSpeed($event)"
-        />
-      </div>
-      <div v-if="tracksBySource.radar?.length" class="playback-row radar-row">
-        <span class="source-tag radar-tag">Radar</span>
-        <PlaybackBar
-          :is-playing="replayRadar.isPlaying.value"
-          :has-data="replayRadar.hasData.value"
-          :progress="replayRadar.progress.value"
-          :speed="replayRadar.speed.value"
-          :speed-options="replayRadar.speedOptions"
-          :current-time-formatted="replayRadar.currentTimeFormatted.value"
-          :duration-formatted="replayRadar.durationFormatted.value"
-          @toggle="replayRadar.isPlaying.value ? replayRadar.pause() : replayRadar.play()"
-          @seek="replayRadar.seek($event)"
-          @speed="replayRadar.setSpeed($event)"
+          :is-playing="replay.isPlaying.value"
+          :has-data="replay.hasData.value"
+          :progress="replay.progress.value"
+          :speed="replay.speed.value"
+          :speed-options="replay.speedOptions"
+          :current-time-formatted="replay.currentTimeFormatted.value"
+          :duration-formatted="replay.durationFormatted.value"
+          @toggle="replay.isPlaying.value ? replay.pause() : replay.play()"
+          @seek="replay.seek($event)"
+          @speed="replay.setSpeed($event)"
         />
       </div>
     </div>
@@ -92,6 +79,8 @@ import CesiumMap from './components/CesiumMap.vue'
 import TrackPanel from './components/TrackPanel.vue'
 import PlaybackBar from './components/PlaybackBar.vue'
 import LayerControl from './components/LayerControl.vue'
+import FlagPanel from './components/FlagPanel.vue'
+import TimeFilterPanel from './components/TimeFilterPanel.vue'
 import { useTrackLoader } from './composables/useTrackLoader'
 import { useTracks } from './composables/useTracks'
 import { useReplay } from './composables/useReplay'
@@ -105,7 +94,7 @@ interface Batch {
 
 const mapRef = ref<InstanceType<typeof CesiumMap>>()
 const loader = useTrackLoader()
-const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, setAll, isolateTrack, clearIsolation, tracksBySource } = useTracks()
+const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
 const { filteredTracks } = useTrackFilter(tracks)
 const { showLabels, toggle: toggleLabels } = useLabelVisibility()
 const errorMsg = ref('')
@@ -120,16 +109,11 @@ const displayTracks = computed(() => {
   return filteredTracks.value
 })
 
-const adsbTracks = computed(() => tracksBySource.value.adsb ?? [])
-const radarTracks = computed(() => tracksBySource.value.radar ?? [])
-const replayAdsb = useReplay(adsbTracks)
-const replayRadar = useReplay(radarTracks)
-
-const globalReplayTime = computed(() => {
-  if (replayAdsb.isPlaying.value) return replayAdsb.currentTime.value
-  if (replayRadar.isPlaying.value) return replayRadar.currentTime.value
-  return null
-})
+const allReplayTracks = computed(() => tracks.value)
+const replay = useReplay(allReplayTracks)
+const unifiedReplayTime = computed(() =>
+  replay.isPlaying.value ? replay.currentTime.value : null
+)
 
 onMounted(async () => {
   try {
@@ -179,8 +163,11 @@ async function handleLoadBatch(id: number) {
 
 function onIsolateTrack(id: string) {
   isolateTrack(id)
-  const track = tracks.value.find((t) => t.id === id)
-  if (track) mapRef.value?.flyToTrack(track)
+}
+
+function onTrackPick(trackId: string | null) {
+  if (trackId) isolateTrack(trackId)
+  else clearIsolation()
 }
 
 function onClearIsolation() {
@@ -188,7 +175,7 @@ function onClearIsolation() {
 }
 
 function onClear() {
-  replayAdsb.pause(); replayRadar.pause()
+  replay.pause()
   clearAll()
 }
 
@@ -251,8 +238,6 @@ async function onDrop(_e: DragEvent) {
 
 .layout-bottom { position:absolute; bottom:0; left:0; right:0; z-index:5; display:flex; flex-direction:column; }
 .playback-row { display:flex; align-items:center; gap:0; }
-.source-tag { padding:0 10px; font-size:11px; font-weight:700; min-width:56px; text-align:center; flex-shrink:0; height:48px; display:flex; align-items:center; justify-content:center; }
-.adsb-tag { background:rgba(0,212,255,0.15); color:#00d4ff; }
-.radar-tag { background:rgba(0,255,136,0.12); color:#00ff88; }
+.unified-tag { background:rgba(0,212,255,0.12); color:#00d4ff; padding:0 10px; font-size:11px; font-weight:700; min-width:56px; text-align:center; flex-shrink:0; height:48px; display:flex; align-items:center; justify-content:center; }
 .playback-row > :deep(.playback-bar) { flex:1; }
 </style>

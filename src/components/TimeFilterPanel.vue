@@ -1,0 +1,220 @@
+<template>
+  <div class="time-filter-panel" :class="{ collapsed }">
+    <div class="panel-header" @click="collapsed = !collapsed">
+      时间过滤
+      <span v-if="hasActiveFilter" class="active-dot"></span>
+      <span class="collapse-icon">{{ collapsed ? '+' : '−' }}</span>
+    </div>
+    <div v-if="!collapsed" class="panel-body">
+      <div v-if="timeRange" class="range-info">
+        数据范围: {{ fmtTime(timeRange.min) }} — {{ fmtTime(timeRange.max) }}
+      </div>
+      <div class="input-row">
+        <input
+          v-model="startInput"
+          type="datetime-local"
+          class="time-input"
+          :min="dtMin"
+          :max="dtMax"
+        />
+        <span class="time-sep">至</span>
+        <input
+          v-model="endInput"
+          type="datetime-local"
+          class="time-input"
+          :min="dtMin"
+          :max="dtMax"
+        />
+      </div>
+      <div class="btn-row">
+        <button class="apply-btn" @click="apply" :disabled="!canApply">应用过滤</button>
+        <button v-if="hasActiveFilter" class="clear-btn" @click="clear">清除</button>
+      </div>
+      <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
+    </div>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useTrackFilter } from '../composables/useTrackFilter'
+import { useTracks } from '../composables/useTracks'
+
+const { tracks } = useTracks()
+const filter = useTrackFilter(tracks)
+const { globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter } = filter
+
+const collapsed = ref(false)
+const startInput = ref('')
+const endInput = ref('')
+const errorMsg = ref('')
+
+const timeRange = computed(() => globalTimeRange.value)
+
+const dtMin = computed(() => {
+  if (!timeRange.value) return ''
+  return new Date(timeRange.value.min - 3600000).toISOString().slice(0, 16)
+})
+
+const dtMax = computed(() => {
+  if (!timeRange.value) return ''
+  return new Date(timeRange.value.max + 3600000).toISOString().slice(0, 16)
+})
+
+const canApply = computed(() => startInput.value && endInput.value)
+
+function fmtTime(ms: number) {
+  const d = new Date(ms)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
+}
+
+function apply() {
+  errorMsg.value = ''
+  if (!startInput.value || !endInput.value) {
+    errorMsg.value = '请设置起始和结束时间'
+    return
+  }
+  const start = new Date(startInput.value).getTime()
+  const end = new Date(endInput.value).getTime()
+  if (isNaN(start) || isNaN(end)) {
+    errorMsg.value = '时间格式无效'
+    return
+  }
+  if (start >= end) {
+    errorMsg.value = '起始时间必须早于结束时间'
+    return
+  }
+  setUniversalTimeRange(start, end)
+}
+
+function clear() {
+  clearAllTimeRanges()
+  startInput.value = ''
+  endInput.value = ''
+  errorMsg.value = ''
+}
+</script>
+
+<style scoped>
+.time-filter-panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.panel-header {
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-accent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #00ff88;
+  flex-shrink: 0;
+}
+
+.collapse-icon {
+  margin-left: auto;
+  font-size: 16px;
+  color: var(--color-text-dim);
+}
+
+.panel-body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.range-info {
+  font-size: 10px;
+  color: var(--color-text-dim);
+  text-align: center;
+}
+
+.input-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.time-input {
+  flex: 1;
+  padding: 5px 6px;
+  background: rgba(255,255,255,0.06);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text);
+  font-size: 11px;
+  outline: none;
+  min-width: 0;
+}
+
+.time-input:focus {
+  border-color: var(--color-accent);
+}
+
+.time-sep {
+  color: var(--color-text-dim);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.btn-row {
+  display: flex;
+  gap: 4px;
+}
+
+.apply-btn {
+  flex: 1;
+  padding: 5px 10px;
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.apply-btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.apply-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.clear-btn {
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.1);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.clear-btn:hover {
+  background: rgba(255,255,255,0.18);
+}
+
+.error-msg {
+  color: #f44;
+  font-size: 11px;
+  text-align: center;
+  margin: 0;
+}
+</style>
