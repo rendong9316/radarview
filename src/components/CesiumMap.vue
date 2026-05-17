@@ -240,32 +240,15 @@ function clearAllEntities() {
 function syncEntities(newTracks: Track[]) {
   if (!viewer) return
 
-  const newTrackMap = new Map(newTracks.map((t) => [t.id, t]))
-  const oldIds = new Set(entityMap.keys())
-
   viewer.entities.suspendEvents()
 
-  for (const id of oldIds) {
-    const newTrack = newTrackMap.get(id)
-    if (!newTrack) {
-      removeTrackEntities(id)
-    } else {
-      // Check if positions changed — if so, rebuild polyline
-      const existing = entityMap.get(id)!
-      const hasPolyline = existing.polyline !== undefined
-      const needsPolyline = newTrack.positions.length >= 2
-      if (hasPolyline !== needsPolyline ||
-          (needsPolyline && newTrack.positions.length !== (hasPolyline ? 0 : 0))) {
-        // Simply rebuild: remove old, create new
-        if (existing.polyline) viewer.entities.remove(existing.polyline)
-        if (existing.billboard) viewer.entities.remove(existing.billboard)
-        entityMap.delete(id)
-      }
-    }
+  // Full rebuild: remove all, then create from scratch
+  for (const [id] of entityMap) {
+    removeTrackEntities(id)
   }
 
   for (const track of newTracks) {
-    if (!entityMap.has(track.id)) createTrackEntities(track)
+    createTrackEntities(track)
   }
 
   viewer.entities.resumeEvents()
