@@ -12,6 +12,7 @@ import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import type { Flag } from '../composables/useFlags'
+import { useTrackFilter } from '../composables/useTrackFilter'
 
 const props = defineProps<{
   tracks: Track[]
@@ -33,6 +34,7 @@ const { getColor, getIcon } = useTrackStyle()
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, selectedPair } = useFlags()
+const { filteredTracks } = useTrackFilter()
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -265,12 +267,23 @@ function syncEntities(newTracks: Track[]) {
   }
 }
 
-// Sync entities whenever displayTracks changes (filter, isolation, etc.)
+// Primary: watch filtered tracks directly (shortest reactive chain for filter)
+watch(filteredTracks, (tracks) => {
+  // Don't sync from filteredTracks when a single track is isolated
+  if (props.tracks.length === 1 && tracks.length > 1) return
+  console.log('[CesiumMap] filteredTracks watch fired, syncing', tracks.length, 'tracks')
+  syncEntities(tracks)
+}, { deep: false })
+
+// Secondary: handle isolation mode via props (when user isolates a single track)
 watch(
   () => props.tracks,
   (newTracks) => {
-    console.log('[CesiumMap] watch fired, syncing', newTracks.length, 'tracks, pos counts:', newTracks.map(t => t.id.slice(0,6) + ':' + t.positions.length).join(', '))
-    syncEntities(newTracks)
+    // Only sync from props when isolated (1 track in props, many in filteredTracks)
+    if (newTracks.length === 1 && filteredTracks.value.length > newTracks.length) {
+      console.log('[CesiumMap] isolation watch fired')
+      syncEntities(newTracks)
+    }
   },
   { deep: false },
 )
