@@ -68,13 +68,7 @@ export function useReplay(tracks: Ref<Track[]>) {
       if (first < start) start = first
       if (last > end) end = last
     }
-    const result = start < end ? { start, end } : null
-    console.log('[useReplay] timeRange computed:', result ? {
-      start: new Date(result.start).toISOString(),
-      end: new Date(result.end).toISOString(),
-      trackCount: tracks.value.length,
-    } : { trackCount: tracks.value.length, result: null })
-    return result
+    return start < end ? { start, end } : null
   })
 
   const duration = computed(() => {

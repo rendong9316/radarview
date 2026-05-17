@@ -89,7 +89,6 @@ function apply() {
     errorMsg.value = '起始时间必须早于结束时间'
     return
   }
-  console.log('[TimeFilter] apply filter:', { start: new Date(start).toISOString(), end: new Date(end).toISOString(), startMs: start, endMs: end })
   emit('apply', start, end)
 }
 

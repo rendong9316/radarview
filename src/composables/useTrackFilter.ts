@@ -25,7 +25,6 @@ export function useTrackFilter() {
   })
 
   function setUniversalTimeRange(min: number, max: number) {
-    console.log('[useTrackFilter] setUniversalTimeRange:', { min: new Date(min).toISOString(), max: new Date(max).toISOString(), minMs: min, maxMs: max })
     activeMin.value = min
     activeMax.value = max
     hasActiveFilter.value = true
@@ -44,7 +43,7 @@ export function useTrackFilter() {
       return tracks.value
     }
 
-    const result = tracks.value
+    return tracks.value
       .map((track) => {
         const filtered = track.positions.filter(
           (p) => p.timestamp >= activeMin.value! && p.timestamp <= activeMax.value!,
@@ -53,17 +52,7 @@ export function useTrackFilter() {
         return { ...track, positions: filtered }
       })
       .filter((t): t is Track => t !== null)
-
-    console.log('[useTrackFilter] filteredTracks:', {
-      totalTracks: tracks.value.length,
-      survivingTracks: result.length,
-      sampleTimestamps: tracks.value.slice(0, 2).flatMap(t => t.positions.slice(0, 2).map(p => ({ ts: p.timestamp, iso: new Date(p.timestamp).toISOString() }))),
-      filterMin: activeMin.value,
-      filterMax: activeMax.value,
-    })
-
-    return result
   })
 
-  return { filteredTracks, globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter, filterVersion }
+  return { filteredTracks, globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter }
 }

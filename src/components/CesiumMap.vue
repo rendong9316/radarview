@@ -12,7 +12,6 @@ import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import type { Flag } from '../composables/useFlags'
-import { useTrackFilter } from '../composables/useTrackFilter'
 
 const props = defineProps<{
   tracks: Track[]
@@ -34,7 +33,6 @@ const { getColor, getIcon } = useTrackStyle()
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, selectedPair } = useFlags()
-const { filteredTracks, filterVersion } = useTrackFilter()
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -242,8 +240,6 @@ function clearAllEntities() {
 function syncEntities(newTracks: Track[]) {
   if (!viewer) return
 
-  console.log('[CesiumMap] syncEntities START:', entityMap.size, 'old entities,', newTracks.length, 'new tracks')
-
   try {
     viewer.entities.suspendEvents()
 
@@ -267,19 +263,10 @@ function syncEntities(newTracks: Track[]) {
   }
 }
 
-// Primary: watch filterVersion (raw ref, fires reliably on every filter change)
-watch(filterVersion, () => {
-  // Don't sync from filteredTracks when a single track is isolated
-  if (props.tracks.length === 1 && filteredTracks.value.length > 1) return
-  console.log('[CesiumMap] filterVersion:', filterVersion.value, 'syncing', filteredTracks.value.length, 'tracks')
-  syncEntities(filteredTracks.value)
-})
-
-// Secondary: handle all prop changes — initial load, isolation, clear isolation
+// Sync Cesium entities when props.tracks changes — handles initial load, filter, isolation, clear
 watch(
   () => props.tracks,
   (newTracks) => {
-    console.log('[CesiumMap] props.tracks changed, syncing', newTracks.length, 'tracks')
     syncEntities(newTracks)
   },
   { deep: false },
