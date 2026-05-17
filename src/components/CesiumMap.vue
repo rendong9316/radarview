@@ -267,8 +267,7 @@ function syncEntities(newTracks: Track[]) {
   }
 }
 
-// Primary: watch filterVersion (raw ref, fires reliably even when computed cached)
-// This bypasses any Vue computed reactivity edge cases
+// Primary: watch filterVersion (raw ref, fires reliably on every filter change)
 watch(filterVersion, () => {
   // Don't sync from filteredTracks when a single track is isolated
   if (props.tracks.length === 1 && filteredTracks.value.length > 1) return
@@ -276,15 +275,12 @@ watch(filterVersion, () => {
   syncEntities(filteredTracks.value)
 })
 
-// Secondary: handle isolation mode via props (when user isolates a single track)
+// Secondary: handle all prop changes — initial load, isolation, clear isolation
 watch(
   () => props.tracks,
   (newTracks) => {
-    // Only sync from props when isolated (1 track in props, many in filteredTracks)
-    if (newTracks.length === 1 && filteredTracks.value.length > newTracks.length) {
-      console.log('[CesiumMap] isolation watch fired')
-      syncEntities(newTracks)
-    }
+    console.log('[CesiumMap] props.tracks changed, syncing', newTracks.length, 'tracks')
+    syncEntities(newTracks)
   },
   { deep: false },
 )
