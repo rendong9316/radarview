@@ -109,8 +109,7 @@ const displayTracks = computed(() => {
   return filteredTracks.value
 })
 
-const allReplayTracks = computed(() => displayTracks.value)
-const replay = useReplay(allReplayTracks)
+const replay = useReplay(displayTracks)
 const unifiedReplayTime = computed(() =>
   replay.isPlaying.value ? replay.currentTime.value : null
 )

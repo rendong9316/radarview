@@ -244,19 +244,22 @@ function clearAllEntities() {
 function syncEntities(newTracks: Track[]) {
   if (!viewer) return
 
-  viewer.entities.suspendEvents()
+  try {
+    viewer.entities.suspendEvents()
 
-  // Full rebuild: remove all, then create from scratch
-  for (const [id] of entityMap) {
-    removeTrackEntities(id)
+    // Gather IDs first, then remove — avoids Map iteration + deletion issues
+    const ids = Array.from(entityMap.keys())
+    for (const id of ids) {
+      removeTrackEntities(id)
+    }
+
+    for (const track of newTracks) {
+      createTrackEntities(track)
+    }
+  } finally {
+    viewer.entities.resumeEvents()
+    viewer.scene.requestRender()
   }
-
-  for (const track of newTracks) {
-    createTrackEntities(track)
-  }
-
-  viewer.entities.resumeEvents()
-  viewer.scene.requestRender()
 
   // Re-apply highlight if needed
   if (previousSelectedId && entityMap.has(previousSelectedId)) {
