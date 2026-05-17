@@ -95,7 +95,7 @@ interface Batch {
 const mapRef = ref<InstanceType<typeof CesiumMap>>()
 const loader = useTrackLoader()
 const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
-const { filteredTracks } = useTrackFilter(tracks)
+const { filteredTracks } = useTrackFilter()
 const { showLabels, toggle: toggleLabels } = useLabelVisibility()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
@@ -109,7 +109,7 @@ const displayTracks = computed(() => {
   return filteredTracks.value
 })
 
-const allReplayTracks = computed(() => tracks.value)
+const allReplayTracks = computed(() => displayTracks.value)
 const replay = useReplay(allReplayTracks)
 const unifiedReplayTime = computed(() =>
   replay.isPlaying.value ? replay.currentTime.value : null

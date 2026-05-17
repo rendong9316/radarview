@@ -38,11 +38,8 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useTrackFilter } from '../composables/useTrackFilter'
-import { useTracks } from '../composables/useTracks'
 
-const { tracks } = useTracks()
-const filter = useTrackFilter(tracks)
-const { globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter } = filter
+const { globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter } = useTrackFilter()
 
 const collapsed = ref(false)
 const startInput = ref('')
