@@ -493,10 +493,11 @@ onMounted(async () => {
     const picked = viewer!.scene.pick(movement.position)
     if (!Cesium.defined(picked) || !picked.id || !(picked.id instanceof Cesium.Entity)) {
       // Delay clearing isolation to allow double-click to cancel it
+      if (pendingClearTimeout) clearTimeout(pendingClearTimeout)
       pendingClearTimeout = setTimeout(() => {
         pendingClearTimeout = null
         emit('track-pick', null)
-      }, 280)
+      }, 300)
       return
     }
     const entityId = (picked.id as Cesium.Entity).id
@@ -514,10 +515,11 @@ onMounted(async () => {
       }
     }
     // For clicks on unknown entities, also delay
+    if (pendingClearTimeout) clearTimeout(pendingClearTimeout)
     pendingClearTimeout = setTimeout(() => {
       pendingClearTimeout = null
       emit('track-pick', null)
-    }, 280)
+    }, 300)
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 
   // Disable default double-click zoom and use for flag placement/removal
@@ -526,7 +528,7 @@ onMounted(async () => {
   )
   dblClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   dblClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-    // Cancel any pending clear-isolation from the first click of this double-click
+    // Cancel any pending clear-isolation from the clicks of this double-click
     if (pendingClearTimeout) {
       clearTimeout(pendingClearTimeout)
       pendingClearTimeout = null
