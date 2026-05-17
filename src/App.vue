@@ -10,7 +10,12 @@
 
     <div class="right-bar">
       <FlagPanel />
-      <TimeFilterPanel />
+      <TimeFilterPanel
+        :time-range="globalTimeRange"
+        :has-active-filter="hasActiveFilter"
+        @apply="onTimeFilterApply"
+        @clear="onTimeFilterClear"
+      />
       <button v-if="isolatedTrackId" class="side-btn back-all-btn" @click="onClearIsolation">
         返回全部航迹
       </button>
@@ -95,11 +100,19 @@ interface Batch {
 const mapRef = ref<InstanceType<typeof CesiumMap>>()
 const loader = useTrackLoader()
 const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
-const { filteredTracks } = useTrackFilter()
+const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange, clearAllTimeRanges } = useTrackFilter()
 const { showLabels, toggle: toggleLabels } = useLabelVisibility()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
 const showBatchPanel = ref(false)
+
+function onTimeFilterApply(min: number, max: number) {
+  setUniversalTimeRange(min, max)
+}
+
+function onTimeFilterClear() {
+  clearAllTimeRanges()
+}
 
 const displayTracks = computed(() => {
   if (isolatedTrackId.value) {

@@ -2,12 +2,12 @@
   <div class="time-filter-panel" :class="{ collapsed }">
     <div class="panel-header" @click="collapsed = !collapsed">
       时间过滤
-      <span v-if="hasActiveFilter" class="active-dot"></span>
+      <span v-if="props.hasActiveFilter" class="active-dot"></span>
       <span class="collapse-icon">{{ collapsed ? '+' : '−' }}</span>
     </div>
     <div v-if="!collapsed" class="panel-body">
-      <div v-if="timeRange" class="range-info">
-        数据范围: {{ fmtTime(timeRange.min) }} — {{ fmtTime(timeRange.max) }}
+      <div v-if="props.timeRange" class="range-info">
+        数据范围: {{ fmtTime(props.timeRange.min) }} — {{ fmtTime(props.timeRange.max) }}
       </div>
       <div class="input-row">
         <input
@@ -28,7 +28,7 @@
       </div>
       <div class="btn-row">
         <button class="apply-btn" @click="apply" :disabled="!canApply">应用过滤</button>
-        <button v-if="hasActiveFilter" class="clear-btn" @click="clear">清除</button>
+        <button v-if="props.hasActiveFilter" class="clear-btn" @click="clear">清除</button>
       </div>
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
     </div>
@@ -37,25 +37,30 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { useTrackFilter } from '../composables/useTrackFilter'
 
-const { globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter } = useTrackFilter()
+const props = defineProps<{
+  timeRange: { min: number; max: number } | null
+  hasActiveFilter: boolean
+}>()
+
+const emit = defineEmits<{
+  apply: [min: number, max: number]
+  clear: []
+}>()
 
 const collapsed = ref(false)
 const startInput = ref('')
 const endInput = ref('')
 const errorMsg = ref('')
 
-const timeRange = computed(() => globalTimeRange.value)
-
 const dtMin = computed(() => {
-  if (!timeRange.value) return ''
-  return new Date(timeRange.value.min - 3600000).toISOString().slice(0, 16)
+  if (!props.timeRange) return ''
+  return new Date(props.timeRange.min - 3600000).toISOString().slice(0, 16)
 })
 
 const dtMax = computed(() => {
-  if (!timeRange.value) return ''
-  return new Date(timeRange.value.max + 3600000).toISOString().slice(0, 16)
+  if (!props.timeRange) return ''
+  return new Date(props.timeRange.max + 3600000).toISOString().slice(0, 16)
 })
 
 const canApply = computed(() => startInput.value && endInput.value)
@@ -82,11 +87,11 @@ function apply() {
     errorMsg.value = '起始时间必须早于结束时间'
     return
   }
-  setUniversalTimeRange(start, end)
+  emit('apply', start, end)
 }
 
 function clear() {
-  clearAllTimeRanges()
+  emit('clear')
   startInput.value = ''
   endInput.value = ''
   errorMsg.value = ''
