@@ -34,7 +34,7 @@ const { getColor, getIcon } = useTrackStyle()
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, selectedPair } = useFlags()
-const { filteredTracks } = useTrackFilter()
+const { filteredTracks, filterVersion } = useTrackFilter()
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -267,13 +267,14 @@ function syncEntities(newTracks: Track[]) {
   }
 }
 
-// Primary: watch filtered tracks directly (shortest reactive chain for filter)
-watch(filteredTracks, (tracks) => {
+// Primary: watch filterVersion (raw ref, fires reliably even when computed cached)
+// This bypasses any Vue computed reactivity edge cases
+watch(filterVersion, () => {
   // Don't sync from filteredTracks when a single track is isolated
-  if (props.tracks.length === 1 && tracks.length > 1) return
-  console.log('[CesiumMap] filteredTracks watch fired, syncing', tracks.length, 'tracks')
-  syncEntities(tracks)
-}, { deep: false })
+  if (props.tracks.length === 1 && filteredTracks.value.length > 1) return
+  console.log('[CesiumMap] filterVersion:', filterVersion.value, 'syncing', filteredTracks.value.length, 'tracks')
+  syncEntities(filteredTracks.value)
+})
 
 // Secondary: handle isolation mode via props (when user isolates a single track)
 watch(

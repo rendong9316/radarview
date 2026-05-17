@@ -5,6 +5,7 @@ import type { Track } from '../types/track'
 const activeMin = ref<number | null>(null)
 const activeMax = ref<number | null>(null)
 const hasActiveFilter = ref(false)
+const filterVersion = ref(0)
 
 export function useTrackFilter() {
   const { tracks } = useTracks()
@@ -28,12 +29,14 @@ export function useTrackFilter() {
     activeMin.value = min
     activeMax.value = max
     hasActiveFilter.value = true
+    filterVersion.value++
   }
 
   function clearAllTimeRanges() {
     activeMin.value = null
     activeMax.value = null
     hasActiveFilter.value = false
+    filterVersion.value++
   }
 
   const filteredTracks = computed<Track[]>(() => {
@@ -62,5 +65,5 @@ export function useTrackFilter() {
     return result
   })
 
-  return { filteredTracks, globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter }
+  return { filteredTracks, globalTimeRange, setUniversalTimeRange, clearAllTimeRanges, hasActiveFilter, filterVersion }
 }
