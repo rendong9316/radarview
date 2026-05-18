@@ -41,6 +41,7 @@ const collapsed = ref(false)
 const layerItems = computed(() => [
   { source: 'adsb' as DataSource, label: 'ADS-B', color: '#00d4ff', count: tracksBySource.value.adsb?.length ?? 0 },
   { source: 'radar' as DataSource, label: '雷达 Radar', color: '#00ff88', count: tracksBySource.value.radar?.length ?? 0 },
+  { source: 'radar_raw' as DataSource, label: '雷达原始', color: '#ff8800', count: tracksBySource.value.radar_raw?.length ?? 0 },
 ])
 </script>
 

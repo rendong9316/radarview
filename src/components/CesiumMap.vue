@@ -177,9 +177,12 @@ function createTrackEntities(track: Track) {
   const color = getColor(track.source)
   const icon = getIcon(track.source)
   const isSelected = track.id === props.selectedId
+  const isRaw = track.source === 'radar_raw'
 
   let polyline: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
+    const width = isSelected ? SELECTED_WIDTH : isRaw ? 1.0 : NORMAL_WIDTH
+    const alpha = isSelected ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA
     polyline = viewer.entities.add({
       id: `${track.id}::line`,
       show: true,
@@ -187,8 +190,8 @@ function createTrackEntities(track: Track) {
         positions: track.positions.map((p) =>
           Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
         ),
-        width: isSelected ? SELECTED_WIDTH : NORMAL_WIDTH,
-        material: color.withAlpha(isSelected ? SELECTED_ALPHA : NORMAL_ALPHA),
+        width,
+        material: color.withAlpha(alpha),
         clampToGround: false,
       },
     })
@@ -199,13 +202,14 @@ function createTrackEntities(track: Track) {
     .join(' | ')
 
   const last = track.positions[track.positions.length - 1]
+  const billboardScale = isSelected ? 1.2 : isRaw ? 0.4 : 0.7
   const billboard = viewer.entities.add({
     id: `${track.id}::dot`,
     show: true,
     position: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
     billboard: {
       image: icon,
-      scale: isSelected ? 1.2 : 0.7,
+      scale: billboardScale,
     },
     label: {
       text: showLabels.value ? (label || track.id) : '',
@@ -254,11 +258,48 @@ function syncEntities(newTracks: Track[]) {
       }
     }
 
-    // Add entities for new tracks not yet in entityMap
+    // Add or update entities
     for (const track of newTracks) {
-      if (!entityMap.has(track.id)) {
+      const existing = entityMap.get(track.id)
+      if (!existing) {
         createTrackEntities(track)
+        continue
       }
+
+      // Update polyline for existing track when positions changed (e.g. time filter)
+      const hasEnoughPoints = track.positions.length >= 2
+      if (existing.polyline) {
+        if (hasEnoughPoints) {
+          ;(existing.polyline.polyline as any).positions = track.positions.map((p) =>
+            Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
+          )
+          existing.polyline.show = true
+        } else {
+          existing.polyline.show = false
+        }
+      } else if (hasEnoughPoints) {
+        // Polyline didn't exist before but now has enough points (e.g. filter cleared)
+        const color = getColor(track.source)
+        const isRaw = track.source === 'radar_raw'
+        existing.polyline = viewer.entities.add({
+          id: `${track.id}::line`,
+          show: true,
+          polyline: {
+            positions: track.positions.map((p) =>
+              Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
+            ),
+            width: track.id === props.selectedId ? SELECTED_WIDTH : isRaw ? 1.0 : NORMAL_WIDTH,
+            material: color.withAlpha(track.id === props.selectedId ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
+            clampToGround: false,
+          },
+        })
+      }
+
+      // Update billboard to last position
+      const last = track.positions[track.positions.length - 1]
+      existing.billboard.position = new Cesium.ConstantPositionProperty(
+        Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
+      )
     }
   } finally {
     viewer.entities.resumeEvents()
@@ -335,11 +376,11 @@ function applyHighlight(trackId: string | null) {
     const prev = entityMap.get(previousSelectedId)
     if (prev?.polyline) {
       const color = getColor(prev.source as import('../types/track').DataSource)
-      ;(prev.polyline.polyline as any).material = color.withAlpha(NORMAL_ALPHA)
-      ;(prev.polyline.polyline as any).width = NORMAL_WIDTH
+      ;(prev.polyline.polyline as any).material = color.withAlpha(baseAlpha(prev.source))
+      ;(prev.polyline.polyline as any).width = baseWidth(prev.source)
     }
     if (prev?.billboard) {
-      ;(prev.billboard.billboard as any).scale = 0.7
+      ;(prev.billboard.billboard as any).scale = prev.source === 'radar_raw' ? 0.4 : 0.7
     }
   }
 
@@ -370,6 +411,14 @@ const NORMAL_WIDTH = 2.0
 const SELECTED_WIDTH = 4.0
 const SELECTED_ALPHA = 1.0
 
+function baseWidth(source: string): number {
+  return source === 'radar_raw' ? 1.0 : NORMAL_WIDTH
+}
+
+function baseAlpha(source: string): number {
+  return source === 'radar_raw' ? 0.6 : NORMAL_ALPHA
+}
+
 function applyHoverHighlight(trackId: string) {
   const entry = entityMap.get(trackId)
   if (!entry) return
@@ -395,11 +444,11 @@ function removeHoverHighlight() {
     const isSelected = hoveredTrackId === previousSelectedId
     if (entry.polyline) {
       const p = entry.polyline
-      ;(p.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : NORMAL_ALPHA)
-      ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : NORMAL_WIDTH
+      ;(p.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : baseAlpha(entry.source))
+      ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source)
     }
     if (entry.billboard) {
-      ;(entry.billboard.billboard as any).scale = isSelected ? 1.2 : 0.7
+      ;(entry.billboard.billboard as any).scale = isSelected ? 1.2 : entry.source === 'radar_raw' ? 0.4 : 0.7
     }
   }
   hoveredTrackId = null

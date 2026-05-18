@@ -40,6 +40,14 @@ fn kill_process(pid: u32) {
 }
 
 pub fn parse_mat_file(app_handle: &AppHandle, file_path: &str) -> Result<Vec<Track>, String> {
+    parse_mat_file_with_source(app_handle, file_path, None)
+}
+
+pub fn parse_mat_file_with_source(
+    app_handle: &AppHandle,
+    file_path: &str,
+    source_override: Option<&str>,
+) -> Result<Vec<Track>, String> {
     let resource_dir = app_handle
         .path()
         .resource_dir()
@@ -49,8 +57,12 @@ pub fn parse_mat_file(app_handle: &AppHandle, file_path: &str) -> Result<Vec<Tra
 
     emit_progress(app_handle, "converting", 10);
 
-    let child = Command::new(&exe_path)
-        .arg(file_path)
+    let mut cmd = Command::new(&exe_path);
+    cmd.arg(file_path);
+    if source_override.is_some() {
+        cmd.arg("--mode").arg("raw");
+    }
+    let child = cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -74,8 +86,15 @@ pub fn parse_mat_file(app_handle: &AppHandle, file_path: &str) -> Result<Vec<Tra
             emit_progress(app_handle, "parsing", 80);
 
             let stdout = String::from_utf8_lossy(&output.stdout);
-            let tracks: Vec<Track> = serde_json::from_str(&stdout)
+            let mut tracks: Vec<Track> = serde_json::from_str(&stdout)
                 .map_err(|e| format!("解析转换数据失败: {}", e))?;
+
+            // Override source if specified
+            if let Some(src) = source_override {
+                for t in &mut tracks {
+                    t.source = src.to_string();
+                }
+            }
 
             emit_progress(app_handle, "done", 90);
             Ok(tracks)

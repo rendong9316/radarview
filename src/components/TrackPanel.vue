@@ -135,11 +135,12 @@ const filteredList = computed(() => {
 const sourceColors: Record<DataSource, string> = {
   adsb: '#00d4ff',
   radar: '#00ff88',
-  simulation: '#ff8800',
+  radar_raw: '#ff8800',
+  simulation: '#aa88ff',
 }
 
 function sourceLabel(source: DataSource): string {
-  return { adsb: 'ADS-B', radar: '雷达', simulation: '仿真' }[source]
+  return { adsb: 'ADS-B', radar: '雷达', radar_raw: '雷达原始', simulation: '仿真' }[source]
 }
 
 function toggleExpand(id: string) {

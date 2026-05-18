@@ -54,6 +54,24 @@ fn import_radar_file(
 }
 
 #[tauri::command]
+fn import_radar_raw_file(
+    app_handle: tauri::AppHandle,
+    db_path: tauri::State<'_, DbPath>,
+    file_path: String,
+) -> Result<Vec<Track>, String> {
+    let tracks = radar::parse_mat_file_with_source(&app_handle, &file_path, Some("RadarRaw"))?;
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    let file_name = std::path::Path::new(&file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    if !db::batch_exists(&path, &file_name)? {
+        db::save_batch(&path, &file_name, "RadarRaw", &tracks)?;
+    }
+    Ok(tracks)
+}
+
+#[tauri::command]
 fn load_persisted_tracks(
     db_path: tauri::State<'_, DbPath>,
 ) -> Result<Vec<Track>, String> {
@@ -116,6 +134,7 @@ pub fn run() {
             get_tile_server_port,
             import_adsb_file,
             import_radar_file,
+            import_radar_raw_file,
             load_persisted_tracks,
             load_batch_tracks_cmd,
             get_batches_cmd,

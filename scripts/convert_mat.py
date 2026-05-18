@@ -1,6 +1,6 @@
 """Convert MATLAB .mat radar track file to JSON for Rust import.
 
-Reads 'outputPointList' from each entry in 'trackList'.
+Reads 'outputPointList' (default) or 'asscPointList' (--mode raw) from each entry in 'trackList'.
 Timestamps are MATLAB datenum floats → "YYYY-MM-DD HH:MM:SS".
 """
 import sys
@@ -19,18 +19,22 @@ def datenum_to_str(dn: float) -> str:
         return ""
 
 
-def mat_to_json(mat_path: str) -> str:
+def mat_to_json(mat_path: str, mode: str = "smooth") -> str:
     data = scipy.io.loadmat(mat_path)
 
     if "trackList" not in data:
         raise ValueError("No 'trackList' found in .mat file")
+
+    field = "asscPointList" if mode == "raw" else "outputPointList"
 
     track_list = data["trackList"][0]
     tracks = []
 
     for i in range(len(track_list)):
         t = track_list[i]
-        opl = t["outputPointList"]
+        if field not in t.dtype.names:
+            continue
+        opl = t[field]
         if opl.size == 0 or opl.shape[1] == 0:
             continue
 
@@ -59,9 +63,10 @@ def mat_to_json(mat_path: str) -> str:
         if not positions:
             continue
 
+        id_prefix = "RAW" if mode == "raw" else "RADAR"
         tracks.append(
             {
-                "icao_address": f"RADAR-{batch_no:04d}",
+                "icao_address": f"{id_prefix}-{batch_no:04d}",
                 "flight_no": f"TGT-{batch_no:04d}",
                 "icao_flight_no": "",
                 "aircraft_type": "RADAR" if flight_type == 1 else "UNKNOWN",
@@ -78,11 +83,27 @@ def mat_to_json(mat_path: str) -> str:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: python convert_mat.py <path_to.mat>", file=sys.stderr)
+    mode = "smooth"
+    mat_path = None
+    args = sys.argv[1:]
+    i = 0
+    while i < len(args):
+        arg = args[i]
+        if arg == "--mode":
+            i += 1
+            if i < len(args):
+                mode = args[i]
+        elif arg.startswith("--mode="):
+            mode = arg.split("=", 1)[1]
+        else:
+            mat_path = arg
+        i += 1
+
+    if mat_path is None:
+        print("Usage: python convert_mat.py [--mode raw] <path_to.mat>", file=sys.stderr)
         sys.exit(1)
     try:
-        print(mat_to_json(sys.argv[1]))
+        print(mat_to_json(mat_path, mode))
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)

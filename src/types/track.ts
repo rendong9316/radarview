@@ -1,5 +1,5 @@
 /** 数据来源类型 */
-export type DataSource = 'adsb' | 'radar' | 'simulation'
+export type DataSource = 'adsb' | 'radar' | 'radar_raw' | 'simulation'
 
 /** 单个航迹点（某一时刻的位置和状态） */
 export interface TrackPoint {
@@ -55,5 +55,6 @@ export interface TrackMetadata {
 export interface LayerVisibility {
   adsb: boolean
   radar: boolean
+  radar_raw: boolean
   simulation: boolean
 }

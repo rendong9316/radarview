@@ -25,6 +25,9 @@
       <button class="side-btn radar-btn" @click="handleImportRadar" :disabled="loader.loading.value">
         {{ loader.loading.value ? `Importing ${loader.progress.value}%` : 'Import Radar' }}
       </button>
+      <button class="side-btn radar-raw-btn" @click="handleImportRadarRaw" :disabled="loader.loading.value">
+        {{ loader.loading.value ? `Importing ${loader.progress.value}%` : 'Import Measurement' }}
+      </button>
       <button v-if="trackCount" class="side-btn clear-btn" @click="onClear">Clear Display</button>
       <button class="side-btn util-btn" @click="showBatchPanel = !showBatchPanel">
         {{ showBatchPanel ? 'Hide Saved' : `Saved Data${batches.length ? ' ('+batches.length+')' : ''}` }}
@@ -167,6 +170,15 @@ async function handleImportRadar() {
   } catch (e) { errorMsg.value = String(e) }
 }
 
+async function handleImportRadarRaw() {
+  errorMsg.value = ''
+  try {
+    const result = await loader.loadRadarRawFile()
+    if (result.length) addTracks(result)
+    await refreshBatches()
+  } catch (e) { errorMsg.value = String(e) }
+}
+
 async function handleDeleteBatch(id: number) {
   try {
     await invoke('delete_batch_cmd', { batchId: id })
@@ -231,6 +243,7 @@ async function onDrop(_e: DragEvent) {
 }
 .side-btn.adsb-btn { background:#00d4ff; color:#1a1a2e; }
 .side-btn.radar-btn { background:#00ff88; color:#1a1a2e; }
+.side-btn.radar-raw-btn { background:#ff8800; color:#1a1a2e; }
 .side-btn:hover:not(:disabled) { opacity:0.85; }
 .side-btn:disabled { opacity:0.5; cursor:not-allowed; }
 .side-btn.clear-btn { background:rgba(255,255,255,0.1); color:var(--color-text); }

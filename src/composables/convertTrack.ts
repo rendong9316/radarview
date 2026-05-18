@@ -37,6 +37,7 @@ function parseTimestamp(raw: string): number {
 function mapSource(backendSource: string): DataSource {
   if (backendSource === 'ADS-B') return 'adsb'
   if (backendSource === 'Radar') return 'radar'
+  if (backendSource === 'RadarRaw') return 'radar_raw'
   return 'simulation'
 }
 

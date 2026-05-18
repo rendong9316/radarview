@@ -31,9 +31,13 @@ const styles: Record<DataSource, TrackStyle> = {
     color: Cesium.Color.fromCssColorString('#00ff88'),
     icon: createCircleIcon('#00ff88'),
   },
-  simulation: {
+  radar_raw: {
     color: Cesium.Color.fromCssColorString('#ff8800'),
     icon: createCircleIcon('#ff8800'),
+  },
+  simulation: {
+    color: Cesium.Color.fromCssColorString('#aa88ff'),
+    icon: createCircleIcon('#aa88ff'),
   },
 }
 

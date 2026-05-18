@@ -4,6 +4,7 @@ import type { DataSource, LayerVisibility } from '../types/track'
 const visibility = ref<LayerVisibility>({
   adsb: true,
   radar: true,
+  radar_raw: true,
   simulation: true,
 })
 

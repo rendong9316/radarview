@@ -93,5 +93,26 @@ export function useTrackLoader() {
     }
   }
 
-  return { loading, progress, loadAdsbFile, loadRadarFile }
+  async function loadRadarRawFile(): Promise<Track[]> {
+    const selected = await open({
+      title: 'Select Raw Radar MAT File',
+      filters: [{ name: 'Radar MAT', extensions: ['mat'] }],
+      multiple: false,
+    })
+    if (!selected) return []
+
+    loading.value = true
+    progress.value = 0
+    await startProgressListener()
+    try {
+      const raw = await invoke('import_radar_raw_file', { filePath: selected as string }) as any[]
+      progress.value = 90
+      return await convertInChunks(raw)
+    } finally {
+      loading.value = false
+      stopProgressListener()
+    }
+  }
+
+  return { loading, progress, loadAdsbFile, loadRadarFile, loadRadarRawFile }
 }
