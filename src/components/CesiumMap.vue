@@ -137,7 +137,14 @@ function syncFlagEntities() {
   }
 
   for (const flag of flags.value) {
-    if (!flagEntityMap.has(flag.id)) createFlagEntity(flag)
+    if (!flagEntityMap.has(flag.id)) {
+      createFlagEntity(flag)
+    } else {
+      const entity = flagEntityMap.get(flag.id)!
+      if (entity.label) {
+        entity.label.text = new Cesium.ConstantProperty(flag.label)
+      }
+    }
   }
 
   viewer.entities.resumeEvents()
