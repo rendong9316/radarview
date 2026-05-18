@@ -32,6 +32,12 @@ export function useFlags() {
     ]
   }
 
+  function renameFlag(id: string, label: string) {
+    const trimmed = label.trim()
+    if (!trimmed) return
+    flags.value = flags.value.map((f) => (f.id === id ? { ...f, label: trimmed } : f))
+  }
+
   function removeFlag(id: string) {
     flags.value = flags.value.filter((f) => f.id !== id)
     selectedFlagIds.value = selectedFlagIds.value.filter((fid) => fid !== id)
@@ -68,6 +74,7 @@ export function useFlags() {
     selectedPair,
     addFlag,
     removeFlag,
+    renameFlag,
     toggleSelectFlag,
     clearSelection,
   }

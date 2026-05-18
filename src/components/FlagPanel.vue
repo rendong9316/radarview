@@ -45,7 +45,20 @@
             title="选择用于测距"
           />
           <div class="flag-info">
-            <span class="flag-label">{{ flag.label }}</span>
+            <template v-if="editingFlagId === flag.id">
+              <input
+                v-model="editLabel"
+                class="rename-input"
+                @keydown.enter="commitRename"
+                @keydown.escape="cancelRename"
+                @blur="commitRename"
+                @click.stop
+                ref="renameInput"
+              />
+            </template>
+            <template v-else>
+              <span class="flag-label" @click="startRename(flag)" title="点击重命名">✎ {{ flag.label }}</span>
+            </template>
             <span class="flag-coords">{{ fmt(flag.latitude) }}, {{ fmt(flag.longitude) }}</span>
           </div>
           <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标">×</button>
@@ -60,12 +73,32 @@ import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
 
-const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag } = useFlags()
+const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag } = useFlags()
 
 const collapsed = ref(false)
 const inputLat = ref<number | null>(null)
 const inputLng = ref<number | null>(null)
 const coordError = ref('')
+const editingFlagId = ref<string | null>(null)
+const editLabel = ref('')
+
+function startRename(flag: { id: string; label: string }) {
+  editingFlagId.value = flag.id
+  editLabel.value = flag.label
+}
+
+function commitRename() {
+  if (editingFlagId.value && editLabel.value.trim()) {
+    renameFlag(editingFlagId.value, editLabel.value)
+  }
+  editingFlagId.value = null
+  editLabel.value = ''
+}
+
+function cancelRename() {
+  editingFlagId.value = null
+  editLabel.value = ''
+}
 
 function handlePlaceFlag() {
   coordError.value = ''
@@ -248,6 +281,23 @@ const geoResult = computed(() => {
   font-size: 11px;
   color: var(--color-text);
   font-weight: 500;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.flag-label:hover {
+  color: var(--color-accent);
+}
+
+.rename-input {
+  width: 100%;
+  padding: 2px 4px;
+  background: rgba(255,255,255,0.1);
+  border: 1px solid var(--color-accent);
+  border-radius: 3px;
+  color: var(--color-text);
+  font-size: 11px;
+  outline: none;
 }
 
 .flag-coords {
