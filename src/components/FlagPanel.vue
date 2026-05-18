@@ -150,7 +150,8 @@ const geoResult = computed(() => {
 }
 
 .coord-input {
-  width: 80px;
+  flex: 1;
+  min-width: 0;
   padding: 5px 6px;
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--color-border);

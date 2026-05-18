@@ -12,15 +12,23 @@ const flags = ref<Flag[]>([])
 const selectedFlagIds = ref<string[]>([])
 
 export function useFlags() {
-  let counter = 0
+  function nextLabel(): string {
+    const used = new Set<number>()
+    for (const f of flags.value) {
+      const m = f.label.match(/^旗标\s*(\d+)$/)
+      if (m) used.add(parseInt(m[1], 10))
+    }
+    let n = 1
+    while (used.has(n)) n++
+    return `旗标 ${n}`
+  }
 
   function addFlag(lat: number, lng: number, label?: string) {
     if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return
-    counter++
     const id = crypto.randomUUID()
     flags.value = [
       ...flags.value,
-      { id, latitude: lat, longitude: lng, label: label || `旗标 ${counter}`, createdAt: Date.now() },
+      { id, latitude: lat, longitude: lng, label: label || nextLabel(), createdAt: Date.now() },
     ]
   }
 

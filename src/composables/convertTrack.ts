@@ -23,7 +23,7 @@ interface BackendPosition {
   timestamp: string
 }
 
-/** Fast timestamp parser — charCode math, ~10x faster than split+Date.UTC */
+/** Fast timestamp parser — charCode math. Input is local time from Python strftime. */
 function parseTimestamp(raw: string): number {
   const Y = (raw.charCodeAt(0) - 48) * 1000 + (raw.charCodeAt(1) - 48) * 100 + (raw.charCodeAt(2) - 48) * 10 + (raw.charCodeAt(3) - 48)
   const M = (raw.charCodeAt(5) - 48) * 10 + (raw.charCodeAt(6) - 48)
@@ -31,7 +31,7 @@ function parseTimestamp(raw: string): number {
   const h = (raw.charCodeAt(11) - 48) * 10 + (raw.charCodeAt(12) - 48)
   const mi = (raw.charCodeAt(14) - 48) * 10 + (raw.charCodeAt(15) - 48)
   const s = (raw.charCodeAt(17) - 48) * 10 + (raw.charCodeAt(18) - 48)
-  return Date.UTC(Y, M - 1, D, h, mi, s)
+  return new Date(Y, M - 1, D, h, mi, s).getTime()
 }
 
 function mapSource(backendSource: string): DataSource {

@@ -55,7 +55,6 @@ const layerItems = computed(() => [
   border: 1px solid var(--color-border);
   border-radius: 6px;
   z-index: 10;
-  overflow: hidden;
 }
 
 .panel-header {

@@ -233,7 +233,7 @@ async function onDrop(_e: DragEvent) {
 .drop-hint { font-size:24px; font-weight:700; color:var(--color-accent); text-shadow:0 0 20px rgba(0,212,255,0.5); }
 
 .right-bar {
-  position:absolute; top:130px; right:16px; z-index:10;
+  position:absolute; top:175px; right:16px; z-index:10;
   display:flex; flex-direction:column; gap:5px; width:200px;
 }
 .side-btn {
