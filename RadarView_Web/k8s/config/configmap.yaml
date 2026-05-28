@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: radarview-config
+  namespace: radarview
+data:
+  nacos-server: "nacos.radarview.svc.cluster.local:8848"
+  mysql-auth-url: "jdbc:mysql://mysql.radarview.svc.cluster.local:3306/radarview_auth?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai"
+  mysql-track-url: "jdbc:mysql://mysql.radarview.svc.cluster.local:3306/radarview_track?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai"
+  redis-host: "redis.radarview.svc.cluster.local"
+  rabbitmq-host: "rabbitmq.radarview.svc.cluster.local"
+  rabbitmq-port: "5672"
+  tile-mbtiles-path: "/data/tiles/tianditu.mbtiles"
+  upload-dir: "/data/uploads"

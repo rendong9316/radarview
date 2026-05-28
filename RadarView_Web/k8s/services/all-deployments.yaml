@@ -1,0 +1,387 @@
+# ============================================================
+# RadarView Microservices Deployments
+# Deploy: kubectl apply -f services/
+# ============================================================
+
+# -------------------- Gateway --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: radarview
+  labels:
+    app: gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: gateway
+  template:
+    metadata:
+      labels:
+        app: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: radarview-gateway:1.0.0
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: radarview-secrets
+                  key: jwt-secret
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: radarview
+spec:
+  selector:
+    app: gateway
+  ports:
+    - port: 8080
+      targetPort: 8080
+  type: ClusterIP
+
+---
+# -------------------- Auth Service --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: radarview
+  labels:
+    app: auth-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: auth-service
+  template:
+    metadata:
+      labels:
+        app: auth-service
+    spec:
+      containers:
+        - name: auth-service
+          image: radarview-auth:1.0.0
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: 500m
+              memory: 1Gi
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8081
+            initialDelaySeconds: 30
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-service
+  namespace: radarview
+spec:
+  selector:
+    app: auth-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+  type: ClusterIP
+
+---
+# -------------------- Track Service --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: track-service
+  namespace: radarview
+  labels:
+    app: track-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: track-service
+  template:
+    metadata:
+      labels:
+        app: track-service
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: track-service
+                topologyKey: kubernetes.io/hostname
+      containers:
+        - name: track-service
+          image: radarview-track:1.0.0
+          ports:
+            - containerPort: 8082
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: 2000m
+              memory: 4Gi
+          volumeMounts:
+            - name: upload-data
+              mountPath: /data/uploads
+          livenessProbe:
+            httpGet:
+              path: /actuator/health
+              port: 8082
+            initialDelaySeconds: 40
+            periodSeconds: 10
+      volumes:
+        - name: upload-data
+          persistentVolumeClaim:
+            claimName: upload-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: track-service
+  namespace: radarview
+spec:
+  selector:
+    app: track-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+  type: ClusterIP
+
+---
+# -------------------- Import Worker --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: import-worker
+  namespace: radarview
+  labels:
+    app: import-worker
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: import-worker
+  template:
+    metadata:
+      labels:
+        app: import-worker
+    spec:
+      containers:
+        - name: import-worker
+          image: radarview-import-worker:1.0.0
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+          resources:
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+          volumeMounts:
+            - name: upload-data
+              mountPath: /data/uploads
+      volumes:
+        - name: upload-data
+          persistentVolumeClaim:
+            claimName: upload-pvc
+
+---
+# -------------------- Tile Service --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tile-service
+  namespace: radarview
+  labels:
+    app: tile-service
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tile-service
+  template:
+    metadata:
+      labels:
+        app: tile-service
+    spec:
+      containers:
+        - name: tile-service
+          image: radarview-tile:1.0.0
+          ports:
+            - containerPort: 8084
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          volumeMounts:
+            - name: mbtiles
+              mountPath: /data/tiles
+              readOnly: true
+      volumes:
+        - name: mbtiles
+          persistentVolumeClaim:
+            claimName: mbtiles-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tile-service
+  namespace: radarview
+spec:
+  selector:
+    app: tile-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+  type: ClusterIP
+
+---
+# -------------------- Notification Service --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: radarview
+  labels:
+    app: notification-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-service
+  template:
+    metadata:
+      labels:
+        app: notification-service
+    spec:
+      containers:
+        - name: notification-service
+          image: radarview-notification:1.0.0
+          ports:
+            - containerPort: 8085
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: k8s
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification-service
+  namespace: radarview
+spec:
+  selector:
+    app: notification-service
+  ports:
+    - port: 8085
+      targetPort: 8085
+  type: ClusterIP
+
+---
+# -------------------- Frontend --------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: radarview
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+        - name: frontend
+          image: radarview-frontend:1.0.0
+          ports:
+            - containerPort: 80
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 250m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 80
+            initialDelaySeconds: 10
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend
+  namespace: radarview
+spec:
+  selector:
+    app: frontend
+  ports:
+    - port: 80
+      targetPort: 80
+  type: ClusterIP

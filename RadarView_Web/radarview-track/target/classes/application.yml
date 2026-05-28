@@ -1,0 +1,39 @@
+server:
+  port: 8082
+spring:
+  application:
+    name: radarview-track
+  datasource:
+    url: jdbc:mysql://localhost:3306/radarview_track?useUnicode=true&characterEncoding=utf8mb4&serverTimezone=Asia/Shanghai
+    username: root
+    password: devpass
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+  servlet:
+    multipart:
+      max-file-size: 500MB
+      max-request-size: 500MB
+
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  global-config:
+    db-config:
+      id-type: auto
+
+jwt:
+  secret: radarview-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256
+
+file:
+  upload-dir: /data/uploads

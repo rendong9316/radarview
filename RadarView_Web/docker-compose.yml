@@ -1,0 +1,222 @@
+version: '3.8'
+
+services:
+  # ==================== Infrastructure ====================
+  mysql:
+    image: mysql:8.0
+    container_name: radarview-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: devpass
+      MYSQL_CHARACTER_SET_SERVER: utf8mb4
+      MYSQL_COLLATION_SERVER: utf8mb4_unicode_ci
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - radarview-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: radarview-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - radarview-net
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: radarview-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - radarview-net
+
+  nacos:
+    image: nacos/nacos-server:v2.3.0
+    container_name: radarview-nacos
+    environment:
+      MODE: standalone
+      PREFER_HOST_MODE: hostname
+    ports:
+      - "8848:8848"
+      - "9848:9848"
+    volumes:
+      - nacos_data:/home/nacos/data
+    networks:
+      - radarview-net
+
+  # ==================== Application Services ====================
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile.gateway
+    container_name: radarview-gateway
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.auth
+    container_name: radarview-auth
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+  track-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.track
+    container_name: radarview-track
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    volumes:
+      - upload_data:/data/uploads
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+  import-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    container_name: radarview-worker
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    volumes:
+      - upload_data:/data/uploads
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+  tile-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.tile
+    container_name: radarview-tile
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      redis:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    volumes:
+      - ./tiles/tianditu.mbtiles:/data/tiles/tianditu.mbtiles:ro
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.notification
+    container_name: radarview-notification
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      nacos:
+        condition: service_started
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+  # ==================== Frontend ====================
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: radarview-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - gateway
+    networks:
+      - radarview-net
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+  rabbitmq_data:
+  nacos_data:
+  upload_data:
+
+networks:
+  radarview-net:
+    driver: bridge
