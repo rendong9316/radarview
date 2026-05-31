@@ -21,14 +21,14 @@ pub fn parse_adsb_csv(file_path: &str) -> Result<Vec<Track>, String> {
 
         let fields: Vec<&str> = line.split(',').collect();
         if fields.len() < 19 {
-            return Err(format!(
-                "Line {}: expected 19 fields, got {}",
-                line_num + 1,
-                fields.len()
-            ));
+            eprintln!("Line {}: expected 19 fields, got {} — skipping", line_num + 1, fields.len());
+            continue;
         }
 
         let icao = fields[0].trim().to_string();
+        if icao.is_empty() {
+            continue;
+        }
         let lat: f64 = fields[1]
             .trim()
             .parse()
