@@ -45,6 +45,10 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
 
     let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
 
+    // Enable WAL mode — better concurrency, safer for large transactions
+    conn.execute_batch("PRAGMA journal_mode=WAL;")
+        .map_err(|e| format!("set WAL mode: {}", e))?;
+
     conn.execute_batch(
         "
         CREATE TABLE IF NOT EXISTS batches (
@@ -114,6 +118,53 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
     )
     .map_err(|e| format!("backfill source: {}", e))?;
 
+    // ── track_points table: row-per-position for window-function analytics ──
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS track_points (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            icao_address  TEXT NOT NULL,
+            batch_id      INTEGER NOT NULL,
+            source        TEXT NOT NULL DEFAULT '',
+            timestamp_ms  INTEGER NOT NULL,
+            latitude      REAL NOT NULL,
+            longitude     REAL NOT NULL,
+            altitude      REAL DEFAULT 0,
+            heading       REAL DEFAULT 0,
+            ground_speed  REAL DEFAULT 0,
+            vertical_rate REAL DEFAULT 0
+        );",
+    )
+    .map_err(|e| format!("create track_points: {}", e))?;
+
+    // Run backfill only if schema version has not been bumped yet
+    let version: i64 = conn
+        .pragma_query_value(None, "user_version", |row| row.get(0))
+        .unwrap_or(0);
+    if version < 1 {
+        // Create indexes AFTER backfill (faster bulk insert, indexes built once)
+        backfill_track_points(&conn)?;
+
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_points_unique ON track_points(icao_address, batch_id, timestamp_ms);
+             CREATE INDEX IF NOT EXISTS idx_points_track ON track_points(icao_address, batch_id);
+             CREATE INDEX IF NOT EXISTS idx_points_ts    ON track_points(timestamp_ms);
+             CREATE INDEX IF NOT EXISTS idx_points_src   ON track_points(source);",
+        )
+        .map_err(|e| format!("create track_points indexes: {}", e))?;
+
+        conn.pragma_update(None, "user_version", 1)
+            .map_err(|e| format!("set user_version: {}", e))?;
+    } else {
+        // Ensure indexes exist for upgrades from partial runs
+        conn.execute_batch(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_points_unique ON track_points(icao_address, batch_id, timestamp_ms);
+             CREATE INDEX IF NOT EXISTS idx_points_track ON track_points(icao_address, batch_id);
+             CREATE INDEX IF NOT EXISTS idx_points_ts    ON track_points(timestamp_ms);
+             CREATE INDEX IF NOT EXISTS idx_points_src   ON track_points(source);",
+        )
+        .map_err(|e| format!("ensure track_points indexes: {}", e))?;
+    }
+
     Ok(())
 }
 
@@ -166,6 +217,89 @@ fn backfill_metadata(conn: &Connection) -> Result<(), String> {
         update
             .execute(params![min_ts, max_ts, pt_count, icao, batch_id])
             .map_err(|e| format!("backfill update: {}", e))?;
+    }
+
+    Ok(())
+}
+
+/// One-time backfill: expand existing track_json positions into track_points rows.
+/// Processes tracks in small batches to avoid SQLite B-tree corruption.
+fn backfill_track_points(conn: &Connection) -> Result<(), String> {
+    let mut stmt = conn
+        .prepare("SELECT icao_address, batch_id, source, track_json FROM saved_tracks")
+        .map_err(|e| format!("prepare backfill select: {}", e))?;
+
+    let rows: Vec<(String, i64, Option<String>, String)> = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })
+        .map_err(|e| format!("query backfill tracks: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    for chunk in rows.chunks(50) {
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|e| format!("backfill tx begin: {}", e))?;
+
+        let result = (|| -> Result<(), String> {
+            for (icao, batch_id, source, json) in chunk {
+                let track: Track = serde_json::from_str(json)
+                    .map_err(|e| format!("deserialize track for backfill: {}", e))?;
+                let source_str = source
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or(&track.source);
+
+                let mut pos_values: Vec<String> = Vec::new();
+                for pos in &track.positions {
+                    let ts_ms = ts_to_ms(&pos.timestamp).unwrap_or(0);
+                    if ts_ms == 0 {
+                        continue;
+                    }
+                    pos_values.push(format!(
+                        "('{}',{},{},'{}',{},{},{},{},{},{})",
+                        icao.replace('\'', "''"),
+                        batch_id,
+                        ts_ms,
+                        source_str.replace('\'', "''"),
+                        pos.latitude,
+                        pos.longitude,
+                        pos.altitude,
+                        pos.heading,
+                        pos.ground_speed,
+                        pos.vertical_rate,
+                    ));
+                }
+
+                for batch in pos_values.chunks(500) {
+                    let sql = format!(
+                        "INSERT OR IGNORE INTO track_points \
+                         (icao_address, batch_id, timestamp_ms, source, latitude, longitude, altitude, heading, ground_speed, vertical_rate) \
+                         VALUES {}",
+                        batch.join(",")
+                    );
+                    conn.execute(&sql, [])
+                        .map_err(|e| format!("insert backfill batch: {}", e))?;
+                }
+            }
+            Ok(())
+        })();
+
+        match result {
+            Ok(()) => {
+                conn.execute("COMMIT", [])
+                    .map_err(|e| format!("backfill tx commit: {}", e))?;
+            }
+            Err(e) => {
+                let _ = conn.execute("ROLLBACK", []);
+                return Err(e);
+            }
+        }
     }
 
     Ok(())
@@ -231,6 +365,37 @@ pub fn save_batch(
                 params![track.icao_address, batch_id, json, track.source, min_ts, max_ts, pt_count],
             )
             .map_err(|e| format!("insert track: {}", e))?;
+
+            // Also populate track_points (row-per-position) for window-function analytics
+            // Batch-insert positions in chunks to avoid per-row overhead
+            let mut pos_values: Vec<String> = Vec::new();
+            for pos in &track.positions {
+                let ts_ms = ts_to_ms(&pos.timestamp)?;
+                pos_values.push(format!(
+                    "('{}',{},{},'{}',{},{},{},{},{},{})",
+                    track.icao_address.replace('\'', "''"),
+                    batch_id,
+                    ts_ms,
+                    track.source.replace('\'', "''"),
+                    pos.latitude,
+                    pos.longitude,
+                    pos.altitude,
+                    pos.heading,
+                    pos.ground_speed,
+                    pos.vertical_rate,
+                ));
+            }
+            // Insert in chunks of 500 rows to keep SQL size reasonable
+            for chunk in pos_values.chunks(500) {
+                let sql = format!(
+                    "INSERT OR IGNORE INTO track_points \
+                     (icao_address, batch_id, timestamp_ms, source, latitude, longitude, altitude, heading, ground_speed, vertical_rate) \
+                     VALUES {}",
+                    chunk.join(",")
+                );
+                conn.execute(&sql, [])
+                    .map_err(|e| format!("insert track_points batch: {}", e))?;
+            }
         }
 
         Ok(batch_id)
@@ -438,6 +603,9 @@ pub fn batch_exists(path: &PathBuf, file_name: &str) -> Result<bool, String> {
 
 pub fn delete_batch(path: &PathBuf, batch_id: i64) -> Result<(), String> {
     let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    conn.execute("DELETE FROM track_points WHERE batch_id = ?1", params![batch_id])
+        .map_err(|e| format!("delete track points: {}", e))?;
 
     conn.execute("DELETE FROM saved_tracks WHERE batch_id = ?1", params![batch_id])
         .map_err(|e| format!("delete tracks: {}", e))?;
