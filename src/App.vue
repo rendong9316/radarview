@@ -18,12 +18,15 @@
         </div>
         <div v-if="!sections.import" class="panel-body import-btns">
           <button class="import-btn adsb" @click="handleImportAdsb" :disabled="loader.loading.value">
+            <span v-if="loader.loading.value" class="spinner"></span>
             {{ loader.loading.value ? `${loader.progress.value}%` : 'ADS-B' }}
           </button>
           <button class="import-btn radar" @click="handleImportRadar" :disabled="loader.loading.value">
+            <span v-if="loader.loading.value" class="spinner"></span>
             {{ loader.loading.value ? `${loader.progress.value}%` : 'Radar' }}
           </button>
           <button class="import-btn radar-raw" @click="handleImportRadarRaw" :disabled="loader.loading.value">
+            <span v-if="loader.loading.value" class="spinner"></span>
             {{ loader.loading.value ? `${loader.progress.value}%` : 'Measurement' }}
           </button>
         </div>
@@ -77,7 +80,16 @@
             <span class="batch-file">{{ b.file_name }}</span>
             <span class="batch-meta">{{ b.track_count }} tracks · {{ b.imported_at }}</span>
           </div>
-          <button class="batch-del" @click.stop="handleDeleteBatch(b.id)" title="从数据库中删除">×</button>
+          <button
+            class="batch-del"
+            :class="{ deleting: deletingBatchId === b.id }"
+            @click.stop="handleDeleteBatch(b.id)"
+            :disabled="deletingBatchId !== null"
+            title="从数据库中删除"
+          >
+            <span v-if="deletingBatchId === b.id" class="del-spinner"></span>
+            <span v-else>×</span>
+          </button>
         </div>
       </div>
     </div>
@@ -143,6 +155,7 @@ const { lineWidths, setLineWidth } = useLineWidth()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
 const showBatchPanel = ref(false)
+const deletingBatchId = ref<number | null>(null)
 const sections = reactive({ import: false, tools: true })
 
 function sourceLabel(src: DataSource): string {
@@ -218,12 +231,16 @@ async function handleImportRadarRaw() {
 }
 
 async function handleDeleteBatch(id: number) {
+  const batch = batches.value.find(b => b.id === id)
+  if (!confirm(`确定从数据库中删除 "${batch?.file_name}"？\n\n该操作不可撤销。`)) return
+  deletingBatchId.value = id
   try {
     await invoke('delete_batch_cmd', { batchId: id })
     const saved = await invoke('load_persisted_tracks') as any[]
     setAll(fromBackendTracks(saved))
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
+  finally { deletingBatchId.value = null }
 }
 
 async function handleLoadBatch(id: number) {
@@ -318,6 +335,19 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 .import-btn.radar-raw { background:#ff8800; color:#1a1a2e; }
 .import-btn:hover:not(:disabled) { opacity:0.8; }
 .import-btn:disabled { opacity:0.5; cursor:not-allowed; }
+
+.spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
 /* Tools section */
 .tools-list { gap: 3px; }
@@ -448,8 +478,18 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 .batch-src.radar { background:rgba(0,255,136,0.2); color:#0f0; }
 .batch-file { font-size:11px; color:var(--color-text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .batch-meta { font-size:9px; color:var(--color-text-dim); }
-.batch-del { background:none; border:none; color:#f66; font-size:14px; cursor:pointer; padding:0 4px; line-height:1; }
-.batch-del:hover { color:#f00; }
+.batch-del { background:none; border:none; color:#f66; font-size:14px; cursor:pointer; padding:0 4px; line-height:1; display:flex; align-items:center; }
+.batch-del:hover:not(:disabled) { color:#f00; }
+.batch-del:disabled { cursor:not-allowed; }
+.del-spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255,100,100,0.3);
+  border-top-color: #f66;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
 
 .layout-right { z-index:5; display:flex; flex-shrink:0; }
 
