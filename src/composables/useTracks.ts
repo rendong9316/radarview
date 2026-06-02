@@ -1,9 +1,23 @@
 import { ref, computed } from 'vue'
-import type { Track } from '../types/track'
+import type { Track, DataSource } from '../types/track'
 
 const tracks = ref<Track[]>([])
 const selectedId = ref<string | null>(null)
 const isolatedTrackId = ref<string | null>(null)
+
+/** Composite key for track identity: id + source. Radar and Measurement
+ *  data may share the same Target ID but are different tracks. */
+export function trackKey(id: string, source: DataSource): string {
+  return `${id}::${source}`
+}
+/** Extract id and source from a composite key */
+export function parseTrackKey(key: string): { id: string; source: DataSource } {
+  const idx = key.lastIndexOf('::')
+  return {
+    id: key.substring(0, idx),
+    source: key.substring(idx + 2) as DataSource,
+  }
+}
 
 export function useTracks() {
   const trackCount = computed(() => tracks.value.length)
@@ -14,12 +28,12 @@ export function useTracks() {
 
   const selectedTrack = computed(() => {
     if (!selectedId.value) return null
-    return tracks.value.find((t) => t.id === selectedId.value) ?? null
+    return tracks.value.find((t) => trackKey(t.id, t.source) === selectedId.value) ?? null
   })
 
   const isolatedTrack = computed(() => {
     if (!isolatedTrackId.value) return null
-    return tracks.value.find((t) => t.id === isolatedTrackId.value) ?? null
+    return tracks.value.find((t) => trackKey(t.id, t.source) === isolatedTrackId.value) ?? null
   })
 
   const tracksBySource = computed(() => {
@@ -33,10 +47,11 @@ export function useTracks() {
   function addTracks(newTracks: Track[]) {
     const map = new Map<string, Track>()
     for (const t of tracks.value) {
-      map.set(t.id, { ...t, positions: [...t.positions] })
+      map.set(trackKey(t.id, t.source), { ...t, positions: [...t.positions] })
     }
     for (const nt of newTracks) {
-      const old = map.get(nt.id)
+      const key = trackKey(nt.id, nt.source)
+      const old = map.get(key)
       if (old) {
         const tsSet = new Set(old.positions.map((p) => p.timestamp))
         const newPoints = nt.positions.filter((p) => !tsSet.has(p.timestamp))
@@ -55,26 +70,28 @@ export function useTracks() {
           }
         }
       } else {
-        map.set(nt.id, { ...nt, positions: [...nt.positions] })
+        map.set(key, { ...nt, positions: [...nt.positions] })
       }
     }
     tracks.value = Array.from(map.values())
   }
 
-  function removeTrack(id: string) {
-    tracks.value = tracks.value.filter((t) => t.id !== id)
-    if (selectedId.value === id) {
+  function removeTrack(id: string, source: DataSource) {
+    const key = trackKey(id, source)
+    tracks.value = tracks.value.filter((t) => trackKey(t.id, t.source) !== key)
+    if (selectedId.value === key) {
       selectedId.value = null
     }
   }
 
-  function selectTrack(id: string | null) {
-    selectedId.value = id
+  function selectTrack(key: string | null) {
+    selectedId.value = key
   }
 
-  function isolateTrack(id: string) {
-    isolatedTrackId.value = id
-    selectedId.value = id
+  function isolateTrack(id: string, source: DataSource) {
+    const key = trackKey(id, source)
+    isolatedTrackId.value = key
+    selectedId.value = key
   }
 
   function clearIsolation() {
@@ -109,5 +126,7 @@ export function useTracks() {
     clearIsolation,
     clearAll,
     setAll,
+    trackKey,
+    parseTrackKey,
   }
 }

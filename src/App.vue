@@ -112,7 +112,7 @@ import LayerControl from './components/LayerControl.vue'
 import FlagPanel from './components/FlagPanel.vue'
 import TimeFilterPanel from './components/TimeFilterPanel.vue'
 import { useTrackLoader } from './composables/useTrackLoader'
-import { useTracks } from './composables/useTracks'
+import { useTracks, trackKey, parseTrackKey } from './composables/useTracks'
 import { useReplay } from './composables/useReplay'
 import { fromBackendTracks } from './composables/convertTrack'
 import { useTrackFilter } from './composables/useTrackFilter'
@@ -142,7 +142,7 @@ function onTimeFilterClear() {
 
 const displayTracks = computed(() => {
   if (isolatedTrackId.value) {
-    const t = tracks.value.find(tr => tr.id === isolatedTrackId.value)
+    const t = tracks.value.find(tr => trackKey(tr.id, tr.source) === isolatedTrackId.value)
     return t ? [t] : []
   }
   return filteredTracks.value
@@ -215,10 +215,17 @@ async function handleLoadBatch(id: number) {
   } catch (e) { errorMsg.value = String(e) }
 }
 
-function onIsolateTrack(id: string) { isolateTrack(id) }
-function onTrackPick(trackId: string | null) {
-  if (trackId) isolateTrack(trackId)
-  else clearIsolation()
+function onIsolateTrack(compositeKey: string) {
+  const { id, source } = parseTrackKey(compositeKey)
+  isolateTrack(id, source)
+}
+function onTrackPick(compositeKey: string | null) {
+  if (compositeKey) {
+    const { id, source } = parseTrackKey(compositeKey)
+    isolateTrack(id, source)
+  } else {
+    clearIsolation()
+  }
 }
 function onClearIsolation() { clearIsolation() }
 function onClear() { replay.pause(); clearAll() }

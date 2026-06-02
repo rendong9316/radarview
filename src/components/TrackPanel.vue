@@ -28,9 +28,9 @@
             v-for="track in filteredList"
             :key="track.id"
             class="track-item"
-            :class="{ selected: selectedId === track.id }"
+            :class="{ selected: selectedId === trackKey(track.id, track.source) }"
           >
-            <div class="track-item-main" @click="$emit('isolate', track.id)">
+            <div class="track-item-main" @click="$emit('isolate', trackKey(track.id, track.source))">
               <div class="track-item-top">
                 <span class="track-color" :style="{ background: sourceColors[track.source] }"></span>
                 <span class="track-id">{{ track.metadata.flightNumber || track.id }}</span>
@@ -91,6 +91,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { Track, DataSource } from '../types/track'
+import { trackKey } from '../composables/useTracks'
 
 const props = defineProps<{
   tracks: Track[]
@@ -109,7 +110,7 @@ const searchQuery = ref('')
 
 const isolatedLabel = computed(() => {
   if (!props.isolatedId) return ''
-  const track = props.tracks.find(t => t.id === props.isolatedId)
+  const track = props.tracks.find(t => trackKey(t.id, t.source) === props.isolatedId)
   if (!track) return props.isolatedId
   return track.metadata.flightNumber || track.metadata.registration || track.id
 })

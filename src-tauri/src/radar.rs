@@ -53,11 +53,18 @@ pub fn parse_mat_file_with_source(
         .resource_dir()
         .map_err(|e| format!("无法获取资源目录: {}", e))?;
 
-    let exe_path = find_converter(&resource_dir)?;
+    let converter_path = find_converter(&resource_dir)?;
+    let is_py = is_python_script(&converter_path);
 
     emit_progress(app_handle, "converting", 10);
 
-    let mut cmd = Command::new(&exe_path);
+    let mut cmd = if is_py {
+        let mut c = Command::new("python");
+        c.arg(&converter_path);
+        c
+    } else {
+        Command::new(&converter_path)
+    };
     cmd.arg(file_path);
     if source_override.is_some() {
         cmd.arg("--mode").arg("raw");
@@ -108,19 +115,24 @@ pub fn parse_mat_file_with_source(
 }
 
 fn find_converter(resource_dir: &PathBuf) -> Result<PathBuf, String> {
+    // 0. Prefer Python script in dev mode (always up-to-date, supports --mode raw)
+    if let Some(p) = find_python_script() {
+        return Ok(p);
+    }
+
     // 1. Production: NSIS/MSI puts convert_mat.exe directly in resource_dir root
     let prod_path = resource_dir.join("convert_mat.exe");
     if prod_path.exists() {
         return Ok(prod_path);
     }
 
-    // 2. Dev mode: resource_dir is src-tauri/, file lives in resources/ subdir
+    // 2. Dev mode with compiled exe: resource_dir is src-tauri/, file lives in resources/
     let dev_path = resource_dir.join("resources").join("convert_mat.exe");
     if dev_path.exists() {
         return Ok(dev_path);
     }
 
-    // 3. Walk-up fallback from current directory (dev with non-standard layout)
+    // 3. Walk-up fallback from current directory
     let mut dir = std::env::current_dir().unwrap_or_default();
     for _ in 0..5 {
         let path = dir.join("src-tauri/resources/convert_mat.exe");
@@ -135,4 +147,28 @@ fn find_converter(resource_dir: &PathBuf) -> Result<PathBuf, String> {
     }
 
     Err("雷达数据转换组件未找到，请重新安装应用。".to_string())
+}
+
+/// Search for the Python converter script in project-relative paths
+fn find_python_script() -> Option<PathBuf> {
+    let mut dir = std::env::current_dir().ok()?;
+    for _ in 0..6 {
+        let path = dir.join("scripts/convert_mat.py");
+        if path.exists() {
+            return Some(path);
+        }
+        if let Some(parent) = dir.parent() {
+            dir = parent.to_path_buf();
+        } else {
+            break;
+        }
+    }
+    None
+}
+
+/// Check if a converter path is a Python script (not a compiled exe)
+fn is_python_script(path: &PathBuf) -> bool {
+    path.extension()
+        .map(|e| e == "py")
+        .unwrap_or(false)
 }

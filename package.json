@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "build-converter": ".venv-build\\\\Scripts\\\\python -m PyInstaller --onefile --distpath src-tauri/resources --name convert_mat scripts/convert_mat.py"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

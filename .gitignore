@@ -50,3 +50,4 @@ src-tauri/resources/convert_mat.exe
 
 # Reference project (separate repo)
 离线地图预览示例项目/
+.venv-build/

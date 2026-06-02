@@ -11,6 +11,7 @@ import { useTrackStyle } from '../composables/useTrackStyle'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
+import { trackKey } from '../composables/useTracks'
 import type { Flag } from '../composables/useFlags'
 
 const props = defineProps<{
@@ -183,15 +184,16 @@ function createTrackEntities(track: Track) {
 
   const color = getColor(track.source)
   const icon = getIcon(track.source)
-  const isSelected = track.id === props.selectedId
+  const tKey = trackKey(track.id, track.source)
+  const isSelected = tKey === props.selectedId
   const isRaw = track.source === 'radar_raw'
 
   let polyline: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
-    const width = isSelected ? SELECTED_WIDTH : isRaw ? 1.0 : NORMAL_WIDTH
-    const alpha = isSelected ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA
+    const width = isSelected ? SELECTED_WIDTH : isRaw ? RAW_WIDTH : NORMAL_WIDTH
+    const alpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
     polyline = viewer.entities.add({
-      id: `${track.id}::line`,
+      id: `${tKey}::line`,
       show: true,
       polyline: {
         positions: track.positions.map((p) =>
@@ -211,7 +213,7 @@ function createTrackEntities(track: Track) {
   const last = track.positions[track.positions.length - 1]
   const billboardScale = isSelected ? 1.2 : isRaw ? 0.4 : 0.7
   const billboard = viewer.entities.add({
-    id: `${track.id}::dot`,
+    id: `${tKey}::dot`,
     show: true,
     position: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
     billboard: {
@@ -230,7 +232,7 @@ function createTrackEntities(track: Track) {
     },
   })
 
-  entityMap.set(track.id, { polyline, billboard, source: track.source, labelText: label || track.id })
+  entityMap.set(tKey, { polyline, billboard, source: track.source, labelText: label || track.id })
 }
 
 function removeTrackEntities(id: string) {
@@ -255,7 +257,7 @@ function syncEntities(newTracks: Track[]) {
   try {
     viewer.entities.suspendEvents()
 
-    const keepIds = new Set(newTracks.map((t) => t.id))
+    const keepIds = new Set(newTracks.map((t) => trackKey(t.id, t.source)))
     const oldIds = Array.from(entityMap.keys())
 
     // Remove entities for tracks no longer in display list
@@ -267,7 +269,7 @@ function syncEntities(newTracks: Track[]) {
 
     // Add or update entities
     for (const track of newTracks) {
-      const existing = entityMap.get(track.id)
+      const existing = entityMap.get(trackKey(track.id, track.source))
       if (!existing) {
         createTrackEntities(track)
         continue
@@ -275,6 +277,8 @@ function syncEntities(newTracks: Track[]) {
 
       // Update polyline for existing track when positions changed (e.g. time filter)
       const hasEnoughPoints = track.positions.length >= 2
+      const isRaw = track.source === 'radar_raw'
+      const tSel = trackKey(track.id, track.source) === props.selectedId
       if (existing.polyline) {
         if (hasEnoughPoints) {
           ;(existing.polyline.polyline as any).positions = track.positions.map((p) =>
@@ -287,16 +291,16 @@ function syncEntities(newTracks: Track[]) {
       } else if (hasEnoughPoints) {
         // Polyline didn't exist before but now has enough points (e.g. filter cleared)
         const color = getColor(track.source)
-        const isRaw = track.source === 'radar_raw'
+        const tKey = trackKey(track.id, track.source)
         existing.polyline = viewer.entities.add({
-          id: `${track.id}::line`,
+          id: `${tKey}::line`,
           show: true,
           polyline: {
             positions: track.positions.map((p) =>
               Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
             ),
-            width: track.id === props.selectedId ? SELECTED_WIDTH : isRaw ? 1.0 : NORMAL_WIDTH,
-            material: color.withAlpha(track.id === props.selectedId ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
+            width: tSel ? SELECTED_WIDTH : isRaw ? 1.0 : NORMAL_WIDTH,
+            material: color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
             clampToGround: false,
           },
         })
@@ -326,7 +330,7 @@ watch(
 function updateReplayPositions(time: number) {
   if (!viewer) return
   for (const track of props.tracks) {
-    const entities = entityMap.get(track.id)
+    const entities = entityMap.get(trackKey(track.id, track.source))
     if (!entities) continue
     const point = findPositionAtTime(track.positions, time)
     if (!point) continue
@@ -347,7 +351,7 @@ watch(
     } else if (wasReplaying) {
       wasReplaying = false
       for (const track of props.tracks) {
-        const entities = entityMap.get(track.id)
+        const entities = entityMap.get(trackKey(track.id, track.source))
         if (!entities || track.positions.length === 0) continue
         const last = track.positions[track.positions.length - 1]
         entities.billboard.position = new Cesium.ConstantPositionProperty(
@@ -415,6 +419,8 @@ const HOVER_WIDTH = 5.0
 const HOVER_BILLBOARD_SCALE = 1.3
 const NORMAL_ALPHA = 0.88
 const NORMAL_WIDTH = 2.0
+const RAW_WIDTH = 2.0
+const RAW_ALPHA = 0.75
 const SELECTED_WIDTH = 4.0
 const SELECTED_ALPHA = 1.0
 
