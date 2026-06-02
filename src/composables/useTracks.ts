@@ -43,6 +43,12 @@ export function useTracks() {
         old.positions = [...old.positions, ...newPoints].sort(
           (a, b) => a.timestamp - b.timestamp,
         )
+        // Update metadata after merge
+        old.pointCount = old.positions.length
+        if (old.pointCount > 0) {
+          old.minTimestamp = old.positions[0].timestamp
+          old.maxTimestamp = old.positions[old.pointCount - 1].timestamp
+        }
         for (const key of Object.keys(nt.metadata) as (keyof typeof nt.metadata)[]) {
           if (nt.metadata[key] && !old.metadata[key]) {
             ;(old.metadata as Record<string, unknown>)[key] = nt.metadata[key]

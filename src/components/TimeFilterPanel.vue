@@ -113,20 +113,21 @@ function clear() {
 }
 
 .panel-header {
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 6px 10px;
+  font-size: 12px;
   font-weight: 600;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-accent);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  user-select: none;
 }
 
 .active-dot {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: #00ff88;
   flex-shrink: 0;
@@ -134,15 +135,15 @@ function clear() {
 
 .collapse-icon {
   margin-left: auto;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--color-text-dim);
 }
 
 .panel-body {
-  padding: 8px;
+  padding: 5px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .range-info {
@@ -154,17 +155,17 @@ function clear() {
 .input-row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
 }
 
 .time-input {
   flex: 1;
-  padding: 5px 6px;
+  padding: 4px 5px;
   background: rgba(255,255,255,0.06);
   border: 1px solid var(--color-border);
   border-radius: 4px;
   color: var(--color-text);
-  font-size: 11px;
+  font-size: 10px;
   outline: none;
   min-width: 0;
 }
@@ -175,23 +176,23 @@ function clear() {
 
 .time-sep {
   color: var(--color-text-dim);
-  font-size: 11px;
+  font-size: 10px;
   flex-shrink: 0;
 }
 
 .btn-row {
   display: flex;
-  gap: 4px;
+  gap: 3px;
 }
 
 .apply-btn {
   flex: 1;
-  padding: 5px 10px;
+  padding: 4px 8px;
   background: var(--color-accent);
   color: var(--color-bg);
   border: none;
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -206,12 +207,12 @@ function clear() {
 }
 
 .clear-btn {
-  padding: 5px 10px;
+  padding: 4px 8px;
   background: rgba(255,255,255,0.1);
   color: var(--color-text);
   border: 1px solid var(--color-border);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: 10px;
   cursor: pointer;
 }
 
@@ -221,7 +222,7 @@ function clear() {
 
 .error-msg {
   color: #f44;
-  font-size: 11px;
+  font-size: 10px;
   text-align: center;
   margin: 0;
 }

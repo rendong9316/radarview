@@ -2,6 +2,12 @@
   <div class="flag-panel" :class="{ collapsed }">
     <div class="panel-header" @click="collapsed = !collapsed">
       旗标管理
+      <button
+        v-if="flags.length"
+        class="clear-all-btn"
+        @click.stop="clearAllFlags"
+        title="清除全部旗标"
+      >✕</button>
       <span class="count-badge" v-if="flags.length">{{ flags.length }}</span>
       <span class="collapse-icon">{{ collapsed ? '+' : '−' }}</span>
     </div>
@@ -73,7 +79,7 @@ import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
 
-const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag } = useFlags()
+const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
 
 const collapsed = ref(false)
 const inputLat = ref<number | null>(null)
@@ -145,36 +151,53 @@ const geoResult = computed(() => {
 }
 
 .panel-header {
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 6px 10px;
+  font-size: 12px;
   font-weight: 600;
   border-bottom: 1px solid var(--color-border);
   color: var(--color-accent);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  user-select: none;
 }
 
 .count-badge {
   background: var(--color-accent);
   color: var(--color-bg);
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 10px;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: auto;
+}
+
+.clear-all-btn {
+  background: none;
+  border: none;
+  color: #f66;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 3px;
+  line-height: 1;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.clear-all-btn:hover {
+  color: #f00;
 }
 
 .collapse-icon {
   margin-left: auto;
-  font-size: 16px;
+  font-size: 14px;
   color: var(--color-text-dim);
 }
 
 .panel-body {
-  padding: 8px;
+  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
 }
 
 .input-row {

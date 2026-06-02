@@ -60,6 +60,11 @@ export function useFlags() {
     selectedFlagIds.value = []
   }
 
+  function clearAllFlags() {
+    flags.value = []
+    selectedFlagIds.value = []
+  }
+
   const selectedPair = computed(() => {
     if (selectedFlagIds.value.length !== 2) return null
     const f1 = flags.value.find((f) => f.id === selectedFlagIds.value[0])
@@ -77,5 +82,6 @@ export function useFlags() {
     renameFlag,
     toggleSelectFlag,
     clearSelection,
+    clearAllFlags,
   }
 }

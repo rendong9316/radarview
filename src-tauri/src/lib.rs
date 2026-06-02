@@ -105,6 +105,34 @@ fn delete_batch_cmd(
     db::delete_batch(&path, batch_id)
 }
 
+#[derive(serde::Serialize)]
+struct TimeRange {
+    min: i64,
+    max: i64,
+}
+
+/// Get the global time range across all tracks using indexed metadata (O(1))
+#[tauri::command]
+fn get_time_range_cmd(
+    db_path: tauri::State<'_, DbPath>,
+) -> Result<Option<TimeRange>, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    db::get_global_time_range(&path)
+        .map(|opt| opt.map(|(min, max)| TimeRange { min, max }))
+}
+
+/// Load tracks filtered by time range and per-source point count (uses DB indexes)
+#[tauri::command]
+fn load_filtered_cmd(
+    db_path: tauri::State<'_, DbPath>,
+    min_time_ms: Option<i64>,
+    max_time_ms: Option<i64>,
+    source_filters: Vec<db::SourceFilter>,
+) -> Result<Vec<Track>, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    db::load_filtered_tracks(&path, min_time_ms, max_time_ms, &source_filters)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -139,6 +167,8 @@ pub fn run() {
             load_batch_tracks_cmd,
             get_batches_cmd,
             delete_batch_cmd,
+            get_time_range_cmd,
+            load_filtered_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

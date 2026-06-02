@@ -27,6 +27,12 @@ export interface Track {
   source: DataSource
   /** 航迹点列表（按时间排序） */
   positions: TrackPoint[]
+  /** 航迹最小时间戳（毫秒），从 positions[0].timestamp 提取 */
+  minTimestamp: number
+  /** 航迹最大时间戳（毫秒），从 positions[last].timestamp 提取 */
+  maxTimestamp: number
+  /** 位置点数量 */
+  pointCount: number
   /** 元数据 */
   metadata: TrackMetadata
 }

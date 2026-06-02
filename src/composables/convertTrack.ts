@@ -46,10 +46,13 @@ const FT_TO_M = 0.3048
 export function fromBackendTrack(bt: BackendTrack): Track {
   const len = bt.positions.length
   const positions: TrackPoint[] = new Array(len)
+  let minTs = Infinity
+  let maxTs = -Infinity
   for (let i = 0; i < len; i++) {
     const p = bt.positions[i]
+    const ts = parseTimestamp(p.timestamp)
     positions[i] = {
-      timestamp: parseTimestamp(p.timestamp),
+      timestamp: ts,
       latitude: p.latitude,
       longitude: p.longitude,
       altitude: p.altitude * FT_TO_M,
@@ -57,12 +60,17 @@ export function fromBackendTrack(bt: BackendTrack): Track {
       groundSpeed: p.ground_speed,
       verticalRate: p.vertical_rate,
     }
+    if (ts < minTs) minTs = ts
+    if (ts > maxTs) maxTs = ts
   }
 
   return {
     id: bt.icao_address,
     source: mapSource(bt.source),
     positions,
+    minTimestamp: len > 0 ? minTs : 0,
+    maxTimestamp: len > 0 ? maxTs : 0,
+    pointCount: len,
     metadata: {
       flightNumber: bt.flight_no || undefined,
       icaoFlightNumber: bt.icao_flight_no || undefined,
