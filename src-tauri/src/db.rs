@@ -205,30 +205,48 @@ pub fn save_batch(
 ) -> Result<i64, String> {
     let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
 
-    let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    // Explicit transaction — atomic: either all tracks or none
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| format!("begin tx: {}", e))?;
 
-    conn.execute(
-        "INSERT INTO batches (file_name, source, track_count, imported_at) VALUES (?1, ?2, ?3, ?4)",
-        params![file_name, source, tracks.len() as i64, now],
-    )
-    .map_err(|e| format!("insert batch: {}", e))?;
+    let result = (|| -> Result<i64, String> {
+        let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
 
-    let batch_id = conn.last_insert_rowid();
-
-    for track in tracks {
-        let json =
-            serde_json::to_string(track).map_err(|e| format!("serialize track: {}", e))?;
-        let (min_ts, max_ts, pt_count) = extract_track_meta(track);
         conn.execute(
-            "INSERT OR REPLACE INTO saved_tracks \
-             (icao_address, batch_id, track_json, source, min_timestamp, max_timestamp, point_count) \
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![track.icao_address, batch_id, json, track.source, min_ts, max_ts, pt_count],
+            "INSERT INTO batches (file_name, source, track_count, imported_at) VALUES (?1, ?2, ?3, ?4)",
+            params![file_name, source, tracks.len() as i64, now],
         )
-        .map_err(|e| format!("insert track: {}", e))?;
-    }
+        .map_err(|e| format!("insert batch: {}", e))?;
 
-    Ok(batch_id)
+        let batch_id = conn.last_insert_rowid();
+
+        for track in tracks {
+            let json =
+                serde_json::to_string(track).map_err(|e| format!("serialize track: {}", e))?;
+            let (min_ts, max_ts, pt_count) = extract_track_meta(track);
+            conn.execute(
+                "INSERT OR REPLACE INTO saved_tracks \
+                 (icao_address, batch_id, track_json, source, min_timestamp, max_timestamp, point_count) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![track.icao_address, batch_id, json, track.source, min_ts, max_ts, pt_count],
+            )
+            .map_err(|e| format!("insert track: {}", e))?;
+        }
+
+        Ok(batch_id)
+    })();
+
+    match result {
+        Ok(batch_id) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| format!("commit: {}", e))?;
+            Ok(batch_id)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
 }
 
 pub fn load_all_tracks(path: &PathBuf) -> Result<Vec<Track>, String> {
