@@ -6,7 +6,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import * as Cesium from 'cesium'
 import { invoke } from '@tauri-apps/api/core'
-import type { Track, TrackPoint } from '../types/track'
+import type { Track, TrackPoint, DataSource } from '../types/track'
 import { useTrackStyle } from '../composables/useTrackStyle'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
@@ -18,6 +18,7 @@ const props = defineProps<{
   tracks: Track[]
   replayTime: number | null
   selectedId: string | null
+  lineWidths: Record<DataSource, number>
 }>()
 
 const emit = defineEmits<{
@@ -190,7 +191,7 @@ function createTrackEntities(track: Track) {
 
   let polyline: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
-    const width = isSelected ? SELECTED_WIDTH : isRaw ? RAW_WIDTH : NORMAL_WIDTH
+    const width = isSelected ? SELECTED_WIDTH : baseWidth(track.source)
     const alpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
     polyline = viewer.entities.add({
       id: `${tKey}::line`,
@@ -299,7 +300,7 @@ function syncEntities(newTracks: Track[]) {
             positions: track.positions.map((p) =>
               Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
             ),
-            width: tSel ? SELECTED_WIDTH : isRaw ? 1.0 : NORMAL_WIDTH,
+            width: tSel ? SELECTED_WIDTH : baseWidth(track.source),
             material: color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
             clampToGround: false,
           },
@@ -376,6 +377,20 @@ watch(
   { deep: true },
 )
 
+// Reactive line width: update existing polylines when slider changes
+watch(
+  () => props.lineWidths,
+  () => {
+    for (const [tKey, entry] of entityMap) {
+      if (entry.polyline && tKey !== previousSelectedId) {
+        ;(entry.polyline.polyline as any).width = baseWidth(entry.source as DataSource)
+      }
+    }
+    viewer?.scene.requestRender()
+  },
+  { deep: true },
+)
+
 // Highlight selected track
 let previousSelectedId: string | null = null
 
@@ -386,9 +401,9 @@ function applyHighlight(trackId: string | null) {
   if (previousSelectedId && previousSelectedId !== trackId) {
     const prev = entityMap.get(previousSelectedId)
     if (prev?.polyline) {
-      const color = getColor(prev.source as import('../types/track').DataSource)
+      const color = getColor(prev.source as DataSource)
       ;(prev.polyline.polyline as any).material = color.withAlpha(baseAlpha(prev.source))
-      ;(prev.polyline.polyline as any).width = baseWidth(prev.source)
+      ;(prev.polyline.polyline as any).width = baseWidth(prev.source as DataSource)
     }
     if (prev?.billboard) {
       ;(prev.billboard.billboard as any).scale = prev.source === 'radar_raw' ? 0.4 : 0.7
@@ -399,7 +414,7 @@ function applyHighlight(trackId: string | null) {
   if (trackId) {
     const entry = entityMap.get(trackId)
     if (entry?.polyline) {
-      const color = getColor(entry.source as import('../types/track').DataSource)
+      const color = getColor(entry.source as DataSource)
       ;(entry.polyline.polyline as any).material = color.withAlpha(SELECTED_ALPHA)
       ;(entry.polyline.polyline as any).width = SELECTED_WIDTH
     }
@@ -418,14 +433,12 @@ const HOVER_COLOR = Cesium.Color.fromCssColorString('#ff3333')
 const HOVER_WIDTH = 5.0
 const HOVER_BILLBOARD_SCALE = 1.3
 const NORMAL_ALPHA = 0.88
-const NORMAL_WIDTH = 2.0
-const RAW_WIDTH = 2.0
 const RAW_ALPHA = 0.75
 const SELECTED_WIDTH = 4.0
 const SELECTED_ALPHA = 1.0
 
-function baseWidth(source: string): number {
-  return source === 'radar_raw' ? 1.0 : NORMAL_WIDTH
+function baseWidth(source: DataSource): number {
+  return props.lineWidths[source] ?? 2.0
 }
 
 function baseAlpha(source: string): number {
@@ -453,12 +466,12 @@ function removeHoverHighlight() {
   if (!hoveredTrackId) return
   const entry = entityMap.get(hoveredTrackId)
   if (entry) {
-    const originalColor = getColor(entry.source as import('../types/track').DataSource)
+    const originalColor = getColor(entry.source as DataSource)
     const isSelected = hoveredTrackId === previousSelectedId
     if (entry.polyline) {
       const p = entry.polyline
       ;(p.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : baseAlpha(entry.source))
-      ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source)
+      ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source as DataSource)
     }
     if (entry.billboard) {
       ;(entry.billboard.billboard as any).scale = isSelected ? 1.2 : entry.source === 'radar_raw' ? 0.4 : 0.7

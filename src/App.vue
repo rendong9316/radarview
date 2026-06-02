@@ -1,6 +1,6 @@
 <template>
   <div class="app-root" @dragover.prevent="dragOver = true" @dragleave="onDragLeave">
-    <CesiumMap ref="mapRef" :tracks="displayTracks" :replay-time="unifiedReplayTime" :selected-id="selectedId" @track-pick="onTrackPick" />
+    <CesiumMap ref="mapRef" :tracks="displayTracks" :replay-time="unifiedReplayTime" :selected-id="selectedId" :line-widths="lineWidths" @track-pick="onTrackPick" />
 
     <div v-if="dragOver" class="drop-overlay" @drop.prevent="onDrop" @dragleave.prevent="onDragLeave">
       <div class="drop-hint">释放文件以导入</div>
@@ -49,6 +49,16 @@
           工具 <span class="collapse-icon">{{ sections.tools ? '+' : '−' }}</span>
         </div>
         <div v-if="!sections.tools" class="panel-body tools-list">
+          <div class="line-width-group">
+            <div class="lw-label">线宽调节</div>
+            <div class="lw-row" v-for="src in (['adsb','radar','radar_raw'] as DataSource[])" :key="src">
+              <span class="lw-src" :class="src">{{ sourceLabel(src) }}</span>
+              <input type="range" class="lw-slider" min="0.5" max="8" step="0.5"
+                :value="lineWidths[src]"
+                @input="setLineWidth(src, Number(($event.target as HTMLInputElement).value))" />
+              <span class="lw-val">{{ lineWidths[src] }}</span>
+            </div>
+          </div>
           <button class="tool-btn" @click="showBatchPanel = !showBatchPanel">
             💾 数据{{ batches.length ? ` (${batches.length})` : '' }}
           </button>
@@ -117,6 +127,8 @@ import { useReplay } from './composables/useReplay'
 import { fromBackendTracks } from './composables/convertTrack'
 import { useTrackFilter } from './composables/useTrackFilter'
 import { useLabelVisibility } from './composables/useLabelVisibility'
+import { useLineWidth } from './composables/useLineWidth'
+import type { DataSource } from './types/track'
 
 interface Batch {
   id: number; file_name: string; source: string; track_count: number; imported_at: string
@@ -127,10 +139,16 @@ const loader = useTrackLoader()
 const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
 const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange, clearAllTimeRanges } = useTrackFilter()
 const { showLabels, toggle: toggleLabels } = useLabelVisibility()
+const { lineWidths, setLineWidth } = useLineWidth()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
 const showBatchPanel = ref(false)
 const sections = reactive({ import: false, tools: true })
+
+function sourceLabel(src: DataSource): string {
+  const map: Record<DataSource, string> = { adsb: 'ADS-B', radar: 'Radar', radar_raw: 'Raw', simulation: 'Sim' }
+  return map[src] ?? src
+}
 
 function onTimeFilterApply(min: number, max: number) {
   setUniversalTimeRange(min, max)
@@ -318,6 +336,62 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 .tool-btn:hover { background: rgba(255,255,255,0.12); }
 .tool-btn.danger { color: #f88; border-color: rgba(255,100,100,0.2); }
 .tool-btn.danger:hover { background: rgba(255,80,80,0.15); }
+
+/* Line width controls */
+.line-width-group {
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+}
+.lw-label {
+  font-size: 9px;
+  color: var(--color-text-dim);
+  margin-bottom: 2px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+.lw-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.lw-src {
+  font-size: 10px;
+  font-weight: 600;
+  width: 36px;
+  flex-shrink: 0;
+}
+.lw-src.adsb { color: #00d4ff; }
+.lw-src.radar { color: #00ff88; }
+.lw-src.radar_raw { color: #ff8800; }
+.lw-src.simulation { color: #aaa; }
+.lw-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255,255,255,0.1);
+  border-radius: 2px;
+  outline: none;
+  cursor: pointer;
+}
+.lw-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #00d4ff;
+  cursor: pointer;
+}
+.lw-val {
+  font-size: 10px;
+  color: var(--color-text-dim);
+  width: 20px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Back-to-all floating button */
 .back-all-btn {
