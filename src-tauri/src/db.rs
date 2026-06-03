@@ -1,10 +1,10 @@
 use std::path::PathBuf;
 
-use chrono::NaiveDateTime;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
 use crate::track::Track;
+use crate::track::ts_to_ms;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchInfo {
@@ -44,6 +44,10 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
     }
 
     let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    // Set busy timeout for multi-connection safety (background writes, concurrent reads)
+    conn.busy_timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| format!("set busy timeout: {}", e))?;
 
     // Enable WAL mode — better concurrency, safer for large transactions
     conn.execute_batch("PRAGMA journal_mode=WAL;")
@@ -305,21 +309,6 @@ fn backfill_track_points(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-/// Convert a timestamp string like "2024-06-15 08:30:45" to epoch millis (UTC)
-pub fn ts_to_ms(s: &str) -> Result<i64, String> {
-    if s.is_empty() {
-        return Ok(0);
-    }
-    let fmt = if s.len() > 19 {
-        "%Y-%m-%d %H:%M:%S%.f"
-    } else {
-        "%Y-%m-%d %H:%M:%S"
-    };
-    let ndt = NaiveDateTime::parse_from_str(s.trim(), fmt)
-        .map_err(|e| format!("parse timestamp '{}': {}", s, e))?;
-    Ok(ndt.and_utc().timestamp_millis())
-}
-
 /// Convert epoch millis to "YYYY-MM-DD HH:MM:SS" text (UTC)
 fn ms_to_ts(ms: i64) -> String {
     if ms <= 0 {
@@ -339,7 +328,10 @@ pub fn save_batch(
 ) -> Result<i64, String> {
     let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
 
-    // Explicit transaction — atomic: either all tracks or none
+    // Set busy timeout so background writes don't fail on transient locks
+    conn.busy_timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| format!("set busy timeout: {}", e))?;
+
     conn.execute("BEGIN IMMEDIATE", [])
         .map_err(|e| format!("begin tx: {}", e))?;
 
@@ -354,48 +346,64 @@ pub fn save_batch(
 
         let batch_id = conn.last_insert_rowid();
 
-        for track in tracks {
-            let json =
-                serde_json::to_string(track).map_err(|e| format!("serialize track: {}", e))?;
-            let (min_ts, max_ts, pt_count) = extract_track_meta(track);
-            conn.execute(
-                "INSERT OR REPLACE INTO saved_tracks \
-                 (icao_address, batch_id, track_json, source, min_timestamp, max_timestamp, point_count) \
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![track.icao_address, batch_id, json, track.source, min_ts, max_ts, pt_count],
-            )
-            .map_err(|e| format!("insert track: {}", e))?;
+        // Phase 1: Insert saved_tracks with a reused prepared statement, and collect
+        // ALL track_points rows for a single-phase batch write afterwards.
+        let total_positions: usize = tracks.iter().map(|t| t.positions.len()).sum();
+        let mut point_rows: Vec<String> = Vec::with_capacity(total_positions);
 
-            // Also populate track_points (row-per-position) for window-function analytics
-            // Batch-insert positions in chunks to avoid per-row overhead
-            let mut pos_values: Vec<String> = Vec::new();
-            for pos in &track.positions {
-                let ts_ms = ts_to_ms(&pos.timestamp)?;
-                pos_values.push(format!(
-                    "('{}',{},{},'{}',{},{},{},{},{},{})",
-                    track.icao_address.replace('\'', "''"),
+        {
+            let mut stmt = conn
+                .prepare(
+                    "INSERT OR REPLACE INTO saved_tracks \
+                     (icao_address, batch_id, track_json, source, min_timestamp, max_timestamp, point_count) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                )
+                .map_err(|e| format!("prepare saved_tracks: {}", e))?;
+
+            for track in tracks {
+                let json = serde_json::to_string(track)
+                    .map_err(|e| format!("serialize track: {}", e))?;
+                let (min_ts, max_ts, pt_count) = extract_track_meta(track);
+
+                stmt.execute(params![
+                    track.icao_address,
                     batch_id,
-                    ts_ms,
-                    track.source.replace('\'', "''"),
-                    pos.latitude,
-                    pos.longitude,
-                    pos.altitude,
-                    pos.heading,
-                    pos.ground_speed,
-                    pos.vertical_rate,
-                ));
+                    json,
+                    track.source,
+                    min_ts,
+                    max_ts,
+                    pt_count,
+                ])
+                .map_err(|e| format!("insert saved_track: {}", e))?;
+
+                // Collect track_points rows — escape once per track, not per position
+                let icao_esc = track.icao_address.replace('\'', "''");
+                let src_esc = track.source.replace('\'', "''");
+                for pos in &track.positions {
+                    let ts_ms = ts_to_ms(&pos.timestamp)?;
+                    if ts_ms == 0 {
+                        continue; // invalid / empty timestamp — skip (matches backfill behavior)
+                    }
+                    point_rows.push(format!(
+                        "('{}',{},{},'{}',{},{},{},{},{},{})",
+                        icao_esc, batch_id, ts_ms, src_esc,
+                        pos.latitude, pos.longitude, pos.altitude,
+                        pos.heading, pos.ground_speed, pos.vertical_rate,
+                    ));
+                }
             }
-            // Insert in chunks of 500 rows to keep SQL size reasonable
-            for chunk in pos_values.chunks(500) {
-                let sql = format!(
-                    "INSERT OR IGNORE INTO track_points \
-                     (icao_address, batch_id, timestamp_ms, source, latitude, longitude, altitude, heading, ground_speed, vertical_rate) \
-                     VALUES {}",
-                    chunk.join(",")
-                );
-                conn.execute(&sql, [])
-                    .map_err(|e| format!("insert track_points batch: {}", e))?;
-            }
+        } // stmt dropped → releases conn borrow
+
+        // Phase 2: One-pass batch insert of ALL track_points (5000 rows/INSERT, ~10× fewer SQL calls)
+        for chunk in point_rows.chunks(5000) {
+            let sql = format!(
+                "INSERT OR IGNORE INTO track_points \
+                 (icao_address, batch_id, timestamp_ms, source, latitude, longitude, altitude, heading, ground_speed, vertical_rate) \
+                 VALUES {}",
+                chunk.join(",")
+            );
+            conn.execute(&sql, [])
+                .map_err(|e| format!("insert track_points batch: {}", e))?;
         }
 
         Ok(batch_id)

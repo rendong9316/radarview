@@ -3,10 +3,11 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { open } from '@tauri-apps/plugin-dialog'
 import type { Track } from '../types/track'
-import { fromBackendTrack } from './convertTrack'
+import { fromTrackDto } from './convertTrack'
 
 export function useTrackLoader() {
   const loading = ref(false)
+  const persisting = ref(false) // true while background DB write is in progress
   const progress = ref(0)
 
   let unlisten: UnlistenFn | null = null
@@ -23,6 +24,10 @@ export function useTrackLoader() {
     unlisten = null
   }
 
+  function onPersistComplete() {
+    persisting.value = false
+  }
+
   /** Convert backend tracks in chunks, yielding to keep UI responsive */
   async function convertInChunks(raw: any[]): Promise<Track[]> {
     const result: Track[] = new Array(raw.length)
@@ -30,7 +35,7 @@ export function useTrackLoader() {
     for (let i = 0; i < raw.length; i += CHUNK) {
       const end = Math.min(i + CHUNK, raw.length)
       for (let j = i; j < end; j++) {
-        result[j] = fromBackendTrack(raw[j])
+        result[j] = fromTrackDto(raw[j])
       }
       progress.value = Math.round((end / raw.length) * 100)
       await nextTick()
@@ -59,16 +64,25 @@ export function useTrackLoader() {
     console.log('[loadAdsbFile] selected file:', selected)
 
     loading.value = true
+    persisting.value = false
     progress.value = 0
+    const t0 = performance.now()
     try {
       const raw = await invoke('import_adsb_file', { filePath: selected as string }) as any[]
-      console.log('[loadAdsbFile] backend returned', raw.length, 'tracks')
-      return await convertInChunks(raw)
+      const t1 = performance.now()
+      console.log(`[perf] IPC call (parse+DTO+transfer): ${(t1 - t0).toFixed(0)}ms  |  tracks=${raw.length}`)
+      // Tracks parsed & returned → switch to persisting while DB saves in background
+      loading.value = false
+      persisting.value = true
+      const tracks = await convertInChunks(raw)
+      const t2 = performance.now()
+      console.log(`[perf] convertInChunks: ${(t2 - t1).toFixed(0)}ms`)
+      return tracks
     } catch (e) {
+      loading.value = false
+      persisting.value = false
       console.error('[loadAdsbFile] import failed:', e)
       throw e
-    } finally {
-      loading.value = false
     }
   }
 
@@ -81,14 +95,20 @@ export function useTrackLoader() {
     if (!selected) return []
 
     loading.value = true
+    persisting.value = false
     progress.value = 0
     await startProgressListener()
     try {
       const raw = await invoke('import_radar_file', { filePath: selected as string }) as any[]
       progress.value = 90
-      return await convertInChunks(raw)
-    } finally {
       loading.value = false
+      persisting.value = true
+      return await convertInChunks(raw)
+    } catch (e) {
+      loading.value = false
+      persisting.value = false
+      throw e
+    } finally {
       stopProgressListener()
     }
   }
@@ -102,17 +122,23 @@ export function useTrackLoader() {
     if (!selected) return []
 
     loading.value = true
+    persisting.value = false
     progress.value = 0
     await startProgressListener()
     try {
       const raw = await invoke('import_radar_raw_file', { filePath: selected as string }) as any[]
       progress.value = 90
-      return await convertInChunks(raw)
-    } finally {
       loading.value = false
+      persisting.value = true
+      return await convertInChunks(raw)
+    } catch (e) {
+      loading.value = false
+      persisting.value = false
+      throw e
+    } finally {
       stopProgressListener()
     }
   }
 
-  return { loading, progress, loadAdsbFile, loadRadarFile, loadRadarRawFile }
+  return { loading, persisting, progress, loadAdsbFile, loadRadarFile, loadRadarRawFile, onPersistComplete }
 }

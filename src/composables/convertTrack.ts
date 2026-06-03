@@ -23,6 +23,24 @@ interface BackendPosition {
   timestamp: string
 }
 
+// ── Compact IPC DTO (from Rust TrackDto) ────────────────────────────────────
+
+interface TrackDto {
+  id: string
+  src: string
+  pts: number[][]   // each element is [ts, lat, lng, alt, hdg, gs, vr]
+  min_ts: number
+  max_ts: number
+  cnt: number
+  flt?: string
+  icao?: string
+  typ?: string
+  reg?: string
+  aln?: string
+  org?: string
+  dst?: string
+}
+
 /** Fast timestamp parser — charCode math. Input is local time from Python strftime. */
 function parseTimestamp(raw: string): number {
   const Y = (raw.charCodeAt(0) - 48) * 1000 + (raw.charCodeAt(1) - 48) * 100 + (raw.charCodeAt(2) - 48) * 10 + (raw.charCodeAt(3) - 48)
@@ -41,7 +59,51 @@ function mapSource(backendSource: string): DataSource {
   return 'simulation'
 }
 
+/** Map compact DTO source code → DataSource */
+function mapDtoSource(src: string): DataSource {
+  if (src === 'ADS-B') return 'adsb'
+  if (src === 'Radar') return 'radar'
+  if (src === 'RadarRaw') return 'radar_raw'
+  return 'simulation'
+}
+
 const FT_TO_M = 0.3048
+
+/** Convert compact IPC DTO → Track. `pts` are JSON arrays [ts,lat,lng,alt,hdg,gs,vr]. */
+export function fromTrackDto(td: TrackDto): Track {
+  const len = td.pts.length
+  const positions: TrackPoint[] = new Array(len)
+  for (let i = 0; i < len; i++) {
+    const a = td.pts[i]  // [ts, lat, lng, alt, hdg, gs, vr]
+    positions[i] = {
+      timestamp: a[0],      // already epoch ms
+      latitude: a[1],
+      longitude: a[2],
+      altitude: a[3] * FT_TO_M,
+      heading: a[4],
+      groundSpeed: a[5],
+      verticalRate: a[6],
+    }
+  }
+
+  return {
+    id: td.id,
+    source: mapDtoSource(td.src),
+    positions,
+    minTimestamp: td.min_ts,
+    maxTimestamp: td.max_ts,
+    pointCount: td.cnt,
+    metadata: {
+      flightNumber: td.flt || undefined,
+      icaoFlightNumber: td.icao || undefined,
+      registration: td.reg || undefined,
+      aircraftType: td.typ || undefined,
+      airline: td.aln || undefined,
+      origin: td.org || undefined,
+      destination: td.dst || undefined,
+    },
+  }
+}
 
 export function fromBackendTrack(bt: BackendTrack): Track {
   const len = bt.positions.length

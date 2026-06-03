@@ -153,6 +153,19 @@ function syncFlagEntities() {
   viewer.scene.requestRender()
 }
 
+/** Batch-convert TrackPoint[] → Cartesian3[] using Cesium's SIMD-optimized API.
+ *  Eliminates ~N individual fromDegrees() calls with one vectorized operation. */
+function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
+  const flat = new Array(positions.length * 3)
+  for (let i = 0; i < positions.length; i++) {
+    const p = positions[i]
+    flat[i * 3]     = p.longitude
+    flat[i * 3 + 1] = p.latitude
+    flat[i * 3 + 2] = p.altitude
+  }
+  return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
+}
+
 function findPositionAtTime(points: TrackPoint[], time: number): TrackPoint | null {
   if (points.length === 0) return null
   if (time <= points[0].timestamp) return points[0]
@@ -197,9 +210,7 @@ function createTrackEntities(track: Track) {
       id: `${tKey}::line`,
       show: true,
       polyline: {
-        positions: track.positions.map((p) =>
-          Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
-        ),
+        positions: toCartesianArray(track.positions),
         width,
         material: color.withAlpha(alpha),
         clampToGround: false,
@@ -255,6 +266,7 @@ function clearAllEntities() {
 function syncEntities(newTracks: Track[]) {
   if (!viewer) return
 
+  const t0 = performance.now()
   try {
     viewer.entities.suspendEvents()
 
@@ -282,9 +294,7 @@ function syncEntities(newTracks: Track[]) {
       const tSel = trackKey(track.id, track.source) === props.selectedId
       if (existing.polyline) {
         if (hasEnoughPoints) {
-          ;(existing.polyline.polyline as any).positions = track.positions.map((p) =>
-            Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
-          )
+          ;(existing.polyline.polyline as any).positions = toCartesianArray(track.positions)
           existing.polyline.show = true
         } else {
           existing.polyline.show = false
@@ -297,9 +307,7 @@ function syncEntities(newTracks: Track[]) {
           id: `${tKey}::line`,
           show: true,
           polyline: {
-            positions: track.positions.map((p) =>
-              Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
-            ),
+            positions: toCartesianArray(track.positions),
             width: tSel ? SELECTED_WIDTH : baseWidth(track.source),
             material: color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
             clampToGround: false,
@@ -317,6 +325,8 @@ function syncEntities(newTracks: Track[]) {
     viewer.entities.resumeEvents()
     viewer.scene.requestRender()
   }
+  const t1 = performance.now()
+  console.log(`[perf] Cesium syncEntities: ${(t1 - t0).toFixed(0)}ms  |  tracks=${newTracks.length}`)
 }
 
 // Sync Cesium entities when props.tracks changes — handles initial load, filter, isolation, clear

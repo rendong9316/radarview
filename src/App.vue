@@ -17,17 +17,17 @@
           数据导入 <span class="collapse-icon">{{ sections.import ? '+' : '−' }}</span>
         </div>
         <div v-if="!sections.import" class="panel-body import-btns">
-          <button class="import-btn adsb" @click="handleImportAdsb" :disabled="loader.loading.value">
-            <span v-if="loader.loading.value" class="spinner"></span>
-            {{ loader.loading.value ? `${loader.progress.value}%` : 'ADS-B' }}
+          <button class="import-btn adsb" @click="handleImportAdsb" :disabled="loader.loading.value || loader.persisting.value">
+            <span v-if="loader.loading.value || loader.persisting.value" class="spinner"></span>
+            {{ loader.loading.value ? `${loader.progress.value}%` : loader.persisting.value ? '保存中' : 'ADS-B' }}
           </button>
-          <button class="import-btn radar" @click="handleImportRadar" :disabled="loader.loading.value">
-            <span v-if="loader.loading.value" class="spinner"></span>
-            {{ loader.loading.value ? `${loader.progress.value}%` : 'Radar' }}
+          <button class="import-btn radar" @click="handleImportRadar" :disabled="loader.loading.value || loader.persisting.value">
+            <span v-if="loader.loading.value || loader.persisting.value" class="spinner"></span>
+            {{ loader.loading.value ? `${loader.progress.value}%` : loader.persisting.value ? '保存中' : 'Radar' }}
           </button>
-          <button class="import-btn radar-raw" @click="handleImportRadarRaw" :disabled="loader.loading.value">
-            <span v-if="loader.loading.value" class="spinner"></span>
-            {{ loader.loading.value ? `${loader.progress.value}%` : 'Measurement' }}
+          <button class="import-btn radar-raw" @click="handleImportRadarRaw" :disabled="loader.loading.value || loader.persisting.value">
+            <span v-if="loader.loading.value || loader.persisting.value" class="spinner"></span>
+            {{ loader.loading.value ? `${loader.progress.value}%` : loader.persisting.value ? '保存中' : 'Measurement' }}
           </button>
         </div>
       </div>
@@ -125,8 +125,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive } from 'vue'
+import { ref, computed, onMounted, reactive, nextTick } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
 import CesiumMap from './components/CesiumMap.vue'
 import TrackPanel from './components/TrackPanel.vue'
 import PlaybackBar from './components/PlaybackBar.vue'
@@ -193,6 +194,12 @@ onMounted(async () => {
     console.error('[App] load_persisted_tracks failed:', e)
   }
   await refreshBatches()
+
+  // Background DB save completion → refresh batch list + clear persisting UI
+  listen('batch-saved', () => {
+    loader.onPersistComplete()
+    refreshBatches()
+  })
 })
 
 async function refreshBatches() {
@@ -204,8 +211,20 @@ async function refreshBatches() {
 async function handleImportAdsb() {
   errorMsg.value = ''
   try {
+    const t0 = performance.now()
     const result = await loader.loadAdsbFile()
-    if (result.length) addTracks(result)
+    const t1 = performance.now()
+    if (result.length) {
+      if (trackCount.value === 0) setAll(result)
+      else addTracks(result)
+      const t2 = performance.now()
+      console.log(`[perf] setAll+reactivity: ${(t2 - t1).toFixed(0)}ms  |  tracks=${result.length}`)
+      // Force Vue to flush so Cesium starts rendering now
+      await nextTick()
+      const t3 = performance.now()
+      console.log(`[perf] Cesium first-paint (nextTick after setAll): ${(t3 - t2).toFixed(0)}ms`)
+      console.log(`[perf] TOTAL (click→render): ${(t3 - t0).toFixed(0)}ms`)
+    }
     await refreshBatches()
   } catch (e) {
     errorMsg.value = String(e)
@@ -216,7 +235,10 @@ async function handleImportRadar() {
   errorMsg.value = ''
   try {
     const result = await loader.loadRadarFile()
-    if (result.length) addTracks(result)
+    if (result.length) {
+      if (trackCount.value === 0) setAll(result)
+      else addTracks(result)
+    }
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
 }
@@ -225,7 +247,10 @@ async function handleImportRadarRaw() {
   errorMsg.value = ''
   try {
     const result = await loader.loadRadarRawFile()
-    if (result.length) addTracks(result)
+    if (result.length) {
+      if (trackCount.value === 0) setAll(result)
+      else addTracks(result)
+    }
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
 }
