@@ -629,20 +629,6 @@ onMounted(async () => {
     destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
   })
 
-  // Load administrative boundaries overlay
-  try {
-    const resp = await fetch('/geojson/ne_110m_admin_0_countries.geojson')
-    const geoJson = await resp.json()
-    const boundaryDs = await Cesium.GeoJsonDataSource.load(geoJson, {
-      stroke: Cesium.Color.fromCssColorString('#ffffff').withAlpha(0.55),
-      strokeWidth: 1.2,
-      fill: Cesium.Color.TRANSPARENT,
-    })
-    viewer.dataSources.add(boundaryDs)
-  } catch (e) {
-    console.warn('Failed to load administrative boundaries:', e)
-  }
-
   syncEntities(props.tracks)
   pinIconDataUrl = createPinIcon()
   syncFlagEntities()
