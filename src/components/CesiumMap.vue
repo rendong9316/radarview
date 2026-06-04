@@ -19,6 +19,7 @@ const props = defineProps<{
   replayTime: number | null
   selectedId: string | null
   lineWidths: Record<DataSource, number>
+  dotScale: Record<DataSource, number>
 }>()
 
 const emit = defineEmits<{
@@ -47,6 +48,11 @@ interface TrackEntities {
   billboard: Cesium.Entity
   source: string
   labelText: string
+  /** Mutable holder for current polyline positions — updated each replay frame,
+   *  read by a CallbackProperty so Cesium picks up changes without recreating entities. */
+  trailRef: { positions: Cesium.Cartesian3[] }
+  /** Last lo index from binary search — polyline only updated when this advances */
+  lastTrailLo: number
 }
 
 const entityMap = new Map<string, TrackEntities>()
@@ -166,10 +172,28 @@ function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
 }
 
-function findPositionAtTime(points: TrackPoint[], time: number): TrackPoint | null {
+/** For replay trail: return all points up to `time` plus the interpolated current position.
+ *  pastPoints — points with timestamp <= time (the "already flown" portion)
+ *  currentPoint — interpolated position at exact `time` (where the dot sits) */
+function getTrailData(points: TrackPoint[], time: number): {
+  pastPoints: TrackPoint[]
+  currentPoint: TrackPoint
+  /** Index of the last data point at or before `time` */
+  lo: number
+} | null {
   if (points.length === 0) return null
-  if (time <= points[0].timestamp) return points[0]
-  if (time >= points[points.length - 1].timestamp) return points[points.length - 1]
+
+  if (time <= points[0].timestamp) {
+    return { pastPoints: [points[0]], currentPoint: points[0], lo: 0 }
+  }
+
+  if (time >= points[points.length - 1].timestamp) {
+    return {
+      pastPoints: [...points],
+      currentPoint: points[points.length - 1],
+      lo: points.length - 1,
+    }
+  }
 
   let lo = 0
   let hi = points.length - 1
@@ -182,7 +206,7 @@ function findPositionAtTime(points: TrackPoint[], time: number): TrackPoint | nu
   const dt = points[hi].timestamp - points[lo].timestamp
   const t = dt > 0 ? (time - points[lo].timestamp) / dt : 0
 
-  return {
+  const currentPoint: TrackPoint = {
     timestamp: points[lo].timestamp,
     latitude: points[lo].latitude + (points[hi].latitude - points[lo].latitude) * t,
     longitude: points[lo].longitude + (points[hi].longitude - points[lo].longitude) * t,
@@ -191,6 +215,10 @@ function findPositionAtTime(points: TrackPoint[], time: number): TrackPoint | nu
     groundSpeed: points[lo].groundSpeed + (points[hi].groundSpeed - points[lo].groundSpeed) * t,
     verticalRate: points[lo].verticalRate + (points[hi].verticalRate - points[lo].verticalRate) * t,
   }
+
+  const pastPoints = points.slice(0, lo + 1)
+
+  return { pastPoints, currentPoint, lo }
 }
 
 function createTrackEntities(track: Track) {
@@ -202,6 +230,10 @@ function createTrackEntities(track: Track) {
   const isSelected = tKey === props.selectedId
   const isRaw = track.source === 'radar_raw'
 
+  // Mutable holder for polyline positions; CallbackProperty reads from this
+  // so we can update the trail every frame without recreating entities.
+  const trailRef = { positions: toCartesianArray(track.positions) }
+
   let polyline: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
     const width = isSelected ? SELECTED_WIDTH : baseWidth(track.source)
@@ -210,7 +242,7 @@ function createTrackEntities(track: Track) {
       id: `${tKey}::line`,
       show: true,
       polyline: {
-        positions: toCartesianArray(track.positions),
+        positions: new Cesium.CallbackProperty(() => trailRef.positions, false),
         width,
         material: color.withAlpha(alpha),
         clampToGround: false,
@@ -223,7 +255,7 @@ function createTrackEntities(track: Track) {
     .join(' | ')
 
   const last = track.positions[track.positions.length - 1]
-  const billboardScale = isSelected ? 1.2 : isRaw ? 0.4 : 0.7
+  const billboardScale = dotSize(isSelected ? DOT_SELECTED : isRaw ? DOT_RAW : DOT_BASE, track.source)
   const billboard = viewer.entities.add({
     id: `${tKey}::dot`,
     show: true,
@@ -244,7 +276,7 @@ function createTrackEntities(track: Track) {
     },
   })
 
-  entityMap.set(tKey, { polyline, billboard, source: track.source, labelText: label || track.id })
+  entityMap.set(tKey, { polyline, billboard, source: track.source, labelText: label || track.id, trailRef, lastTrailLo: track.positions.length - 1 })
 }
 
 function removeTrackEntities(id: string) {
@@ -292,9 +324,10 @@ function syncEntities(newTracks: Track[]) {
       const hasEnoughPoints = track.positions.length >= 2
       const isRaw = track.source === 'radar_raw'
       const tSel = trackKey(track.id, track.source) === props.selectedId
+      existing.lastTrailLo = track.positions.length - 1
       if (existing.polyline) {
         if (hasEnoughPoints) {
-          ;(existing.polyline.polyline as any).positions = toCartesianArray(track.positions)
+          existing.trailRef.positions = toCartesianArray(track.positions)
           existing.polyline.show = true
         } else {
           existing.polyline.show = false
@@ -303,11 +336,12 @@ function syncEntities(newTracks: Track[]) {
         // Polyline didn't exist before but now has enough points (e.g. filter cleared)
         const color = getColor(track.source)
         const tKey = trackKey(track.id, track.source)
+        existing.trailRef.positions = toCartesianArray(track.positions)
         existing.polyline = viewer.entities.add({
           id: `${tKey}::line`,
           show: true,
           polyline: {
-            positions: toCartesianArray(track.positions),
+            positions: new Cesium.CallbackProperty(() => existing.trailRef.positions, false),
             width: tSel ? SELECTED_WIDTH : baseWidth(track.source),
             material: color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
             clampToGround: false,
@@ -317,9 +351,7 @@ function syncEntities(newTracks: Track[]) {
 
       // Update billboard to last position
       const last = track.positions[track.positions.length - 1]
-      existing.billboard.position = new Cesium.ConstantPositionProperty(
-        Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
-      )
+      existing.billboard.position = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude) as any
     }
   } finally {
     viewer.entities.resumeEvents()
@@ -343,11 +375,53 @@ function updateReplayPositions(time: number) {
   for (const track of props.tracks) {
     const entities = entityMap.get(trackKey(track.id, track.source))
     if (!entities) continue
-    const point = findPositionAtTime(track.positions, time)
-    if (!point) continue
-    entities.billboard.position = new Cesium.ConstantPositionProperty(
-      Cesium.Cartesian3.fromDegrees(point.longitude, point.latitude, point.altitude),
-    )
+
+    const trail = getTrailData(track.positions, time)
+    if (!trail) continue
+
+    // --- Billboard: always update (cheap, just one position) ---
+    entities.billboard.position = Cesium.Cartesian3.fromDegrees(
+      trail.currentPoint.longitude,
+      trail.currentPoint.latitude,
+      trail.currentPoint.altitude,
+    ) as any
+
+    // --- Polyline: only rebuild when new data points enter the visible window ---
+    if (trail.lo !== entities.lastTrailLo) {
+      entities.lastTrailLo = trail.lo
+
+      // Build visible polyline vertices
+      const lastPast = trail.pastPoints[trail.pastPoints.length - 1]
+      const allVisible = [...trail.pastPoints]
+      if (
+        trail.currentPoint.latitude !== lastPast.latitude ||
+        trail.currentPoint.longitude !== lastPast.longitude
+      ) {
+        allVisible.push(trail.currentPoint)
+      }
+
+      // Update trailRef — CallbackProperty on the polyline reads this array reference
+      entities.trailRef.positions = toCartesianArray(allVisible)
+
+      if (entities.polyline) {
+        entities.polyline.show = allVisible.length >= 2
+      } else if (allVisible.length >= 2) {
+        const color = getColor(track.source)
+        const tKey = trackKey(track.id, track.source)
+        const isSel = tKey === props.selectedId
+        const isRaw = track.source === 'radar_raw'
+        entities.polyline = viewer.entities.add({
+          id: `${tKey}::line`,
+          show: true,
+          polyline: {
+            positions: new Cesium.CallbackProperty(() => entities.trailRef.positions, false),
+            width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
+            material: color.withAlpha(isSel ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA),
+            clampToGround: false,
+          },
+        })
+      }
+    }
   }
   viewer.scene.requestRender()
 }
@@ -361,13 +435,19 @@ watch(
       wasReplaying = true
     } else if (wasReplaying) {
       wasReplaying = false
+      // Restore full polylines + billboards to last position
       for (const track of props.tracks) {
         const entities = entityMap.get(trackKey(track.id, track.source))
         if (!entities || track.positions.length === 0) continue
         const last = track.positions[track.positions.length - 1]
-        entities.billboard.position = new Cesium.ConstantPositionProperty(
-          Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
-        )
+        // Restore trailRef to full track positions — CallbackProperty picks it up
+        entities.trailRef.positions = toCartesianArray(track.positions)
+        entities.lastTrailLo = track.positions.length - 1
+        if (entities.polyline) {
+          entities.polyline.show = track.positions.length >= 2
+        }
+        // Restore billboard to last position
+        entities.billboard.position = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude) as any
       }
       viewer?.scene.requestRender()
     }
@@ -401,6 +481,27 @@ watch(
   { deep: true },
 )
 
+// Reactive dot scale: update existing billboards when slider changes
+watch(
+  () => props.dotScale,
+  () => {
+    for (const [tKey, entry] of entityMap) {
+      if (!entry.billboard) continue
+      const isSelected = tKey === previousSelectedId
+      // Hover only applies when NOT selected (applyHoverHighlight skips selected tracks)
+      const isHovered = hoveredTrackId === tKey && !isSelected
+      const isRaw = entry.source === 'radar_raw'
+      const base = isHovered ? DOT_HOVER
+        : isSelected ? DOT_SELECTED
+        : isRaw ? DOT_RAW
+        : DOT_BASE
+      ;(entry.billboard.billboard as any).scale = dotSize(base, entry.source)
+    }
+    viewer?.scene.requestRender()
+  },
+  { deep: true },
+)
+
 // Highlight selected track
 let previousSelectedId: string | null = null
 
@@ -416,7 +517,7 @@ function applyHighlight(trackId: string | null) {
       ;(prev.polyline.polyline as any).width = baseWidth(prev.source as DataSource)
     }
     if (prev?.billboard) {
-      ;(prev.billboard.billboard as any).scale = prev.source === 'radar_raw' ? 0.4 : 0.7
+      ;(prev.billboard.billboard as any).scale = dotSize(prev.source === 'radar_raw' ? DOT_RAW : DOT_BASE, prev.source)
     }
   }
 
@@ -429,7 +530,7 @@ function applyHighlight(trackId: string | null) {
       ;(entry.polyline.polyline as any).width = SELECTED_WIDTH
     }
     if (entry?.billboard) {
-      ;(entry.billboard.billboard as any).scale = 1.2
+      ;(entry.billboard.billboard as any).scale = dotSize(DOT_SELECTED, entry.source)
     }
   }
 
@@ -441,11 +542,21 @@ function applyHighlight(trackId: string | null) {
 let hoveredTrackId: string | null = null
 const HOVER_COLOR = Cesium.Color.fromCssColorString('#ff3333')
 const HOVER_WIDTH = 5.0
-const HOVER_BILLBOARD_SCALE = 1.3
 const NORMAL_ALPHA = 0.88
 const RAW_ALPHA = 0.75
 const SELECTED_WIDTH = 4.0
 const SELECTED_ALPHA = 1.0
+
+// Dot (billboard) base scale values, multiplied by props.dotScale
+const DOT_BASE = 0.7
+const DOT_RAW = 0.4
+const DOT_SELECTED = 1.2
+const DOT_HOVER = 1.3
+
+/** Compute billboard scale with per-source dot-scale slider applied */
+function dotSize(base: number, source: string): number {
+  return base * (props.dotScale[source as DataSource] ?? 1.0)
+}
 
 function baseWidth(source: DataSource): number {
   return props.lineWidths[source] ?? 2.0
@@ -468,7 +579,7 @@ function applyHoverHighlight(trackId: string) {
     ;(p.polyline as any).width = HOVER_WIDTH
   }
   if (entry.billboard) {
-    ;(entry.billboard.billboard as any).scale = HOVER_BILLBOARD_SCALE
+    ;(entry.billboard.billboard as any).scale = dotSize(DOT_HOVER, entry.source)
   }
 }
 
@@ -484,7 +595,7 @@ function removeHoverHighlight() {
       ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source as DataSource)
     }
     if (entry.billboard) {
-      ;(entry.billboard.billboard as any).scale = isSelected ? 1.2 : entry.source === 'radar_raw' ? 0.4 : 0.7
+      ;(entry.billboard.billboard as any).scale = dotSize(isSelected ? DOT_SELECTED : entry.source === 'radar_raw' ? DOT_RAW : DOT_BASE, entry.source)
     }
   }
   hoveredTrackId = null

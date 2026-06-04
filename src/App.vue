@@ -1,6 +1,6 @@
 <template>
   <div class="app-root" @dragover.prevent="dragOver = true" @dragleave="onDragLeave">
-    <CesiumMap ref="mapRef" :tracks="displayTracks" :replay-time="unifiedReplayTime" :selected-id="selectedId" :line-widths="lineWidths" @track-pick="onTrackPick" />
+    <CesiumMap ref="mapRef" :tracks="displayTracks" :replay-time="unifiedReplayTime" :selected-id="selectedId" :line-widths="lineWidths" :dot-scale="dotScale" @track-pick="onTrackPick" />
 
     <div v-if="dragOver" class="drop-overlay" @drop.prevent="onDrop" @dragleave.prevent="onDragLeave">
       <div class="drop-hint">释放文件以导入</div>
@@ -60,6 +60,16 @@
                 :value="lineWidths[src]"
                 @input="setLineWidth(src, Number(($event.target as HTMLInputElement).value))" />
               <span class="lw-val">{{ lineWidths[src] }}</span>
+            </div>
+          </div>
+          <div class="line-width-group">
+            <div class="lw-label">圆球直径</div>
+            <div class="lw-row" v-for="src in (['adsb','radar','radar_raw'] as DataSource[])" :key="src">
+              <span class="lw-src" :class="src">{{ sourceLabel(src) }}</span>
+              <input type="range" class="lw-slider" min="0.2" max="3.0" step="0.1"
+                :value="dotScale[src]"
+                @input="setDotScale(src, Number(($event.target as HTMLInputElement).value))" />
+              <span class="lw-val">{{ dotScale[src].toFixed(1) }}</span>
             </div>
           </div>
           <button class="tool-btn" @click="showBatchPanel = !showBatchPanel">
@@ -141,6 +151,7 @@ import { fromBackendTracks } from './composables/convertTrack'
 import { useTrackFilter } from './composables/useTrackFilter'
 import { useLabelVisibility } from './composables/useLabelVisibility'
 import { useLineWidth } from './composables/useLineWidth'
+import { useDotScale } from './composables/useDotScale'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -153,6 +164,7 @@ const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, se
 const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange, clearAllTimeRanges } = useTrackFilter()
 const { showLabels, toggle: toggleLabels } = useLabelVisibility()
 const { lineWidths, setLineWidth } = useLineWidth()
+const { dotScale, setDotScale } = useDotScale()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
 const showBatchPanel = ref(false)
