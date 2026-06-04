@@ -52,10 +52,10 @@ function interpolatePosition(pos: ReplayPosition, points: TrackPoint[]): TrackPo
   }
 }
 
-export function useReplay(tracks: Ref<Track[]>) {
+export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
   const isPlaying = ref(false)
   const currentTime = ref(0)
-  const speed = ref(500)
+  const speed = ref(initialSpeed ?? 500)
   const speedOptions = SPEED_OPTIONS
 
   const timeRange = computed(() => {
@@ -162,6 +162,13 @@ export function useReplay(tracks: Ref<Track[]>) {
     },
     { deep: false },
   )
+
+  // Persist replay speed changes
+  watch(speed, (v) => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('replay.speed', JSON.stringify(v))
+    })
+  }, { immediate: false })
 
   /** Get the interpolated position for every track at currentTime */
   function getCurrentPositions(): Map<string, { point: TrackPoint; track: Track }> {

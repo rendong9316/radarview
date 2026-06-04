@@ -77,11 +77,11 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
+import { usePanelStates } from '../composables/usePanelStates'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
-
-const collapsed = ref(false)
+const { flagCollapsed: collapsed } = usePanelStates()
 const inputLat = ref<number | null>(null)
 const inputLng = ref<number | null>(null)
 const coordError = ref('')

@@ -67,18 +67,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import type { DataSource } from '../types/track'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useTracks } from '../composables/useTracks'
 import { useTrackFilter } from '../composables/useTrackFilter'
+import { usePanelStates } from '../composables/usePanelStates'
 
 const { visibility, toggle } = useLayerVisibility()
 const { tracksBySource } = useTracks()
 const { pointCountFilters, setPointCountFilter } = useTrackFilter()
-
-const collapsed = ref(false)
-const showPointFilter = ref(false)
+const { layerCollapsed: collapsed, pointFilterOpen: showPointFilter } = usePanelStates()
 
 const layerItems = computed(() => [
   { source: 'adsb' as DataSource, label: 'ADS-B', color: '#00d4ff', count: tracksBySource.value.adsb?.length ?? 0 },

@@ -1,4 +1,4 @@
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useTracks } from './useTracks'
 import type { Track, DataSource } from '../types/track'
 
@@ -61,6 +61,21 @@ export function useTrackFilter() {
     Object.values(pointCountFilters.value).some((f) => f.enabled && (f.min != null || f.max != null))
   )
 
+  // Persist filter changes
+  const _saveFilter = () => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('filter.active_min', JSON.stringify(activeMin.value))
+      scheduleSave('filter.active_max', JSON.stringify(activeMax.value))
+      for (const [src, f] of Object.entries(pointCountFilters.value)) {
+        scheduleSave(`filter.point_count.${src}`, JSON.stringify(f))
+      }
+    })
+  }
+
+  watch(activeMin, _saveFilter, { immediate: false })
+  watch(activeMax, _saveFilter, { immediate: false })
+  watch(pointCountFilters, _saveFilter, { deep: true, immediate: false })
+
   /** Filtered tracks using metadata for O(N) pre-filter, plus point-level time filtering */
   const filteredTracks = computed<Track[]>(() => {
     let result = tracks.value
@@ -103,6 +118,8 @@ export function useTrackFilter() {
     globalTimeRange,
     setUniversalTimeRange,
     clearAllTimeRanges,
+    activeMin,
+    activeMax,
     hasActiveFilter,
     hasPointCountFilter,
     pointCountFilters,

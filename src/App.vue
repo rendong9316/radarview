@@ -12,11 +12,11 @@
     <!-- Unified Right Control Panel -->
     <div class="right-bar">
       <!-- Section: Import -->
-      <div class="section" :class="{ collapsed: sections.import }">
-        <div class="panel-header" @click="sections.import = !sections.import">
-          数据导入 <span class="collapse-icon">{{ sections.import ? '+' : '−' }}</span>
+      <div class="section" :class="{ collapsed: importCollapsed }">
+        <div class="panel-header" @click="importCollapsed = !importCollapsed">
+          数据导入 <span class="collapse-icon">{{ importCollapsed ? '+' : '−' }}</span>
         </div>
-        <div v-if="!sections.import" class="panel-body import-btns">
+        <div v-if="!importCollapsed" class="panel-body import-btns">
           <button class="import-btn adsb" @click="handleImportAdsb" :disabled="loader.loading.value || loader.persisting.value">
             <span v-if="loader.loading.value || loader.persisting.value" class="spinner"></span>
             {{ loader.loading.value ? `${loader.progress.value}%` : loader.persisting.value ? '保存中' : 'ADS-B' }}
@@ -47,11 +47,11 @@
       />
 
       <!-- Section: Tools -->
-      <div class="section" :class="{ collapsed: sections.tools }">
-        <div class="panel-header" @click="sections.tools = !sections.tools">
-          工具 <span class="collapse-icon">{{ sections.tools ? '+' : '−' }}</span>
+      <div class="section" :class="{ collapsed: toolsCollapsed }">
+        <div class="panel-header" @click="toolsCollapsed = !toolsCollapsed">
+          工具 <span class="collapse-icon">{{ toolsCollapsed ? '+' : '−' }}</span>
         </div>
-        <div v-if="!sections.tools" class="panel-body tools-list">
+        <div v-if="!toolsCollapsed" class="panel-body tools-list">
           <div class="line-width-group">
             <div class="lw-label">线宽调节</div>
             <div class="lw-row" v-for="src in (['adsb','radar','radar_raw'] as DataSource[])" :key="src">
@@ -72,7 +72,7 @@
               <span class="lw-val">{{ dotScale[src].toFixed(1) }}</span>
             </div>
           </div>
-          <button class="tool-btn" @click="showBatchPanel = !showBatchPanel">
+          <button class="tool-btn" @click="batchPanelOpen = !batchPanelOpen">
             💾 数据{{ batches.length ? ` (${batches.length})` : '' }}
           </button>
           <button class="tool-btn" @click="toggleLabels">{{ showLabels ? '🏷️ 隐藏标签' : '🏷️ 显示标签' }}</button>
@@ -82,7 +82,7 @@
       </div>
 
       <!-- Batch management (inside tools section area) -->
-      <div v-if="showBatchPanel" class="batch-panel">
+      <div v-if="batchPanelOpen" class="batch-panel">
         <div v-if="batches.length === 0" class="batch-empty">暂无已保存的数据</div>
         <div v-for="b in batches" :key="b.id" class="batch-row" @click="handleLoadBatch(b.id)" title="点击加载">
           <div class="batch-info">
@@ -135,7 +135,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, reactive, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import CesiumMap from './components/CesiumMap.vue'
@@ -152,6 +152,8 @@ import { useTrackFilter } from './composables/useTrackFilter'
 import { useLabelVisibility } from './composables/useLabelVisibility'
 import { useLineWidth } from './composables/useLineWidth'
 import { useDotScale } from './composables/useDotScale'
+import { usePanelStates } from './composables/usePanelStates'
+import { loadAllSettings, getRawSetting, flushSaves } from './composables/useSettingsPersistence'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -165,11 +167,14 @@ const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange,
 const { showLabels, toggle: toggleLabels } = useLabelVisibility()
 const { lineWidths, setLineWidth } = useLineWidth()
 const { dotScale, setDotScale } = useDotScale()
+const { importCollapsed, toolsCollapsed, batchPanelOpen } = usePanelStates()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
-const showBatchPanel = ref(false)
 const deletingBatchId = ref<number | null>(null)
-const sections = reactive({ import: false, tools: true })
+
+// Resolve saved replay speed before creating the replay composable
+const savedSpeedRaw = getRawSetting('replay.speed')
+const initialReplaySpeed = savedSpeedRaw ? (() => { try { const v = JSON.parse(savedSpeedRaw); return typeof v === 'number' && v > 0 ? v : undefined } catch { return undefined } })() : undefined
 
 function sourceLabel(src: DataSource): string {
   const map: Record<DataSource, string> = { adsb: 'ADS-B', radar: 'Radar', radar_raw: 'Raw', simulation: 'Sim' }
@@ -192,12 +197,15 @@ const displayTracks = computed(() => {
   return filteredTracks.value
 })
 
-const replay = useReplay(displayTracks)
+const replay = useReplay(displayTracks, initialReplaySpeed)
 const unifiedReplayTime = computed(() =>
   replay.isPlaying.value ? replay.currentTime.value : null
 )
 
 onMounted(async () => {
+  // ── Load persisted user settings FIRST ──
+  await loadAllSettings()
+
   try {
     const saved = await invoke('load_persisted_tracks') as any[]
     console.log('[App] load_persisted_tracks returned', saved.length, 'tracks')
@@ -212,6 +220,9 @@ onMounted(async () => {
     loader.onPersistComplete()
     refreshBatches()
   })
+
+  // Flush pending setting saves before the window closes
+  window.addEventListener('beforeunload', flushSaves)
 })
 
 async function refreshBatches() {

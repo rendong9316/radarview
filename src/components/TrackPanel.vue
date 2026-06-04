@@ -92,6 +92,7 @@
 import { ref, computed } from 'vue'
 import type { Track, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
+import { usePanelStates } from '../composables/usePanelStates'
 
 const props = defineProps<{
   tracks: Track[]
@@ -104,7 +105,7 @@ defineEmits<{
   clearIsolation: []
 }>()
 
-const collapsed = ref(false)
+const { trackPanelCollapsed: collapsed } = usePanelStates()
 const expandedId = ref<string | null>(null)
 const searchQuery = ref('')
 

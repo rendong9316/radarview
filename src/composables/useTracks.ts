@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import type { Track, DataSource } from '../types/track'
 
 const tracks = ref<Track[]>([])
@@ -109,6 +109,19 @@ export function useTracks() {
     selectedId.value = null
     isolatedTrackId.value = null
   }
+
+  // Persist track selection state
+  watch(selectedId, (v) => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('track.selected_id', JSON.stringify(v))
+    })
+  }, { immediate: false })
+
+  watch(isolatedTrackId, (v) => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('track.isolated_id', JSON.stringify(v))
+    })
+  }, { immediate: false })
 
   return {
     tracks,

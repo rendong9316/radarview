@@ -169,6 +169,9 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
         .map_err(|e| format!("ensure track_points indexes: {}", e))?;
     }
 
+    // ── app_settings KV table for user preferences ──
+    crate::settings::ensure_settings_table(&conn)?;
+
     Ok(())
 }
 

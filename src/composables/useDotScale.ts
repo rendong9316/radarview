@@ -1,4 +1,4 @@
-import { reactive } from 'vue'
+import { reactive, watch } from 'vue'
 import type { DataSource } from '../types/track'
 
 /** Per-source dot (billboard) scale multiplier, shared across the app.
@@ -14,6 +14,15 @@ export function useDotScale() {
   function setDotScale(source: DataSource, s: number) {
     dotScale[source] = Math.max(0.2, Math.min(3.0, s))
   }
+
+  // Persist dot scale changes
+  watch(dotScale, (val) => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      for (const [src, v] of Object.entries(val)) {
+        scheduleSave(`display.dot_scale.${src}`, JSON.stringify(v))
+      }
+    })
+  }, { deep: true, immediate: false })
 
   return { dotScale, setDotScale }
 }

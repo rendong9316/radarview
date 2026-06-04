@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 export interface Flag {
   id: string
@@ -72,6 +72,16 @@ export function useFlags() {
     if (!f1 || !f2) return null
     return [f1, f2] as const
   })
+
+  // Persist flags and selections
+  watch([flags, selectedFlagIds], () => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('flags.data', JSON.stringify({
+        flags: flags.value,
+        selectedFlagIds: selectedFlagIds.value,
+      }))
+    })
+  }, { deep: true, immediate: false })
 
   return {
     flags,

@@ -37,6 +37,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { usePanelStates } from '../composables/usePanelStates'
 
 const props = defineProps<{
   timeRange: { min: number; max: number } | null
@@ -48,7 +49,7 @@ const emit = defineEmits<{
   clear: []
 }>()
 
-const collapsed = ref(false)
+const { timeFilterCollapsed: collapsed } = usePanelStates()
 const startInput = ref('')
 const endInput = ref('')
 const errorMsg = ref('')

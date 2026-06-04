@@ -1,6 +1,7 @@
 mod adsb;
 mod db;
 mod radar;
+mod settings;
 mod tile_server;
 mod track;
 
@@ -190,6 +191,24 @@ fn load_filtered_cmd(
     db::load_filtered_tracks(&path, min_time_ms, max_time_ms, &source_filters)
 }
 
+#[tauri::command]
+fn save_setting(
+    db_path: tauri::State<'_, DbPath>,
+    key: String,
+    value: String,
+) -> Result<(), String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    settings::save_setting(&path, &key, &value)
+}
+
+#[tauri::command]
+fn load_all_settings(
+    db_path: tauri::State<'_, DbPath>,
+) -> Result<std::collections::HashMap<String, String>, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    settings::load_all_settings(&path)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -226,6 +245,8 @@ pub fn run() {
             delete_batch_cmd,
             get_time_range_cmd,
             load_filtered_cmd,
+            save_setting,
+            load_all_settings,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
