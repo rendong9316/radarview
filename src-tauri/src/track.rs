@@ -1,4 +1,4 @@
-use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{FixedOffset, NaiveDate, NaiveDateTime, NaiveTime};
 use serde::{Deserialize, Serialize};
 use serde::ser::SerializeTuple;
 
@@ -82,7 +82,8 @@ impl Serialize for PtDto {
 }
 
 /// Convert a timestamp string like "2024-06-15 08:30:45" or
-/// "2024-06-15 08:30:45.123" to epoch milliseconds (UTC).
+/// "2024-06-15 08:30:45.123" to epoch milliseconds.
+/// Input is assumed to be Beijing local time (UTC+8).
 /// Uses byte-index arithmetic (like JS charCode) + chrono constructors —
 /// avoids chrono's slow format-string parsing.
 pub fn ts_to_ms(s: &str) -> Result<i64, String> {
@@ -124,7 +125,12 @@ pub fn ts_to_ms(s: &str) -> Result<i64, String> {
     let time = NaiveTime::from_hms_milli_opt(h, mi, sec, ms)
         .ok_or_else(|| format!("invalid time in '{}'", s))?;
     let ndt = NaiveDateTime::new(date, time);
-    Ok(ndt.and_utc().timestamp_millis())
+    // Interpret as Beijing local time (UTC+8)
+    let china_tz = FixedOffset::east_opt(8 * 3600).unwrap();
+    match ndt.and_local_timezone(china_tz) {
+        chrono::LocalResult::Single(dt) => Ok(dt.timestamp_millis()),
+        _ => Err(format!("invalid local time in '{}'", s)),
+    }
 }
 
 impl Track {

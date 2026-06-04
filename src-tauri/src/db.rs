@@ -309,13 +309,14 @@ fn backfill_track_points(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-/// Convert epoch millis to "YYYY-MM-DD HH:MM:SS" text (UTC)
+/// Convert epoch millis to "YYYY-MM-DD HH:MM:SS" text (Beijing time, UTC+8)
 fn ms_to_ts(ms: i64) -> String {
     if ms <= 0 {
         return String::new();
     }
+    let china_tz = chrono::FixedOffset::east_opt(8 * 3600).unwrap();
     if let Some(dt) = chrono::DateTime::from_timestamp_millis(ms) {
-        return dt.format("%Y-%m-%d %H:%M:%S").to_string();
+        return dt.with_timezone(&china_tz).format("%Y-%m-%d %H:%M:%S").to_string();
     }
     String::new()
 }
