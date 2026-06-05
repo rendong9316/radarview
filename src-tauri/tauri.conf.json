@@ -12,9 +12,12 @@
   "app": {
     "windows": [
       {
-        "title": "RadarView Offline Map",
+        "title": "RadarView",
         "width": 1400,
-        "height": 900
+        "height": 900,
+        "decorations": false,
+        "minWidth": 900,
+        "minHeight": 600
       }
     ],
     "security": {

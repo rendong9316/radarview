@@ -1,11 +1,6 @@
 <template>
-  <div class="track-panel" :class="{ collapsed }">
-    <div class="panel-header" @click="collapsed = !collapsed">
-      航迹面板
-      <span v-if="tracks.length" class="count-badge">{{ tracks.length }}</span>
-      <span class="collapse-icon">{{ collapsed ? '◀' : '▶' }}</span>
-    </div>
-    <div v-if="!collapsed" class="panel-body">
+  <div class="track-panel">
+    <div class="panel-body">
       <div class="search-bar">
         <input
           v-model="searchQuery"
@@ -92,7 +87,6 @@
 import { ref, computed } from 'vue'
 import type { Track, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
-import { usePanelStates } from '../composables/usePanelStates'
 
 const props = defineProps<{
   tracks: Track[]
@@ -105,7 +99,6 @@ defineEmits<{
   clearIsolation: []
 }>()
 
-const { trackPanelCollapsed: collapsed } = usePanelStates()
 const expandedId = ref<string | null>(null)
 const searchQuery = ref('')
 
@@ -171,43 +164,10 @@ function lastSpeed(track: Track): string {
 
 <style scoped>
 .track-panel {
-  width: 320px;
-  background: var(--color-surface);
-  border-left: 1px solid var(--color-border);
+  width: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width 0.2s;
-}
-
-.track-panel.collapsed {
-  width: 36px;
-}
-
-.panel-header {
-  padding: 12px 16px;
-  font-size: 15px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-accent);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: pointer;
-}
-
-.collapse-icon {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--color-text-dim);
-}
-
-.count-badge {
-  background: var(--color-accent);
-  color: var(--color-bg);
-  font-size: 11px;
-  padding: 1px 6px;
-  border-radius: 10px;
 }
 
 .panel-body {
@@ -219,74 +179,74 @@ function lastSpeed(track: Track): string {
 
 .search-bar {
   position: relative;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border);
+  padding: 0 0 8px 0;
 }
 
 .search-input {
   width: 100%;
-  padding: 7px 28px 7px 10px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  color: var(--color-text);
+  padding: 6px 28px 6px 8px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  color: var(--text-primary);
   font-size: 12px;
   outline: none;
   box-sizing: border-box;
 }
 
 .search-input::placeholder {
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
 }
 
 .search-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--accent-primary);
 }
 
 .search-clear {
   position: absolute;
-  right: 18px;
+  right: 8px;
   top: 50%;
   transform: translateY(-50%);
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
 }
 
 .search-clear:hover {
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .isolate-banner {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 12px;
-  background: rgba(0,212,255,0.1);
-  border-bottom: 1px solid rgba(0,212,255,0.2);
-  font-size: 12px;
-  color: var(--color-accent);
+  padding: 4px 8px;
+  background: var(--accent-primary);
+  color: #fff;
+  border-radius: 2px;
+  font-size: 11px;
+  margin-bottom: 4px;
 }
 
 .isolate-back-btn {
-  padding: 3px 8px;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text);
+  padding: 2px 8px;
+  background: rgba(255,255,255,0.2);
+  border: none;
+  border-radius: 2px;
+  color: #fff;
   font-size: 11px;
   cursor: pointer;
 }
 
 .isolate-back-btn:hover {
-  background: rgba(255,255,255,0.18);
+  background: rgba(255,255,255,0.35);
 }
 
 .placeholder-text {
-  color: var(--color-text-dim);
-  font-size: 13px;
-  padding: 24px 16px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  padding: 16px 0;
   text-align: center;
 }
 
@@ -296,29 +256,29 @@ function lastSpeed(track: Track): string {
 }
 
 .track-item {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  border-bottom: 1px solid var(--border-secondary);
 }
 
 .track-item.selected {
-  background: rgba(0, 212, 255, 0.08);
+  background: rgba(0, 122, 204, 0.12);
 }
 
 .track-item-main {
-  padding: 10px 16px;
+  padding: 6px 8px;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.1s;
 }
 
 .track-item-main:hover {
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--button-hover);
 }
 
 .track-item-top {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  margin-bottom: 4px;
+  gap: 6px;
+  font-size: 12px;
+  margin-bottom: 2px;
 }
 
 .track-color {
@@ -330,44 +290,44 @@ function lastSpeed(track: Track): string {
 
 .track-id {
   font-weight: 600;
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .track-type {
-  color: var(--color-text-dim);
-  font-size: 12px;
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 
 .track-item-bottom {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   font-size: 11px;
-  color: var(--color-text-dim);
-  padding-left: 16px;
+  color: var(--text-tertiary);
+  padding-left: 14px;
 }
 
 .track-detail {
-  padding: 8px 16px 12px 32px;
-  background: rgba(0, 0, 0, 0.15);
+  padding: 6px 8px 8px 22px;
+  background: var(--bg-tertiary);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .detail-row {
   display: flex;
-  gap: 8px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 11px;
 }
 
 .detail-label {
-  color: var(--color-text-dim);
-  min-width: 56px;
+  color: var(--text-tertiary);
+  min-width: 50px;
   flex-shrink: 0;
 }
 
 .detail-value {
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .detail-value.mono {
@@ -377,15 +337,15 @@ function lastSpeed(track: Track): string {
 
 .expand-btn {
   width: 100%;
-  padding: 4px 0;
+  padding: 3px 0;
   background: transparent;
   border: none;
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
   font-size: 11px;
   cursor: pointer;
 }
 
 .expand-btn:hover {
-  color: var(--color-accent);
+  color: var(--accent-primary);
 }
 </style>

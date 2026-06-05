@@ -22,7 +22,7 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 | 目录 | 用途 |
 |------|------|
 | `src/` | Vue 前端 — 组件(`components/`)、组合式函数(`composables/`)、类型(`types/`) |
-| `src-tauri/src/` | Rust 后端 — `lib.rs`(命令注册)、`adsb.rs`(CSV解析)、`radar.rs`(MAT导入)、`track.rs`(数据模型)、`db.rs`(SQLite)、`tile_server.rs`(瓦片服务) |
+| `src-tauri/src/` | Rust 后端 — `lib.rs`(命令注册)、`adsb.rs`(CSV解析)、`radar.rs`(MAT导入)、`track.rs`(数据模型)、`db.rs`(SQLite)、`settings.rs`(设置持久化)、`tile_server.rs`(瓦片服务) |
 | `src-tauri/resources/` | 打包资源 — `convert_mat.exe`(MAT转换器)、`natural_earth.mbtiles`(离线地图) |
 | `scripts/` | Python 工具 — `convert_mat.py`(MAT→JSON 转换源码) |
 
@@ -68,6 +68,15 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 - **导入按钮长时间显示"保存中"不复原**：后台线程写 DB 时遇到锁竞争会等待 `busy_timeout(30s)`。检查终端 `eprintln!` 日志中的 `background save failed` 定位原因。
 - **航迹数据二次导入时正确合并**：前端 `addTracks()` 按 `icao_address::source` 组合键去重，同键航迹只合并新时间点的 position，不覆盖已有数据。
 - **时间显示差 8 小时**：数据源（MAT/CSV）时间戳均为北京时间 (UTC+8) 的 naive 字符串。`track.rs:ts_to_ms` 必须用 `FixedOffset::east_opt(8*3600)` 解析，`db.rs:ms_to_ts` 必须用 `with_timezone(&china_tz)` 格式化，禁止 `and_utc()` / 纯 UTC 格式化，否则全链路时区不一致。
+
+## 用户设置持久化
+
+- **存储**：SQLite 表 `app_settings(key TEXT PK, value TEXT NOT NULL)`，value 由前端 JSON.stringify。
+- **后端**：`settings.rs`（建表/读写），`lib.rs` 注册 `save_setting` / `load_all_settings` 两个 command。
+- **前端**：`useSettingsPersistence.ts` — `scheduleSave(key, json)` 300ms 防抖批量写；`loadAllSettings()` 启动时调用，按 key 解析 JSON 分发到各 composable ref；内置 `_loaded` 守卫，load 完成前丢弃所有 save。
+- **新增设置**：① composable 内 `watch(ref, v => import('./useSettingsPersistence').then(m => m.scheduleSave('ns.key', JSON.stringify(v))), { immediate: false })` ② `applySettings()` 内加 `JSON.parse(raw[key])` 写入对应 ref。
+- **面板折叠**：必须用 `usePanelStates.ts` 模块级 ref，禁止组件本地 `ref(false)`。
+- **回放速度**：`useReplay(tracks, initialSpeed?)`，`App.vue` 通过 `getRawSetting('replay.speed')` 传入。
 
 
 

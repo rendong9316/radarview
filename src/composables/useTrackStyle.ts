@@ -6,6 +6,26 @@ interface TrackStyle {
   icon: string
 }
 
+const cssVarMap: Record<DataSource, string> = {
+  adsb: '--source-adsb',
+  radar: '--source-radar',
+  radar_raw: '--source-radar_raw',
+  simulation: '--source-simulation',
+}
+
+function getSourceHexColor(source: DataSource): string {
+  const varName = cssVarMap[source]
+  const raw = getComputedStyle(document.documentElement).getPropertyValue(varName).trim()
+  return raw || fallbackColors[source]
+}
+
+const fallbackColors: Record<DataSource, string> = {
+  adsb: '#00d4ff',
+  radar: '#00ff88',
+  radar_raw: '#ff8800',
+  simulation: '#aa88ff',
+}
+
 function createCircleIcon(hexColor: string): string {
   const size = 24
   const canvas = document.createElement('canvas')
@@ -22,37 +42,39 @@ function createCircleIcon(hexColor: string): string {
   return canvas.toDataURL('image/png')
 }
 
-const styles: Record<DataSource, TrackStyle> = {
-  adsb: {
-    color: Cesium.Color.fromCssColorString('#00d4ff'),
-    icon: createCircleIcon('#00d4ff'),
-  },
-  radar: {
-    color: Cesium.Color.fromCssColorString('#00ff88'),
-    icon: createCircleIcon('#00ff88'),
-  },
-  radar_raw: {
-    color: Cesium.Color.fromCssColorString('#ff8800'),
-    icon: createCircleIcon('#ff8800'),
-  },
-  simulation: {
-    color: Cesium.Color.fromCssColorString('#aa88ff'),
-    icon: createCircleIcon('#aa88ff'),
-  },
+// Cache icons by hex color
+const iconCache = new Map<string, string>()
+function getCachedIcon(hex: string): string {
+  let icon = iconCache.get(hex)
+  if (!icon) {
+    icon = createCircleIcon(hex)
+    iconCache.set(hex, icon)
+  }
+  return icon
 }
 
 export function useTrackStyle() {
-  function getStyle(source: DataSource): TrackStyle {
-    return styles[source]
-  }
-
   function getColor(source: DataSource): Cesium.Color {
-    return styles[source].color
+    const hex = getSourceHexColor(source)
+    return Cesium.Color.fromCssColorString(hex)
   }
 
   function getIcon(source: DataSource): string {
-    return styles[source].icon
+    const hex = getSourceHexColor(source)
+    return getCachedIcon(hex)
   }
 
-  return { getStyle, getColor, getIcon }
+  function getStyle(source: DataSource): TrackStyle {
+    return {
+      color: getColor(source),
+      icon: getIcon(source),
+    }
+  }
+
+  /** Force refresh of cached colors/icons (call after theme change) */
+  function refreshColors(): void {
+    iconCache.clear()
+  }
+
+  return { getStyle, getColor, getIcon, getSourceHexColor, refreshColors }
 }

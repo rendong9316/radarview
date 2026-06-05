@@ -1,17 +1,6 @@
 <template>
-  <div class="flag-panel" :class="{ collapsed }">
-    <div class="panel-header" @click="collapsed = !collapsed">
-      旗标管理
-      <button
-        v-if="flags.length"
-        class="clear-all-btn"
-        @click.stop="clearAllFlags"
-        title="清除全部旗标"
-      >✕</button>
-      <span class="count-badge" v-if="flags.length">{{ flags.length }}</span>
-      <span class="collapse-icon">{{ collapsed ? '+' : '−' }}</span>
-    </div>
-    <div v-if="!collapsed" class="panel-body">
+  <div class="flag-panel">
+    <div class="panel-body">
       <div class="input-row">
         <input
           v-model.number="inputLat"
@@ -69,6 +58,7 @@
           </div>
           <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标">×</button>
         </div>
+        <button v-if="flags.length" class="clear-all-btn" @click="onClearAll">🗑️ 清除全部旗标</button>
       </div>
     </div>
   </div>
@@ -77,11 +67,9 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
-import { usePanelStates } from '../composables/usePanelStates'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
-const { flagCollapsed: collapsed } = usePanelStates()
 const inputLat = ref<number | null>(null)
 const inputLng = ref<number | null>(null)
 const coordError = ref('')
@@ -125,6 +113,12 @@ function handlePlaceFlag() {
   inputLng.value = null
 }
 
+function onClearAll() {
+  if (confirm('确定要清除地图上所有旗标吗？此操作不可撤销。')) {
+    clearAllFlags()
+  }
+}
+
 function fmt(v: number) {
   return v.toFixed(4)
 }
@@ -144,60 +138,14 @@ const geoResult = computed(() => {
 
 <style scoped>
 .flag-panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.panel-header {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-accent);
-  cursor: pointer;
   display: flex;
-  align-items: center;
-  gap: 6px;
-  user-select: none;
-}
-
-.count-badge {
-  background: var(--color-accent);
-  color: var(--color-bg);
-  font-size: 9px;
-  padding: 1px 5px;
-  border-radius: 8px;
-  margin-left: auto;
-}
-
-.clear-all-btn {
-  background: none;
-  border: none;
-  color: #f66;
-  font-size: 14px;
-  cursor: pointer;
-  padding: 0 3px;
-  line-height: 1;
-  margin-left: auto;
-  flex-shrink: 0;
-}
-.clear-all-btn:hover {
-  color: #f00;
-}
-
-.collapse-icon {
-  margin-left: auto;
-  font-size: 14px;
-  color: var(--color-text-dim);
+  flex-direction: column;
 }
 
 .panel-body {
-  padding: 6px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .input-row {
@@ -208,30 +156,30 @@ const geoResult = computed(() => {
 .coord-input {
   flex: 1;
   min-width: 0;
-  padding: 5px 6px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text);
+  padding: 4px 6px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  color: var(--input-fg);
   font-size: 11px;
   outline: none;
 }
 
 .coord-input::placeholder {
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
   font-size: 10px;
 }
 
 .coord-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--accent-primary);
 }
 
 .place-btn {
-  padding: 5px 10px;
-  background: var(--color-accent);
-  color: var(--color-bg);
+  padding: 4px 10px;
+  background: var(--accent-primary);
+  color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: 2px;
   font-size: 11px;
   font-weight: 600;
   cursor: pointer;
@@ -243,7 +191,7 @@ const geoResult = computed(() => {
 }
 
 .coord-error {
-  color: #f44;
+  color: var(--error);
   font-size: 11px;
   text-align: center;
   margin: 0;
@@ -251,19 +199,19 @@ const geoResult = computed(() => {
 
 .geo-result {
   padding: 6px 8px;
-  background: rgba(0,212,255,0.08);
-  border: 1px solid rgba(0,212,255,0.2);
-  border-radius: 4px;
+  background: var(--error-bg);
+  border: 1px solid var(--border-primary);
+  border-radius: 2px;
 }
 
 .geo-line {
   font-size: 11px;
-  color: var(--color-accent);
+  color: var(--accent-primary);
   line-height: 1.6;
 }
 
 .empty-text {
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
   font-size: 11px;
   text-align: center;
   padding: 8px 0;
@@ -281,13 +229,13 @@ const geoResult = computed(() => {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 4px;
-  border-bottom: 1px solid rgba(255,255,255,0.04);
+  padding: 3px 4px;
+  border-bottom: 1px solid var(--border-secondary);
 }
 
 .flag-check {
   flex-shrink: 0;
-  accent-color: var(--color-accent);
+  accent-color: var(--accent-primary);
   cursor: pointer;
 }
 
@@ -302,30 +250,30 @@ const geoResult = computed(() => {
 
 .flag-label {
   font-size: 11px;
-  color: var(--color-text);
+  color: var(--text-primary);
   font-weight: 500;
   cursor: pointer;
   transition: color 0.15s;
 }
 
 .flag-label:hover {
-  color: var(--color-accent);
+  color: var(--accent-primary);
 }
 
 .rename-input {
   width: 100%;
   padding: 2px 4px;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid var(--color-accent);
-  border-radius: 3px;
-  color: var(--color-text);
+  background: var(--input-bg);
+  border: 1px solid var(--accent-primary);
+  border-radius: 2px;
+  color: var(--input-fg);
   font-size: 11px;
   outline: none;
 }
 
 .flag-coords {
   font-size: 10px;
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
 
@@ -333,13 +281,29 @@ const geoResult = computed(() => {
   padding: 0 4px;
   background: none;
   border: none;
-  color: #f66;
-  font-size: 16px;
+  color: var(--error);
+  font-size: 14px;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .flag-del:hover {
-  color: #f00;
+  opacity: 0.8;
+}
+
+.clear-all-btn {
+  width: 100%;
+  padding: 5px 10px;
+  margin-top: 6px;
+  background: var(--error-bg);
+  color: var(--error);
+  border: 1px solid var(--error);
+  border-radius: 2px;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: center;
+}
+.clear-all-btn:hover {
+  background: rgba(244, 71, 71, 0.25);
 }
 </style>

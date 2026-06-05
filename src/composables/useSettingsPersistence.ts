@@ -79,6 +79,15 @@ export function getRawSetting(key: string): string | undefined {
 }
 
 async function applySettings(raw: Record<string, string>) {
+  // ── Theme (must be applied BEFORE any UI renders) ──
+  const { initTheme } = await import('./useTheme')
+  const themeIdRaw = raw['theme.id']
+  let savedThemeId: string | undefined
+  if (themeIdRaw !== undefined) {
+    try { savedThemeId = JSON.parse(themeIdRaw) } catch { /* keep default */ }
+  }
+  initTheme(savedThemeId)
+
   // ── Display settings ──
   const { useLineWidth } = await import('./useLineWidth')
   const { useDotScale } = await import('./useDotScale')

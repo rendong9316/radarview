@@ -1,11 +1,7 @@
 <template>
-  <div class="time-filter-panel" :class="{ collapsed }">
-    <div class="panel-header" @click="collapsed = !collapsed">
-      时间过滤
-      <span v-if="props.hasActiveFilter" class="active-dot"></span>
-      <span class="collapse-icon">{{ collapsed ? '+' : '−' }}</span>
-    </div>
-    <div v-if="!collapsed" class="panel-body">
+  <div class="time-filter-panel">
+    <div v-if="props.hasActiveFilter" class="active-indicator">⬤ 时间过滤器已激活</div>
+    <div class="panel-body">
       <div v-if="props.timeRange" class="range-info">
         数据范围: {{ fmtTime(props.timeRange.min) }} — {{ fmtTime(props.timeRange.max) }}
       </div>
@@ -37,7 +33,6 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { usePanelStates } from '../composables/usePanelStates'
 
 const props = defineProps<{
   timeRange: { min: number; max: number } | null
@@ -49,7 +44,6 @@ const emit = defineEmits<{
   clear: []
 }>()
 
-const { timeFilterCollapsed: collapsed } = usePanelStates()
 const startInput = ref('')
 const endInput = ref('')
 const errorMsg = ref('')
@@ -82,8 +76,6 @@ function apply() {
     errorMsg.value = '请设置起始和结束时间'
     return
   }
-  // datetime-local inputs represent local time (no timezone).
-  // Parse as local time and convert to UTC epoch millis.
   const start = new Date(startInput.value).getTime()
   const end = new Date(endInput.value).getTime()
   if (isNaN(start) || isNaN(end)) {
@@ -107,93 +99,73 @@ function clear() {
 
 <style scoped>
 .time-filter-panel {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.panel-header {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-accent);
-  cursor: pointer;
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  user-select: none;
 }
 
-.active-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #00ff88;
-  flex-shrink: 0;
-}
-
-.collapse-icon {
-  margin-left: auto;
-  font-size: 14px;
-  color: var(--color-text-dim);
+.active-indicator {
+  font-size: 10px;
+  color: var(--accent-primary);
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  text-align: center;
 }
 
 .panel-body {
-  padding: 5px 8px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
 .range-info {
   font-size: 10px;
-  color: var(--color-text-dim);
+  color: var(--text-tertiary);
   text-align: center;
 }
 
 .input-row {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
 }
 
 .time-input {
   flex: 1;
-  padding: 4px 5px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  color: var(--color-text);
-  font-size: 10px;
+  padding: 4px 6px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  color: var(--input-fg);
+  font-size: 11px;
   outline: none;
   min-width: 0;
 }
 
 .time-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--accent-primary);
 }
 
 .time-sep {
-  color: var(--color-text-dim);
-  font-size: 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
   flex-shrink: 0;
 }
 
 .btn-row {
   display: flex;
-  gap: 3px;
+  gap: 4px;
 }
 
 .apply-btn {
   flex: 1;
   padding: 4px 8px;
-  background: var(--color-accent);
-  color: var(--color-bg);
+  background: var(--accent-primary);
+  color: #fff;
   border: none;
-  border-radius: 4px;
-  font-size: 10px;
+  border-radius: 2px;
+  font-size: 11px;
   font-weight: 600;
   cursor: pointer;
 }
@@ -209,21 +181,21 @@ function clear() {
 
 .clear-btn {
   padding: 4px 8px;
-  background: rgba(255,255,255,0.1);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  font-size: 10px;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border: 1px solid var(--border-primary);
+  border-radius: 2px;
+  font-size: 11px;
   cursor: pointer;
 }
 
 .clear-btn:hover {
-  background: rgba(255,255,255,0.18);
+  background: var(--button-hover);
 }
 
 .error-msg {
-  color: #f44;
-  font-size: 10px;
+  color: var(--error);
+  font-size: 11px;
   text-align: center;
   margin: 0;
 }

@@ -85,6 +85,8 @@ export function fromTrackDto(td: TrackDto): Track {
       verticalRate: a[6],
     }
   }
+  // Guard: sort by timestamp so polyline connects chronologically
+  positions.sort((a, b) => a.timestamp - b.timestamp)
 
   return {
     id: td.id,
@@ -108,8 +110,6 @@ export function fromTrackDto(td: TrackDto): Track {
 export function fromBackendTrack(bt: BackendTrack): Track {
   const len = bt.positions.length
   const positions: TrackPoint[] = new Array(len)
-  let minTs = Infinity
-  let maxTs = -Infinity
   for (let i = 0; i < len; i++) {
     const p = bt.positions[i]
     const ts = parseTimestamp(p.timestamp)
@@ -122,9 +122,12 @@ export function fromBackendTrack(bt: BackendTrack): Track {
       groundSpeed: p.ground_speed,
       verticalRate: p.vertical_rate,
     }
-    if (ts < minTs) minTs = ts
-    if (ts > maxTs) maxTs = ts
   }
+  // Guard: sort by timestamp so polyline connects chronologically
+  positions.sort((a, b) => a.timestamp - b.timestamp)
+
+  const minTs = len > 0 ? positions[0].timestamp : 0
+  const maxTs = len > 0 ? positions[len - 1].timestamp : 0
 
   return {
     id: bt.icao_address,

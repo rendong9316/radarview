@@ -1,10 +1,6 @@
 <template>
-  <div class="layer-section" :class="{ collapsed }">
-    <div class="section-header" @click="collapsed = !collapsed">
-      图层控制
-      <span class="collapse-icon">{{ collapsed ? '+' : '−' }}</span>
-    </div>
-    <div v-if="!collapsed" class="section-body">
+  <div class="layer-section">
+    <div class="section-body">
       <label
         v-for="item in layerItems"
         :key="item.source"
@@ -67,17 +63,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 import type { DataSource } from '../types/track'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useTracks } from '../composables/useTracks'
 import { useTrackFilter } from '../composables/useTrackFilter'
-import { usePanelStates } from '../composables/usePanelStates'
 
 const { visibility, toggle } = useLayerVisibility()
 const { tracksBySource } = useTracks()
 const { pointCountFilters, setPointCountFilter } = useTrackFilter()
-const { layerCollapsed: collapsed, pointFilterOpen: showPointFilter } = usePanelStates()
+const showPointFilter = ref(false)
 
 const layerItems = computed(() => [
   { source: 'adsb' as DataSource, label: 'ADS-B', color: '#00d4ff', count: tracksBySource.value.adsb?.length ?? 0 },
@@ -102,60 +97,41 @@ function onPfMax(source: DataSource, val: string) {
 
 <style scoped>
 .layer-section {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  overflow: hidden;
-}
-
-.section-header {
-  padding: 6px 10px;
-  font-size: 12px;
-  font-weight: 600;
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-accent);
-  cursor: pointer;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  user-select: none;
-}
-
-.collapse-icon { font-size: 14px; color: var(--color-text-dim); }
-.collapse-icon.small { font-size: 11px; }
-
-.section-body {
-  padding: 5px 10px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+}
+
+.section-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
 .layer-row {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 12px;
   cursor: pointer;
 }
 
 .layer-dot {
-  width: 7px;
-  height: 7px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
 }
-.layer-dot.small { width: 5px; height: 5px; }
+.layer-dot.small { width: 6px; height: 6px; }
 
 .layer-label {
   flex: 1;
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .layer-count {
-  color: var(--color-text-dim);
-  font-size: 10px;
-  min-width: 20px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  min-width: 24px;
   text-align: right;
 }
 
@@ -167,14 +143,14 @@ function onPfMax(source: DataSource, val: string) {
   width: 28px;
   height: 16px;
   border-radius: 8px;
-  background: rgba(255, 255, 255, 0.15);
+  background: var(--bg-tertiary);
   position: relative;
   transition: background 0.15s;
   flex-shrink: 0;
 }
 
 .toggle-switch.on {
-  background: var(--color-accent);
+  background: var(--accent-primary);
 }
 
 .toggle-knob {
@@ -194,13 +170,13 @@ function onPfMax(source: DataSource, val: string) {
 
 .filter-divider {
   height: 1px;
-  background: var(--color-border);
+  background: var(--border-primary);
   margin: 1px 0;
 }
 
 .filter-toggle {
-  font-size: 10px;
-  color: var(--color-text-dim);
+  font-size: 11px;
+  color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
   justify-content: space-between;
@@ -208,45 +184,47 @@ function onPfMax(source: DataSource, val: string) {
   padding: 1px 0;
   user-select: none;
 }
-.filter-toggle:hover { color: var(--color-accent); }
+.filter-toggle:hover { color: var(--accent-primary); }
+.collapse-icon { font-size: 12px; }
+.collapse-icon.small { font-size: 10px; }
 
 .point-filter-list {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 
 .point-filter-row {
   display: flex;
   align-items: center;
-  gap: 3px;
-  font-size: 10px;
+  gap: 4px;
+  font-size: 11px;
 }
 
 .pf-check-label {
   display: flex;
   align-items: center;
   gap: 2px;
-  color: var(--color-text-dim);
+  color: var(--text-secondary);
   cursor: pointer;
   white-space: nowrap;
-  min-width: 38px;
-  font-size: 10px;
+  min-width: 42px;
+  font-size: 11px;
 }
 
 .pf-input {
-  width: 38px;
-  padding: 1px 3px;
-  background: rgba(255,255,255,0.06);
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  color: var(--color-text);
-  font-size: 10px;
+  width: 42px;
+  padding: 2px 4px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  color: var(--input-fg);
+  font-size: 11px;
   outline: none;
 }
 
 .pf-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--accent-primary);
 }
 
 .pf-input:disabled {
@@ -255,7 +233,7 @@ function onPfMax(source: DataSource, val: string) {
 }
 
 .pf-sep {
-  color: var(--color-text-dim);
-  font-size: 10px;
+  color: var(--text-tertiary);
+  font-size: 11px;
 }
 </style>

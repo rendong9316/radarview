@@ -229,10 +229,12 @@ function createTrackEntities(track: Track) {
   const tKey = trackKey(track.id, track.source)
   const isSelected = tKey === props.selectedId
   const isRaw = track.source === 'radar_raw'
+  const replaying = props.replayTime !== null
 
   // Mutable holder for polyline positions; CallbackProperty reads from this
   // so we can update the trail every frame without recreating entities.
-  const trailRef = { positions: toCartesianArray(track.positions) }
+  // During active replay, start empty — updateReplayPositions will fill the correct partial trail.
+  const trailRef = { positions: replaying ? [] : toCartesianArray(track.positions) }
 
   let polyline: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
@@ -240,7 +242,7 @@ function createTrackEntities(track: Track) {
     const alpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
     polyline = viewer.entities.add({
       id: `${tKey}::line`,
-      show: true,
+      show: !replaying, // hide until updateReplayPositions sets correct partial trail
       polyline: {
         positions: new Cesium.CallbackProperty(() => trailRef.positions, false),
         width,
@@ -324,10 +326,14 @@ function syncEntities(newTracks: Track[]) {
       const hasEnoughPoints = track.positions.length >= 2
       const isRaw = track.source === 'radar_raw'
       const tSel = trackKey(track.id, track.source) === props.selectedId
+      const replaying = props.replayTime !== null
       existing.lastTrailLo = track.positions.length - 1
       if (existing.polyline) {
         if (hasEnoughPoints) {
-          existing.trailRef.positions = toCartesianArray(track.positions)
+          // During active replay, let updateReplayPositions own trailRef — avoid ghost full-track polyline
+          if (!replaying) {
+            existing.trailRef.positions = toCartesianArray(track.positions)
+          }
           existing.polyline.show = true
         } else {
           existing.polyline.show = false
@@ -336,7 +342,9 @@ function syncEntities(newTracks: Track[]) {
         // Polyline didn't exist before but now has enough points (e.g. filter cleared)
         const color = getColor(track.source)
         const tKey = trackKey(track.id, track.source)
-        existing.trailRef.positions = toCartesianArray(track.positions)
+        if (!replaying) {
+          existing.trailRef.positions = toCartesianArray(track.positions)
+        }
         existing.polyline = viewer.entities.add({
           id: `${tKey}::line`,
           show: true,
