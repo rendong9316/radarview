@@ -12,13 +12,19 @@
         {{ isPlaying ? '⏸' : '▶' }}
       </button>
 
-      <!-- Progress bar (compact) -->
+      <!-- Progress bar with draggable thumb -->
       <div
+        ref="progressRef"
         class="status-progress"
-        :class="{ disabled: !hasData }"
+        :class="{ disabled: !hasData, dragging: isDragging }"
         @click="onSeek($event)"
       >
         <div class="status-progress-fill" :style="{ width: `${progress * 100}%` }" />
+        <div
+          class="status-progress-thumb"
+          :style="{ left: `${progress * 100}%` }"
+          @mousedown.prevent="onThumbMouseDown"
+        />
       </div>
 
       <!-- Time display -->
@@ -84,7 +90,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onUnmounted } from 'vue'
 import { useTheme } from '../../composables/useTheme'
 import type { DataSource } from '../../types/track'
 
@@ -115,12 +121,41 @@ const emit = defineEmits<{
 const { activeTheme, themes } = useTheme()
 const themeIcon = computed(() => themes[activeTheme.value]?.icon ?? '🌙')
 
-function onSeek(e: MouseEvent) {
-  if (!props.hasData) return
-  const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-  const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+const progressRef = ref<HTMLElement | null>(null)
+const isDragging = ref(false)
+
+function seekFromClientX(clientX: number) {
+  if (!props.hasData || !progressRef.value) return
+  const rect = progressRef.value.getBoundingClientRect()
+  const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
   emit('seek', ratio)
 }
+
+function onSeek(e: MouseEvent) {
+  seekFromClientX(e.clientX)
+}
+
+function onThumbMouseDown(_e: MouseEvent) {
+  if (!props.hasData) return
+  isDragging.value = true
+  document.addEventListener('mousemove', onThumbMouseMove)
+  document.addEventListener('mouseup', onThumbMouseUp)
+}
+
+function onThumbMouseMove(e: MouseEvent) {
+  seekFromClientX(e.clientX)
+}
+
+function onThumbMouseUp() {
+  isDragging.value = false
+  document.removeEventListener('mousemove', onThumbMouseMove)
+  document.removeEventListener('mouseup', onThumbMouseUp)
+}
+
+onUnmounted(() => {
+  document.removeEventListener('mousemove', onThumbMouseMove)
+  document.removeEventListener('mouseup', onThumbMouseUp)
+})
 </script>
 
 <style scoped>
@@ -133,7 +168,7 @@ function onSeek(e: MouseEvent) {
   justify-content: space-between;
   padding: 0 6px;
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 0.857rem;
   border-top: 1px solid var(--statusbar-border);
   user-select: none;
   z-index: 5;
@@ -161,7 +196,7 @@ function onSeek(e: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 0.857rem;
   background: transparent;
   border: none;
   color: inherit;
@@ -186,10 +221,14 @@ function onSeek(e: MouseEvent) {
   cursor: pointer;
   min-width: 60px;
   max-width: 300px;
+  position: relative;
 }
 .status-progress.disabled {
   cursor: default;
   opacity: 0.5;
+}
+.status-progress.dragging {
+  cursor: grabbing;
 }
 .status-progress-fill {
   height: 100%;
@@ -197,9 +236,40 @@ function onSeek(e: MouseEvent) {
   border-radius: 2px;
   transition: width 0.1s linear;
 }
+.status-progress.dragging .status-progress-fill {
+  transition: none;
+}
+
+/* Draggable thumb */
+.status-progress-thumb {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  background: var(--statusbar-fg);
+  border: 2px solid rgba(255,255,255,0.9);
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgba(0,0,0,0.4);
+  cursor: grab;
+  z-index: 1;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.status-progress:hover .status-progress-thumb,
+.status-progress.dragging .status-progress-thumb {
+  opacity: 1;
+}
+.status-progress-thumb:active {
+  cursor: grabbing;
+}
+.status-progress.disabled .status-progress-thumb {
+  opacity: 0;
+  pointer-events: none;
+}
 
 .status-time {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -213,7 +283,7 @@ function onSeek(e: MouseEvent) {
 .status-speed-btn {
   padding: 0 4px;
   height: 18px;
-  font-size: 10px;
+  font-size: 0.714rem;
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
@@ -233,7 +303,7 @@ function onSeek(e: MouseEvent) {
 .status-speed-input {
   width: 40px;
   height: 18px;
-  font-size: 10px;
+  font-size: 0.714rem;
   padding: 0 4px;
   background: rgba(255,255,255,0.1);
   border: 1px solid rgba(255,255,255,0.2);
@@ -246,7 +316,7 @@ function onSeek(e: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 3px;
-  font-size: 11px;
+  font-size: 0.786rem;
   background: transparent;
   border: none;
   color: inherit;
@@ -270,14 +340,14 @@ function onSeek(e: MouseEvent) {
 }
 
 .status-count {
-  font-size: 11px;
+  font-size: 0.786rem;
   white-space: nowrap;
   opacity: 0.8;
 }
 
 .status-error {
   color: var(--error);
-  font-size: 11px;
+  font-size: 0.786rem;
   white-space: nowrap;
   max-width: 200px;
   overflow: hidden;
@@ -287,7 +357,7 @@ function onSeek(e: MouseEvent) {
 .status-theme {
   width: auto;
   padding: 0 4px;
-  font-size: 14px;
+  font-size: 1rem;
 }
 
 /* Import loading indicator */
@@ -295,7 +365,7 @@ function onSeek(e: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--accent-primary);
   white-space: nowrap;
 }

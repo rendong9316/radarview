@@ -36,6 +36,42 @@
       </div>
     </div>
 
+    <!-- Flag scale group -->
+    <div class="setting-group">
+      <div class="setting-group-title">旗标大小</div>
+      <div class="setting-row">
+        <span class="setting-label flag-label">图标&amp;文字</span>
+        <input
+          type="range"
+          class="setting-slider"
+          min="0.5"
+          max="3.0"
+          step="0.1"
+          :value="flagScaleVal"
+          @input="setFlagScale(Number(($event.target as HTMLInputElement).value))"
+        />
+        <span class="setting-value">{{ flagScaleVal.toFixed(1) }}</span>
+      </div>
+    </div>
+
+    <!-- Font size group -->
+    <div class="setting-group">
+      <div class="setting-group-title">字号大小</div>
+      <div class="setting-row">
+        <span class="setting-label font-label">应用字号</span>
+        <input
+          type="range"
+          class="setting-slider"
+          min="10"
+          max="20"
+          step="1"
+          :value="fontSizeVal"
+          @input="setFontSize(Number(($event.target as HTMLInputElement).value))"
+        />
+        <span class="setting-value">{{ fontSizeVal }}px</span>
+      </div>
+    </div>
+
     <!-- Tools -->
     <div class="setting-group">
       <div class="setting-group-title">工具</div>
@@ -56,7 +92,10 @@
 </template>
 
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { DataSource } from '../../types/track'
+import { useFlagScale } from '../../composables/useFlagScale'
+import { useFontSize } from '../../composables/useFontSize'
 
 defineProps<{
   lineWidths: Record<DataSource, number>
@@ -75,6 +114,12 @@ defineEmits<{
 }>()
 
 const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
+
+const { flagScale, setFlagScale } = useFlagScale()
+const { fontSize, setFontSize } = useFontSize()
+
+const flagScaleVal = computed(() => flagScale.value)
+const fontSizeVal = computed(() => fontSize.value)
 
 function sourceLabel(src: DataSource): string {
   const map: Record<DataSource, string> = { adsb: 'ADS-B', radar: 'Radar', radar_raw: 'Raw', simulation: 'Sim' }
@@ -96,7 +141,7 @@ function sourceLabel(src: DataSource): string {
 }
 
 .setting-group-title {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-tertiary);
   margin-bottom: 6px;
   text-transform: uppercase;
@@ -111,7 +156,7 @@ function sourceLabel(src: DataSource): string {
 }
 
 .setting-label {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   width: 48px;
   flex-shrink: 0;
@@ -119,6 +164,8 @@ function sourceLabel(src: DataSource): string {
 .setting-label.adsb { color: var(--source-adsb); }
 .setting-label.radar { color: var(--source-radar); }
 .setting-label.radar_raw { color: var(--source-radar_raw); }
+.setting-label.flag-label { color: var(--accent-primary); }
+.setting-label.font-label { color: var(--text-primary); }
 
 .setting-slider {
   flex: 1;
@@ -143,7 +190,7 @@ function sourceLabel(src: DataSource): string {
 }
 
 .setting-value {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-tertiary);
   width: 24px;
   text-align: right;
@@ -158,7 +205,7 @@ function sourceLabel(src: DataSource): string {
   color: var(--button-fg);
   border: 1px solid var(--border-secondary);
   border-radius: 3px;
-  font-size: 12px;
+  font-size: 0.857rem;
   cursor: pointer;
   text-align: left;
   transition: background 0.1s;

@@ -11,6 +11,7 @@ import { useTrackStyle } from '../composables/useTrackStyle'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
+import { useFlagScale } from '../composables/useFlagScale'
 import { trackKey } from '../composables/useTracks'
 import type { Flag } from '../composables/useFlags'
 
@@ -37,6 +38,7 @@ const { getColor, getIcon } = useTrackStyle()
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, selectedPair } = useFlags()
+const { flagScale } = useFlagScale()
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -95,23 +97,24 @@ let pinIconDataUrl = ''
 
 function createFlagEntity(flag: Flag) {
   if (!viewer) return
+  const s = flagScale.value
   const entity = viewer.entities.add({
     id: `flag-${flag.id}`,
     position: Cesium.Cartesian3.fromDegrees(flag.longitude, flag.latitude),
     billboard: {
       image: pinIconDataUrl,
-      scale: 0.8,
+      scale: 0.8 * s,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
     },
     label: {
       text: flag.label,
-      font: '12px sans-serif',
+      font: `${Math.round(12 * s)}px sans-serif`,
       fillColor: Cesium.Color.YELLOW,
       outlineColor: Cesium.Color.BLACK,
       outlineWidth: 2,
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       verticalOrigin: Cesium.VerticalOrigin.TOP,
-      pixelOffset: new Cesium.Cartesian2(0, 8),
+      pixelOffset: new Cesium.Cartesian2(0, Math.round(8 * s)),
     },
   })
   flagEntityMap.set(flag.id, entity)
@@ -137,6 +140,7 @@ function syncFlagEntities() {
   if (!viewer) return
   const newIds = new Set(flags.value.map((f) => f.id))
   const oldIds = new Set(flagEntityMap.keys())
+  const s = flagScale.value
 
   viewer.entities.suspendEvents()
 
@@ -151,6 +155,11 @@ function syncFlagEntities() {
       const entity = flagEntityMap.get(flag.id)!
       if (entity.label) {
         entity.label.text = new Cesium.ConstantProperty(flag.label)
+        entity.label.font = new Cesium.ConstantProperty(`${Math.round(12 * s)}px sans-serif`)
+        entity.label.pixelOffset = new Cesium.ConstantProperty(new Cesium.Cartesian2(0, Math.round(8 * s)))
+      }
+      if (entity.billboard) {
+        entity.billboard.scale = new Cesium.ConstantProperty(0.8 * s)
       }
     }
   }
@@ -646,6 +655,11 @@ watch(() => props.selectedId, (newId) => {
 watch(flags, () => {
   syncFlagEntities()
 }, { deep: false })
+
+// Re-sync flag entities when flag scale changes
+watch(flagScale, () => {
+  syncFlagEntities()
+})
 
 // Draw great-circle arc between selected flags
 watch(selectedPair, (pair) => {

@@ -181,7 +181,7 @@ const displayTracks = computed(() => {
 
 const replay = useReplay(displayTracks, initialReplaySpeed)
 const unifiedReplayTime = computed(() =>
-  replay.isPlaying.value ? replay.currentTime.value : null
+  replay.isReplayActive.value ? replay.currentTime.value : null
 )
 
 // StatusBar source indicators
@@ -384,7 +384,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   justify-content: center;
 }
 .drop-hint {
-  font-size: 24px;
+  font-size: 1.714rem;
   font-weight: 700;
   color: var(--accent-primary);
   text-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
@@ -401,7 +401,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   color: var(--error);
   border: 1px solid var(--error);
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.857rem;
   z-index: 20;
   pointer-events: none;
 }
@@ -417,7 +417,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   color: #fff;
   border: none;
   border-radius: 4px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   cursor: pointer;
   z-index: 10;
@@ -447,14 +447,14 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   color: var(--text-primary);
   border-bottom: 1px solid var(--border-primary);
 }
 
 .batch-overlay-close {
-  font-size: 14px;
+  font-size: 1rem;
   color: var(--text-tertiary);
   background: none;
   border: none;
@@ -467,7 +467,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 
 .batch-empty {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
   text-align: center;
   padding: 12px 0;
 }
@@ -492,7 +492,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 }
 
 .batch-src {
-  font-size: 9px;
+  font-size: 0.643rem;
   padding: 0 4px;
   border-radius: 3px;
   width: fit-content;
@@ -504,7 +504,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 }
 
 .batch-file {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -512,7 +512,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 }
 
 .batch-meta {
-  font-size: 9px;
+  font-size: 0.643rem;
   color: var(--text-tertiary);
 }
 
@@ -520,7 +520,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   background: none;
   border: none;
   color: var(--error);
-  font-size: 14px;
+  font-size: 1rem;
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;

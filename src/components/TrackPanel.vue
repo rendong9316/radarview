@@ -189,7 +189,7 @@ function lastSpeed(track: Track): string {
   border: 1px solid var(--input-border);
   border-radius: 2px;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: 0.857rem;
   outline: none;
   box-sizing: border-box;
 }
@@ -209,7 +209,7 @@ function lastSpeed(track: Track): string {
   transform: translateY(-50%);
   color: var(--text-tertiary);
   cursor: pointer;
-  font-size: 16px;
+  font-size: 1.143rem;
   line-height: 1;
 }
 
@@ -225,7 +225,7 @@ function lastSpeed(track: Track): string {
   background: var(--accent-primary);
   color: #fff;
   border-radius: 2px;
-  font-size: 11px;
+  font-size: 0.786rem;
   margin-bottom: 4px;
 }
 
@@ -235,7 +235,7 @@ function lastSpeed(track: Track): string {
   border: none;
   border-radius: 2px;
   color: #fff;
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
 }
 
@@ -245,7 +245,7 @@ function lastSpeed(track: Track): string {
 
 .placeholder-text {
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 0.857rem;
   padding: 16px 0;
   text-align: center;
 }
@@ -277,7 +277,7 @@ function lastSpeed(track: Track): string {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 0.857rem;
   margin-bottom: 2px;
 }
 
@@ -295,13 +295,13 @@ function lastSpeed(track: Track): string {
 
 .track-type {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .track-item-bottom {
   display: flex;
   gap: 8px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-tertiary);
   padding-left: 14px;
 }
@@ -317,7 +317,7 @@ function lastSpeed(track: Track): string {
 .detail-row {
   display: flex;
   gap: 6px;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .detail-label {
@@ -332,7 +332,7 @@ function lastSpeed(track: Track): string {
 
 .detail-value.mono {
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .expand-btn {
@@ -341,7 +341,7 @@ function lastSpeed(track: Track): string {
   background: transparent;
   border: none;
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
 }
 

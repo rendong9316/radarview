@@ -144,7 +144,7 @@ function onResizeEnd() {
 }
 
 .sidebar-title {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   color: var(--sidebar-header);
   text-transform: uppercase;
@@ -157,7 +157,7 @@ function onResizeEnd() {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-tertiary);
   background: transparent;
   border: none;

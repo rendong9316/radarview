@@ -105,7 +105,7 @@ function clear() {
 }
 
 .active-indicator {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--accent-primary);
   padding: 4px 8px;
   background: var(--bg-tertiary);
@@ -120,7 +120,7 @@ function clear() {
 }
 
 .range-info {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-tertiary);
   text-align: center;
 }
@@ -138,7 +138,7 @@ function clear() {
   border: 1px solid var(--input-border);
   border-radius: 2px;
   color: var(--input-fg);
-  font-size: 11px;
+  font-size: 0.786rem;
   outline: none;
   min-width: 0;
 }
@@ -149,7 +149,7 @@ function clear() {
 
 .time-sep {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
   flex-shrink: 0;
 }
 
@@ -165,7 +165,7 @@ function clear() {
   color: #fff;
   border: none;
   border-radius: 2px;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -185,7 +185,7 @@ function clear() {
   color: var(--button-fg);
   border: 1px solid var(--border-primary);
   border-radius: 2px;
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
 }
 
@@ -195,7 +195,7 @@ function clear() {
 
 .error-msg {
   color: var(--error);
-  font-size: 11px;
+  font-size: 0.786rem;
   text-align: center;
   margin: 0;
 }

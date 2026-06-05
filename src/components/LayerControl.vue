@@ -111,7 +111,7 @@ function onPfMax(source: DataSource, val: string) {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 0.857rem;
   cursor: pointer;
 }
 
@@ -130,7 +130,7 @@ function onPfMax(source: DataSource, val: string) {
 
 .layer-count {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
   min-width: 24px;
   text-align: right;
 }
@@ -175,7 +175,7 @@ function onPfMax(source: DataSource, val: string) {
 }
 
 .filter-toggle {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-tertiary);
   cursor: pointer;
   display: flex;
@@ -185,8 +185,8 @@ function onPfMax(source: DataSource, val: string) {
   user-select: none;
 }
 .filter-toggle:hover { color: var(--accent-primary); }
-.collapse-icon { font-size: 12px; }
-.collapse-icon.small { font-size: 10px; }
+.collapse-icon { font-size: 0.857rem; }
+.collapse-icon.small { font-size: 0.714rem; }
 
 .point-filter-list {
   display: flex;
@@ -198,7 +198,7 @@ function onPfMax(source: DataSource, val: string) {
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .pf-check-label {
@@ -209,7 +209,7 @@ function onPfMax(source: DataSource, val: string) {
   cursor: pointer;
   white-space: nowrap;
   min-width: 42px;
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .pf-input {
@@ -219,7 +219,7 @@ function onPfMax(source: DataSource, val: string) {
   border: 1px solid var(--input-border);
   border-radius: 2px;
   color: var(--input-fg);
-  font-size: 11px;
+  font-size: 0.786rem;
   outline: none;
 }
 
@@ -234,6 +234,6 @@ function onPfMax(source: DataSource, val: string) {
 
 .pf-sep {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 </style>

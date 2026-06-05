@@ -31,6 +31,7 @@
 
       <div v-if="flags.length === 0" class="empty-text">暂无旗标，双击地图放置</div>
       <div v-else class="flag-list">
+        <button v-if="flags.length" class="clear-all-btn" @click="onClearAll">🗑️ 清除全部旗标</button>
         <div v-for="flag in flags" :key="flag.id" class="flag-row">
           <input
             type="checkbox"
@@ -58,7 +59,6 @@
           </div>
           <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标">×</button>
         </div>
-        <button v-if="flags.length" class="clear-all-btn" @click="onClearAll">🗑️ 清除全部旗标</button>
       </div>
     </div>
   </div>
@@ -140,12 +140,17 @@ const geoResult = computed(() => {
 .flag-panel {
   display: flex;
   flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
 .panel-body {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .input-row {
@@ -161,13 +166,13 @@ const geoResult = computed(() => {
   border: 1px solid var(--input-border);
   border-radius: 2px;
   color: var(--input-fg);
-  font-size: 11px;
+  font-size: 0.786rem;
   outline: none;
 }
 
 .coord-input::placeholder {
   color: var(--text-tertiary);
-  font-size: 10px;
+  font-size: 0.714rem;
 }
 
 .coord-input:focus {
@@ -180,7 +185,7 @@ const geoResult = computed(() => {
   color: #fff;
   border: none;
   border-radius: 2px;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-weight: 600;
   cursor: pointer;
   white-space: nowrap;
@@ -192,7 +197,7 @@ const geoResult = computed(() => {
 
 .coord-error {
   color: var(--error);
-  font-size: 11px;
+  font-size: 0.786rem;
   text-align: center;
   margin: 0;
 }
@@ -205,14 +210,14 @@ const geoResult = computed(() => {
 }
 
 .geo-line {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--accent-primary);
   line-height: 1.6;
 }
 
 .empty-text {
   color: var(--text-tertiary);
-  font-size: 11px;
+  font-size: 0.786rem;
   text-align: center;
   padding: 8px 0;
 }
@@ -221,7 +226,8 @@ const geoResult = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  max-height: 200px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
 }
 
@@ -249,7 +255,7 @@ const geoResult = computed(() => {
 }
 
 .flag-label {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-primary);
   font-weight: 500;
   cursor: pointer;
@@ -267,12 +273,12 @@ const geoResult = computed(() => {
   border: 1px solid var(--accent-primary);
   border-radius: 2px;
   color: var(--input-fg);
-  font-size: 11px;
+  font-size: 0.786rem;
   outline: none;
 }
 
 .flag-coords {
-  font-size: 10px;
+  font-size: 0.714rem;
   color: var(--text-tertiary);
   font-family: 'Cascadia Code', 'Fira Code', monospace;
 }
@@ -282,7 +288,7 @@ const geoResult = computed(() => {
   background: none;
   border: none;
   color: var(--error);
-  font-size: 14px;
+  font-size: 1rem;
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -294,12 +300,12 @@ const geoResult = computed(() => {
 .clear-all-btn {
   width: 100%;
   padding: 5px 10px;
-  margin-top: 6px;
+  margin-bottom: 6px;
   background: var(--error-bg);
   color: var(--error);
   border: 1px solid var(--error);
   border-radius: 2px;
-  font-size: 12px;
+  font-size: 0.857rem;
   cursor: pointer;
   text-align: center;
 }

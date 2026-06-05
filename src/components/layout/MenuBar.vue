@@ -16,13 +16,26 @@
         <div
           v-else-if="item.type === 'submenu'"
           class="menu-item submenu-trigger"
-          :class="{ disabled: item.disabled }"
-          @mouseenter="onSubmenuEnter(item.id!)"
-          @mouseleave="onSubmenuLeave"
+          :class="{ disabled: item.disabled, open: activeSubmenu === item.id }"
+          @click.stop
+          @mouseenter="openSubMenu = item.id! as 'appearance'"
         >
           <span class="menu-label">{{ item.label }}</span>
           <span class="menu-arrow">▸</span>
         </div>
+
+        <!-- Inline submenu items (appearance) -->
+        <template v-if="item.type === 'submenu' && activeSubmenu === item.id">
+          <button
+            v-for="th in themes"
+            :key="th.id"
+            class="menu-item submenu-item"
+            @click="onThemeClick(th.id)"
+          >
+            <span class="menu-check">{{ activeTheme === th.id ? '✓' : '' }}</span>
+            <span class="menu-label">{{ th.labelZh }} ({{ th.label }})</span>
+          </button>
+        </template>
 
         <!-- Normal item -->
         <button
@@ -36,23 +49,6 @@
           <span v-if="item.shortcut" class="menu-shortcut">{{ item.shortcut }}</span>
         </button>
       </template>
-    </div>
-
-    <!-- Submenu (Appearance) -->
-    <div
-      v-if="activeSubmenu === 'appearance'"
-      class="menu-dropdown submenu-dropdown"
-      :style="submenuStyle"
-    >
-      <button
-        v-for="th in themes"
-        :key="th.id"
-        class="menu-item"
-        @click="onThemeClick(th.id)"
-      >
-        <span class="menu-check">{{ activeTheme === th.id ? '✓' : '' }}</span>
-        <span class="menu-label">{{ th.labelZh }} ({{ th.label }})</span>
-      </button>
     </div>
   </Teleport>
 
@@ -198,20 +194,6 @@ const dropdownStyle = computed(() => {
   }
 })
 
-const submenuStyle = computed(() => {
-  if (!openMenuR.value) return { display: 'none' as const }
-  const btn = btnRefs.value[openMenuR.value]
-  if (!btn) return { display: 'none' as const }
-  const rect = btn.getBoundingClientRect()
-  // Approximate submenu position — to the right of the parent menu
-  return {
-    position: 'fixed' as const,
-    top: `${rect.bottom + 130}px`, // after "外观" item (approx)
-    left: `${rect.left + 220}px`,  // width of parent dropdown
-    zIndex: 51,
-  }
-})
-
 // ── Theme list for submenu ──
 const themes = computed(() => [
   themeDefs.dark,
@@ -252,14 +234,6 @@ function onThemeClick(id: string) {
   close()
 }
 
-function onSubmenuEnter(id: string) {
-  openSubMenu.value = id as 'appearance'
-}
-
-function onSubmenuLeave() {
-  openSubMenu.value = null
-}
-
 // ── Global click to close menus ──
 function onGlobalClick() {
   close()
@@ -294,7 +268,7 @@ onUnmounted(() => {
 .menubar-btn {
   height: 100%;
   padding: 0 8px;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--titlebar-fg);
   background: transparent;
   border: none;
@@ -326,7 +300,7 @@ onUnmounted(() => {
   justify-content: space-between;
   width: 100%;
   padding: 4px 20px;
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--menu-fg);
   background: transparent;
   border: none;
@@ -352,7 +326,7 @@ onUnmounted(() => {
 .menu-shortcut {
   margin-left: 24px;
   color: var(--menu-shortcut);
-  font-size: 12px;
+  font-size: 0.857rem;
 }
 
 .menu-check {
@@ -363,7 +337,7 @@ onUnmounted(() => {
 
 .menu-arrow {
   color: var(--menu-shortcut);
-  font-size: 11px;
+  font-size: 0.786rem;
 }
 
 .menu-separator {
@@ -374,6 +348,13 @@ onUnmounted(() => {
 
 .submenu-trigger {
   position: relative;
+}
+.submenu-trigger.open {
+  background: var(--menu-hover);
+}
+
+.submenu-item {
+  padding-left: 36px !important;
 }
 
 /* Submenu dropdown */

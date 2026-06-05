@@ -118,6 +118,20 @@ async function applySettings(raw: Record<string, string>) {
     try { lbl.showLabels.value = JSON.parse(raw['display.show_labels']) } catch { /* keep default */ }
   }
 
+  // ── Flag scale ──
+  const { useFlagScale } = await import('./useFlagScale')
+  const fs = useFlagScale()
+  if (raw['display.flag_scale'] !== undefined) {
+    try { fs.flagScale.value = JSON.parse(raw['display.flag_scale']) } catch { /* keep default */ }
+  }
+
+  // ── Font size ──
+  const { useFontSize } = await import('./useFontSize')
+  const fns = useFontSize()
+  if (raw['display.font_size'] !== undefined) {
+    try { fns.fontSize.value = JSON.parse(raw['display.font_size']) } catch { /* keep default */ }
+  }
+
   // ── Flags ──
   const { useFlags } = await import('./useFlags')
   const fl = useFlags()

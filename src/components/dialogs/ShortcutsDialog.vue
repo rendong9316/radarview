@@ -96,7 +96,7 @@ defineEmits<{ close: [] }>()
 }
 
 .dialog-title {
-  font-size: 16px;
+  font-size: 1.143rem;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 16px;
@@ -108,7 +108,7 @@ defineEmits<{ close: [] }>()
 }
 
 .group-title {
-  font-size: 12px;
+  font-size: 0.857rem;
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -130,7 +130,7 @@ defineEmits<{ close: [] }>()
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: 3px;
-  font-size: 11px;
+  font-size: 0.786rem;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
   color: var(--text-primary);
   text-align: center;
@@ -139,7 +139,7 @@ defineEmits<{ close: [] }>()
 
 .shortcut-desc {
   margin-left: 12px;
-  font-size: 12px;
+  font-size: 0.857rem;
   color: var(--text-secondary);
 }
 
@@ -151,7 +151,7 @@ defineEmits<{ close: [] }>()
   color: #fff;
   border: none;
   border-radius: 3px;
-  font-size: 13px;
+  font-size: 0.929rem;
   cursor: pointer;
 }
 .dialog-btn:hover {

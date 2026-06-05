@@ -88,12 +88,12 @@ const items: ActivityItem[] = [
 }
 
 .activitybar-icon {
-  font-size: 20px;
+  font-size: 1.429rem;
   line-height: 1;
 }
 
 .activitybar-label {
-  font-size: 9px;
+  font-size: 0.643rem;
   line-height: 1;
 }
 

@@ -26,9 +26,9 @@ export const darkTheme: Theme = {
     '--sidebar-border': '#3c3c3c',
     '--sidebar-header': '#cccccc',
 
-    '--statusbar-bg': '#007acc',
-    '--statusbar-fg': '#ffffff',
-    '--statusbar-border': '#005a9e',
+    '--statusbar-bg': '#1f2330',
+    '--statusbar-fg': '#e0e0e0',
+    '--statusbar-border': '#2d3240',
 
     '--editor-bg': '#1e1e1e',
 

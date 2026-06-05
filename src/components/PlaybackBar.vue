@@ -103,7 +103,7 @@ function onCustomSpeed(e: Event) {
   border-radius: 6px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--color-text);
-  font-size: 14px;
+  font-size: 1rem;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -122,7 +122,7 @@ function onCustomSpeed(e: Event) {
 }
 
 .time-display {
-  font-size: 11px;
+  font-size: 0.786rem;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
   color: var(--color-text-dim);
   min-width: 64px;
@@ -170,7 +170,7 @@ function onCustomSpeed(e: Event) {
   border-radius: 4px;
   background: transparent;
   color: var(--color-text-dim);
-  font-size: 11px;
+  font-size: 0.786rem;
   cursor: pointer;
   transition: all 0.15s;
 }
@@ -193,7 +193,7 @@ function onCustomSpeed(e: Event) {
   border-radius: 4px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--color-text);
-  font-size: 11px;
+  font-size: 0.786rem;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
   text-align: center;
   outline: none;

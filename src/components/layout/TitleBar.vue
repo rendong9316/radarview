@@ -112,12 +112,12 @@ onUnmounted(() => {
 }
 
 .titlebar-icon {
-  font-size: 16px;
+  font-size: 1.143rem;
   line-height: 1;
 }
 
 .titlebar-title {
-  font-size: 13px;
+  font-size: 0.929rem;
   font-weight: 500;
   color: var(--titlebar-fg);
   letter-spacing: 0.3px;

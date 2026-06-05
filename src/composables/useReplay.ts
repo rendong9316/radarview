@@ -54,6 +54,7 @@ function interpolatePosition(pos: ReplayPosition, points: TrackPoint[]): TrackPo
 
 export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
   const isPlaying = ref(false)
+  const isReplayActive = ref(false)
   const currentTime = ref(0)
   const speed = ref(initialSpeed ?? 500)
   const speedOptions = SPEED_OPTIONS
@@ -127,6 +128,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
     if (timeRange.value && currentTime.value >= timeRange.value.end) {
       currentTime.value = timeRange.value.start
     }
+    isReplayActive.value = true
     isPlaying.value = true
     lastWallTime = performance.now()
     animFrameId = requestAnimationFrame(tick)
@@ -156,6 +158,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
     () => tracks.value,
     () => {
       pause()
+      isReplayActive.value = false
       if (timeRange.value) {
         currentTime.value = timeRange.value.start
       }
@@ -187,6 +190,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
 
   return {
     isPlaying,
+    isReplayActive,
     currentTime,
     speed,
     speedOptions,

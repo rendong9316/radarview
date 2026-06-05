@@ -47,25 +47,25 @@ defineEmits<{ close: [] }>()
 }
 
 .dialog-icon {
-  font-size: 48px;
+  font-size: 3.429rem;
   margin-bottom: 12px;
 }
 
 .dialog-title {
-  font-size: 20px;
+  font-size: 1.429rem;
   font-weight: 600;
   color: var(--text-primary);
   margin-bottom: 4px;
 }
 
 .dialog-subtitle {
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--text-secondary);
   margin-bottom: 4px;
 }
 
 .dialog-version {
-  font-size: 13px;
+  font-size: 0.929rem;
   color: var(--accent-primary);
   font-weight: 600;
   margin-bottom: 16px;
@@ -84,12 +84,12 @@ defineEmits<{ close: [] }>()
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: 12px;
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-secondary);
 }
 
 .dialog-copy {
-  font-size: 11px;
+  font-size: 0.786rem;
   color: var(--text-tertiary);
   margin-bottom: 16px;
 }
@@ -100,7 +100,7 @@ defineEmits<{ close: [] }>()
   color: #fff;
   border: none;
   border-radius: 3px;
-  font-size: 13px;
+  font-size: 0.929rem;
   cursor: pointer;
 }
 .dialog-btn:hover {
