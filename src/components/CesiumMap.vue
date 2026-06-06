@@ -251,7 +251,7 @@ function createTrackEntities(track: Track) {
     const alpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
     polyline = viewer.entities.add({
       id: `${tKey}::line`,
-      show: !replaying, // hide until updateReplayPositions sets correct partial trail
+      show: !replaying && visibility.value[track.source as keyof typeof visibility.value] !== false, // hide until updateReplayPositions sets correct partial trail
       polyline: {
         positions: new Cesium.CallbackProperty(() => trailRef.positions, false),
         width,
@@ -269,7 +269,7 @@ function createTrackEntities(track: Track) {
   const billboardScale = dotSize(isSelected ? DOT_SELECTED : isRaw ? DOT_RAW : DOT_BASE, track.source)
   const billboard = viewer.entities.add({
     id: `${tKey}::dot`,
-    show: true,
+    show: visibility.value[track.source as keyof typeof visibility.value] !== false,
     position: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude),
     billboard: {
       image: icon,
@@ -303,6 +303,17 @@ function clearAllEntities() {
   if (!viewer) return
   for (const [id] of entityMap) {
     removeTrackEntities(id)
+  }
+}
+
+/** Re-apply per-source layer visibility to all Cesium entities.
+ *  Must be called after syncEntities / replay restore / any operation
+ *  that may have overwritten entity.show without consulting visibility state. */
+function reapplyVisibility() {
+  for (const [, entities] of entityMap) {
+    const vis = visibility.value[entities.source as keyof typeof visibility.value]
+    if (entities.polyline) entities.polyline.show = vis
+    entities.billboard.show = vis
   }
 }
 
@@ -343,7 +354,7 @@ function syncEntities(newTracks: Track[]) {
           if (!replaying) {
             existing.trailRef.positions = toCartesianArray(track.positions)
           }
-          existing.polyline.show = true
+          existing.polyline.show = visibility.value[track.source as keyof typeof visibility.value] !== false
         } else {
           existing.polyline.show = false
         }
@@ -356,7 +367,7 @@ function syncEntities(newTracks: Track[]) {
         }
         existing.polyline = viewer.entities.add({
           id: `${tKey}::line`,
-          show: true,
+          show: visibility.value[track.source as keyof typeof visibility.value] !== false,
           polyline: {
             positions: new Cesium.CallbackProperty(() => existing.trailRef.positions, false),
             width: tSel ? SELECTED_WIDTH : baseWidth(track.source),
@@ -372,6 +383,7 @@ function syncEntities(newTracks: Track[]) {
     }
   } finally {
     viewer.entities.resumeEvents()
+    reapplyVisibility()
     viewer.scene.requestRender()
   }
   const t1 = performance.now()
@@ -421,7 +433,7 @@ function updateReplayPositions(time: number) {
       entities.trailRef.positions = toCartesianArray(allVisible)
 
       if (entities.polyline) {
-        entities.polyline.show = allVisible.length >= 2
+        entities.polyline.show = allVisible.length >= 2 && visibility.value[entities.source as keyof typeof visibility.value] !== false
       } else if (allVisible.length >= 2) {
         const color = getColor(track.source)
         const tKey = trackKey(track.id, track.source)
@@ -429,7 +441,7 @@ function updateReplayPositions(time: number) {
         const isRaw = track.source === 'radar_raw'
         entities.polyline = viewer.entities.add({
           id: `${tKey}::line`,
-          show: true,
+          show: visibility.value[track.source as keyof typeof visibility.value] !== false,
           polyline: {
             positions: new Cesium.CallbackProperty(() => entities.trailRef.positions, false),
             width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
@@ -461,11 +473,12 @@ watch(
         entities.trailRef.positions = toCartesianArray(track.positions)
         entities.lastTrailLo = track.positions.length - 1
         if (entities.polyline) {
-          entities.polyline.show = track.positions.length >= 2
+          entities.polyline.show = track.positions.length >= 2 && visibility.value[entities.source as keyof typeof visibility.value] !== false
         }
         // Restore billboard to last position
         entities.billboard.position = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude) as any
       }
+      reapplyVisibility()
       viewer?.scene.requestRender()
     }
   },

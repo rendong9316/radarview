@@ -142,7 +142,7 @@ interface Batch {
 
 const mapRef = ref<InstanceType<typeof CesiumMap>>()
 const loader = useTrackLoader()
-const { tracks, trackCount, selectedId, isolatedTrackId, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
+const { tracks, trackCount, selectedId, isolatedTrackId, visibleTrackIds, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
 const { tracksBySource } = useTracksModule()
 const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange, clearAllTimeRanges } = useTrackFilter()
 const { toggle: toggleLabels } = useLabelVisibility()
@@ -172,10 +172,16 @@ function onTimeFilterClear() {
 }
 
 const displayTracks = computed(() => {
+  // Priority 1: Management panel multi-select visible set
+  if (visibleTrackIds.value.size > 0) {
+    return tracks.value.filter(tr => visibleTrackIds.value.has(trackKey(tr.id, tr.source)))
+  }
+  // Priority 2: TrackPanel single isolation
   if (isolatedTrackId.value) {
     const t = tracks.value.find(tr => trackKey(tr.id, tr.source) === isolatedTrackId.value)
     return t ? [t] : []
   }
+  // Priority 3: Default — show all filtered tracks
   return filteredTracks.value
 })
 
@@ -201,6 +207,7 @@ function onMenuAction(action: string) {
     case 'clear-selection': clearIsolation(); break
     case 'open-settings': activatePanel('settings'); break
     case 'toggle-track-panel': activatePanel('tracks'); break
+    case 'toggle-manage-panel': activatePanel('manage'); break
     case 'toggle-layer-panel': activatePanel('layers'); break
     case 'toggle-flag-panel': case 'open-flags': activatePanel('flags'); break
     case 'toggle-time-filter': activatePanel('timeFilter'); break
@@ -254,6 +261,7 @@ onMounted(async () => {
     else if (ctrl && !shift && e.key === 'r') { e.preventDefault(); handleResetView() }
     else if (ctrl && !shift && e.key === 't') { e.preventDefault(); toggleLabels() }
     else if (ctrl && shift && e.key === 'T') { e.preventDefault(); activatePanel('tracks') }
+    else if (ctrl && shift && e.key === 'M') { e.preventDefault(); activatePanel('manage') }
     else if (ctrl && shift && e.key === 'L') { e.preventDefault(); activatePanel('layers') }
     else if (ctrl && shift && e.key === 'F') { e.preventDefault(); activatePanel('flags') }
     else if (ctrl && shift && e.key === 'E') { e.preventDefault(); activatePanel('timeFilter') }

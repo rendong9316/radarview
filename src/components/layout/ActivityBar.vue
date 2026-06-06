@@ -42,9 +42,10 @@ interface ActivityItem {
 
 const items: ActivityItem[] = [
   { id: 'tracks', icon: '📋', label: '航迹', tooltip: '轨迹面板 (Ctrl+Shift+T)' },
+  { id: 'manage', icon: '📊', label: '管理', tooltip: '航迹管理系统 (Ctrl+Shift+M)' },
   { id: 'layers', icon: '🗺', label: '图层', tooltip: '图层控制 (Ctrl+Shift+L)' },
   { id: 'flags', icon: '🏴', label: '旗标', tooltip: '旗标面板 (Ctrl+Shift+F)' },
-  { id: 'timeFilter', icon: '⏱', label: '过滤', tooltip: '时间过滤 (Ctrl+Shift+E)' },
+  { id: 'timeFilter', icon: '⏱', label: '筛选', tooltip: '筛选 (Ctrl+Shift+E)' },
 ]
 </script>
 

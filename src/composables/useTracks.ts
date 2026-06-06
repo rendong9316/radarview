@@ -4,6 +4,8 @@ import type { Track, DataSource } from '../types/track'
 const tracks = ref<Track[]>([])
 const selectedId = ref<string | null>(null)
 const isolatedTrackId = ref<string | null>(null)
+/** Multi-select visible set from management panel (key = "icao::source") */
+const visibleTrackIds = ref<Set<string>>(new Set())
 
 /** Composite key for track identity: id + source. Radar and Measurement
  *  data may share the same Target ID but are different tracks. */
@@ -98,6 +100,28 @@ export function useTracks() {
     isolatedTrackId.value = null
   }
 
+  // ── Management panel visible set ──
+
+  function addToVisibleSet(key: string) {
+    const next = new Set(visibleTrackIds.value)
+    next.add(key)
+    visibleTrackIds.value = next
+  }
+
+  function removeFromVisibleSet(key: string) {
+    const next = new Set(visibleTrackIds.value)
+    next.delete(key)
+    visibleTrackIds.value = next
+  }
+
+  function clearVisibleSet() {
+    visibleTrackIds.value = new Set()
+  }
+
+  function isInVisibleSet(key: string): boolean {
+    return visibleTrackIds.value.has(key)
+  }
+
   function clearAll() {
     tracks.value = []
     selectedId.value = null
@@ -131,12 +155,17 @@ export function useTracks() {
     selectedTrack,
     isolatedTrackId,
     isolatedTrack,
+    visibleTrackIds,
     tracksBySource,
     addTracks,
     removeTrack,
     selectTrack,
     isolateTrack,
     clearIsolation,
+    addToVisibleSet,
+    removeFromVisibleSet,
+    clearVisibleSet,
+    isInVisibleSet,
     clearAll,
     setAll,
     trackKey,

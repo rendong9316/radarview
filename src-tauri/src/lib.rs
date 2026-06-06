@@ -1,5 +1,6 @@
 mod adsb;
 mod db;
+mod manage;
 mod radar;
 mod settings;
 mod tile_server;
@@ -191,6 +192,75 @@ fn load_filtered_cmd(
     db::load_filtered_tracks(&path, min_time_ms, max_time_ms, &source_filters)
 }
 
+// ── Track Management System commands ─────────────────────────────────────
+
+#[tauri::command]
+fn query_track_metadata_cmd(
+    db_path: tauri::State<'_, DbPath>,
+    filter_json: String,
+    limit: i64,
+    offset: i64,
+) -> Result<manage::TrackMetadataResponse, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    let filter: manage::TrackMetaFilter =
+        serde_json::from_str(&filter_json).map_err(|e| format!("parse filter: {}", e))?;
+    db::query_track_metadata(&path, &filter, limit, offset)
+}
+
+#[tauri::command]
+fn get_track_statistics_cmd(
+    db_path: tauri::State<'_, DbPath>,
+) -> Result<manage::TrackStats, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    db::get_track_statistics(&path)
+}
+
+#[tauri::command]
+fn get_distinct_options_cmd(
+    db_path: tauri::State<'_, DbPath>,
+    source: Option<String>,
+) -> Result<manage::DistinctOptions, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    db::get_distinct_options(&path, source.as_deref())
+}
+
+#[tauri::command]
+fn delete_track_cmd(
+    db_path: tauri::State<'_, DbPath>,
+    icao_address: String,
+    batch_id: i64,
+) -> Result<(), String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    db::delete_track(&path, &icao_address, batch_id)
+}
+
+#[tauri::command]
+fn delete_tracks_bulk_cmd(
+    db_path: tauri::State<'_, DbPath>,
+    tracks_json: String,
+) -> Result<(), String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    let tracks: Vec<(String, i64)> =
+        serde_json::from_str(&tracks_json).map_err(|e| format!("parse tracks: {}", e))?;
+    db::delete_tracks_bulk(&path, &tracks)
+}
+
+#[tauri::command]
+fn export_tracks_cmd(
+    db_path: tauri::State<'_, DbPath>,
+    tracks_json: String,
+) -> Result<Vec<Track>, String> {
+    let path = db_path.0.lock().map_err(|e| e.to_string())?;
+    let tracks: Vec<(String, i64)> =
+        serde_json::from_str(&tracks_json).map_err(|e| format!("parse tracks: {}", e))?;
+    db::export_tracks(&path, &tracks)
+}
+
+#[tauri::command]
+fn save_text_file(path: String, content: String) -> Result<(), String> {
+    std::fs::write(&path, &content).map_err(|e| format!("write file: {}", e))
+}
+
 #[tauri::command]
 fn save_setting(
     db_path: tauri::State<'_, DbPath>,
@@ -245,6 +315,13 @@ pub fn run() {
             delete_batch_cmd,
             get_time_range_cmd,
             load_filtered_cmd,
+            query_track_metadata_cmd,
+            get_track_statistics_cmd,
+            get_distinct_options_cmd,
+            delete_track_cmd,
+            delete_tracks_bulk_cmd,
+            export_tracks_cmd,
+            save_text_file,
             save_setting,
             load_all_settings,
         ])

@@ -1,7 +1,8 @@
 <template>
-  <div class="time-filter-panel">
-    <div v-if="props.hasActiveFilter" class="active-indicator">⬤ 时间过滤器已激活</div>
+  <div class="filter-panel">
+    <div v-if="props.hasActiveFilter || hasPointCountFilter" class="active-indicator">⬤ 筛选器已激活</div>
     <div class="panel-body">
+      <!-- 时间范围过滤 -->
       <div v-if="props.timeRange" class="range-info">
         数据范围: {{ fmtTime(props.timeRange.min) }} — {{ fmtTime(props.timeRange.max) }}
       </div>
@@ -27,12 +28,52 @@
         <button v-if="props.hasActiveFilter" class="clear-btn" @click="clear">清除</button>
       </div>
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
+
+      <!-- 分割线 -->
+      <div class="filter-divider"></div>
+
+      <!-- 航迹点长度筛选 -->
+      <div class="filter-section-label">航迹点长度筛选</div>
+      <div class="point-filter-list">
+        <div v-for="item in layerItems" :key="'pf-'+item.source" class="point-filter-row">
+          <span class="layer-dot" :style="{ background: item.color }"></span>
+          <label class="pf-check-label">
+            <input
+              type="checkbox"
+              :checked="pointCountFilters[item.source].enabled"
+              @change="onPfToggle(item.source, ($event.target as HTMLInputElement).checked)"
+            />
+            {{ item.label }}
+          </label>
+          <input
+            type="number"
+            class="pf-input"
+            placeholder="最小"
+            min="0"
+            :disabled="!pointCountFilters[item.source].enabled"
+            :value="pointCountFilters[item.source].min"
+            @change="onPfMin(item.source, ($event.target as HTMLInputElement).value)"
+          />
+          <span class="pf-sep">-</span>
+          <input
+            type="number"
+            class="pf-input"
+            placeholder="最大"
+            min="0"
+            :disabled="!pointCountFilters[item.source].enabled"
+            :value="pointCountFilters[item.source].max"
+            @change="onPfMax(item.source, ($event.target as HTMLInputElement).value)"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import type { DataSource } from '../types/track'
+import { useTrackFilter } from '../composables/useTrackFilter'
 
 const props = defineProps<{
   timeRange: { min: number; max: number } | null
@@ -44,9 +85,21 @@ const emit = defineEmits<{
   clear: []
 }>()
 
+const { pointCountFilters, setPointCountFilter } = useTrackFilter()
+
 const startInput = ref('')
 const endInput = ref('')
 const errorMsg = ref('')
+
+const hasPointCountFilter = computed(() =>
+  (['adsb', 'radar', 'radar_raw'] as DataSource[]).some(s => pointCountFilters.value[s].enabled)
+)
+
+const layerItems = [
+  { source: 'adsb' as DataSource, label: 'ADS-B', color: '#00d4ff' },
+  { source: 'radar' as DataSource, label: 'Radar', color: '#00ff88' },
+  { source: 'radar_raw' as DataSource, label: 'Raw', color: '#ff8800' },
+]
 
 const dtMin = computed(() => {
   if (!props.timeRange) return ''
@@ -95,10 +148,24 @@ function clear() {
   endInput.value = ''
   errorMsg.value = ''
 }
+
+function onPfToggle(source: DataSource, enabled: boolean) {
+  setPointCountFilter(source, { enabled })
+}
+
+function onPfMin(source: DataSource, val: string) {
+  const n = val === '' ? null : parseInt(val, 10)
+  setPointCountFilter(source, { min: n != null && !isNaN(n) ? n : null })
+}
+
+function onPfMax(source: DataSource, val: string) {
+  const n = val === '' ? null : parseInt(val, 10)
+  setPointCountFilter(source, { max: n != null && !isNaN(n) ? n : null })
+}
 </script>
 
 <style scoped>
-.time-filter-panel {
+.filter-panel {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -198,5 +265,74 @@ function clear() {
   font-size: 0.786rem;
   text-align: center;
   margin: 0;
+}
+
+/* ── Point count filter ── */
+.filter-divider {
+  height: 1px;
+  background: var(--border-primary);
+  margin: 2px 0;
+}
+
+.filter-section-label {
+  font-size: 0.786rem;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+.point-filter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.point-filter-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.786rem;
+}
+
+.layer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pf-check-label {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+  min-width: 52px;
+  font-size: 0.786rem;
+}
+
+.pf-input {
+  width: 50px;
+  padding: 2px 4px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  color: var(--input-fg);
+  font-size: 0.786rem;
+  outline: none;
+}
+
+.pf-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.pf-input:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.pf-sep {
+  color: var(--text-tertiary);
+  font-size: 0.786rem;
 }
 </style>

@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue'
 
-export type PanelId = 'tracks' | 'layers' | 'flags' | 'timeFilter' | 'settings'
+export type PanelId = 'tracks' | 'layers' | 'flags' | 'timeFilter' | 'manage' | 'settings'
 
 const activePanel = ref<PanelId | null>(null)
 const sidebarVisible = ref(false)

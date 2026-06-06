@@ -3,6 +3,9 @@ use std::path::PathBuf;
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 
+use crate::manage::{
+    DistinctOptions, TrackMetaFilter, TrackMetaInfo, TrackMetadataResponse, TrackStats,
+};
 use crate::track::Track;
 use crate::track::ts_to_ms;
 
@@ -626,4 +629,600 @@ pub fn delete_batch(path: &PathBuf, batch_id: i64) -> Result<(), String> {
         .map_err(|e| format!("delete batch: {}", e))?;
 
     Ok(())
+}
+
+// ── Track Management System queries ──────────────────────────────────────────
+
+/// Build a safe column name for ORDER BY (whitelist-based to prevent SQL injection).
+fn sort_column(filter: &TrackMetaFilter) -> &'static str {
+    match filter.sort_by.as_str() {
+        "icao_address" => "st.icao_address",
+        "flight_no" => "json_extract(st.track_json, '$.flight_no')",
+        "registration" => "json_extract(st.track_json, '$.registration')",
+        "aircraft_type" => "json_extract(st.track_json, '$.aircraft_type')",
+        "airline" => "json_extract(st.track_json, '$.airline')",
+        "origin" => "json_extract(st.track_json, '$.origin')",
+        "destination" => "json_extract(st.track_json, '$.destination')",
+        "point_count" => "st.point_count",
+        "min_timestamp" => "st.min_timestamp",
+        "max_timestamp" => "st.max_timestamp",
+        "batch_file_name" => "b.file_name",
+        "batch_imported_at" => "b.imported_at",
+        _ => "b.imported_at",
+    }
+}
+
+/// Paginated + filtered track metadata query.
+/// Returns (rows for current page, total matching count).
+pub fn query_track_metadata(
+    path: &PathBuf,
+    filter: &TrackMetaFilter,
+    limit: i64,
+    offset: i64,
+) -> Result<TrackMetadataResponse, String> {
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    let min_ts_text = filter
+        .min_time_ms
+        .map(|ms| ms_to_ts(ms))
+        .unwrap_or_default();
+    let max_ts_text = filter
+        .max_time_ms
+        .map(|ms| ms_to_ts(ms))
+        .unwrap_or_default();
+
+    // ── Build WHERE clause ──
+    let mut where_clauses: Vec<String> = Vec::new();
+    let mut param_values: Vec<String> = Vec::new();
+
+    // Source filter — optional, with frontend→DB name mapping
+    if let Some(ref src) = filter.source {
+        let db_src = crate::manage::source_to_db(src);
+        param_values.push(db_src.to_string());
+        where_clauses.push(format!("st.source = ?{}", param_values.len()));
+    }
+
+    // Time range filter (uses indexed columns)
+    if !min_ts_text.is_empty() {
+        param_values.push(min_ts_text);
+        where_clauses.push(format!(
+            "st.max_timestamp >= ?{}",
+            param_values.len()
+        ));
+    }
+    if !max_ts_text.is_empty() {
+        param_values.push(max_ts_text);
+        where_clauses.push(format!(
+            "st.min_timestamp <= ?{}",
+            param_values.len()
+        ));
+    }
+
+    // Point count filter (indexed)
+    if let Some(min_pts) = filter.min_points {
+        param_values.push(min_pts.to_string());
+        where_clauses.push(format!("st.point_count >= ?{}", param_values.len()));
+    }
+    if let Some(max_pts) = filter.max_points {
+        param_values.push(max_pts.to_string());
+        where_clauses.push(format!("st.point_count <= ?{}", param_values.len()));
+    }
+
+    // Batch filter
+    if let Some(batch_id) = filter.batch_id {
+        param_values.push(batch_id.to_string());
+        where_clauses.push(format!("st.batch_id = ?{}", param_values.len()));
+    }
+
+    // Airline filter — extracted from JSON at query time
+    if let Some(ref airline) = filter.airline {
+        param_values.push(airline.clone());
+        where_clauses.push(format!(
+            "json_extract(st.track_json, '$.airline') = ?{}",
+            param_values.len()
+        ));
+    }
+
+    // Aircraft type filter
+    if let Some(ref atype) = filter.aircraft_type {
+        param_values.push(atype.clone());
+        where_clauses.push(format!(
+            "json_extract(st.track_json, '$.aircraft_type') = ?{}",
+            param_values.len()
+        ));
+    }
+
+    // Full-text search across multiple JSON fields (case-insensitive via LOWER)
+    if let Some(ref txt) = filter.search_text {
+        if !txt.trim().is_empty() {
+            let like_pattern = format!("%{}%", txt.trim().to_lowercase());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern.clone());
+            param_values.push(like_pattern);
+            let n = param_values.len();
+            where_clauses.push(format!(
+                "(LOWER(st.icao_address) LIKE ?{n0} \
+                 OR LOWER(json_extract(st.track_json, '$.flight_no')) LIKE ?{n1} \
+                 OR LOWER(json_extract(st.track_json, '$.icao_flight_no')) LIKE ?{n2} \
+                 OR LOWER(json_extract(st.track_json, '$.registration')) LIKE ?{n3} \
+                 OR LOWER(json_extract(st.track_json, '$.aircraft_type')) LIKE ?{n4} \
+                 OR LOWER(json_extract(st.track_json, '$.airline')) LIKE ?{n5} \
+                 OR LOWER(json_extract(st.track_json, '$.origin')) LIKE ?{n6} \
+                 OR LOWER(json_extract(st.track_json, '$.destination')) LIKE ?{n7})",
+                n0 = n - 7,
+                n1 = n - 6,
+                n2 = n - 5,
+                n3 = n - 4,
+                n4 = n - 3,
+                n5 = n - 2,
+                n6 = n - 1,
+                n7 = n,
+            ));
+        }
+    }
+
+    let where_sql = if where_clauses.is_empty() {
+        String::from("1=1")
+    } else {
+        where_clauses.join(" AND ")
+    };
+
+    // ── Count total ──
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM saved_tracks st JOIN batches b ON st.batch_id = b.id WHERE {}",
+        where_sql
+    );
+
+    eprintln!("[manage] count_sql: {}", count_sql);
+    eprintln!("[manage] params: {:?}", param_values);
+
+    let param_strs: Vec<&str> = param_values.iter().map(|s| s.as_str()).collect();
+    let param_dyn: Vec<&dyn rusqlite::types::ToSql> =
+        param_strs.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    let mut count_stmt = conn
+        .prepare(&count_sql)
+        .map_err(|e| format!("prepare count: {}", e))?;
+    let total_count: i64 = count_stmt
+        .query_row(param_dyn.as_slice(), |row| row.get(0))
+        .map_err(|e| format!("count query: {}", e))?;
+
+    // ── Query page ──
+    let sort_col = sort_column(filter);
+    let direction = if filter.sort_desc { "DESC" } else { "ASC" };
+    let data_sql = format!(
+        "SELECT st.icao_address, st.batch_id, st.source, st.track_json, \
+                st.min_timestamp, st.max_timestamp, st.point_count, \
+                b.file_name, b.imported_at \
+         FROM saved_tracks st JOIN batches b ON st.batch_id = b.id \
+         WHERE {} \
+         ORDER BY {} {} \
+         LIMIT ?{} OFFSET ?{}",
+        where_sql,
+        sort_col,
+        direction,
+        param_values.len() + 1,
+        param_values.len() + 2,
+    );
+
+    let mut all_params: Vec<String> = param_values.clone();
+    all_params.push(limit.to_string());
+    all_params.push(offset.to_string());
+
+    let all_strs: Vec<&str> = all_params.iter().map(|s| s.as_str()).collect();
+    let all_dyn: Vec<&dyn rusqlite::types::ToSql> =
+        all_strs.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    let mut stmt = conn
+        .prepare(&data_sql)
+        .map_err(|e| format!("prepare data: {}", e))?;
+
+    let rows = stmt
+        .query_map(all_dyn.as_slice(), |row| {
+            let json: String = row.get(3)?;
+            // Extract metadata fields from JSON
+            let flight_no: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("flight_no")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            let icao_flight_no: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("icao_flight_no")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            let registration: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("registration")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            let aircraft_type: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("aircraft_type")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            let airline: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("airline")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            let origin: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("origin")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+            let destination: String = serde_json::from_str(&json)
+                .ok()
+                .and_then(|v: serde_json::Value| {
+                    v.get("destination")
+                        .and_then(|f| f.as_str())
+                        .map(|s| s.to_string())
+                })
+                .unwrap_or_default();
+
+            Ok(TrackMetaInfo {
+                icao_address: row.get(0)?,
+                batch_id: row.get(1)?,
+                source: row.get(2)?,
+                flight_number: flight_no,
+                icao_flight_number: icao_flight_no,
+                registration,
+                aircraft_type,
+                airline,
+                origin,
+                destination,
+                min_timestamp: row.get::<_, Option<String>>(4)?.unwrap_or_default(),
+                max_timestamp: row.get::<_, Option<String>>(5)?.unwrap_or_default(),
+                point_count: row.get(6)?,
+                batch_file_name: row.get(7)?,
+                batch_imported_at: row.get(8)?,
+            })
+        })
+        .map_err(|e| format!("data query: {}", e))?;
+
+    let mut metadata_rows = Vec::new();
+    for row in rows {
+        metadata_rows.push(row.map_err(|e| format!("row: {}", e))?);
+    }
+
+    Ok(TrackMetadataResponse {
+        rows: metadata_rows,
+        total_count,
+    })
+}
+
+/// Get aggregate statistics across all tracks.
+pub fn get_track_statistics(path: &PathBuf) -> Result<TrackStats, String> {
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    // Total tracks and per-source breakdown
+    let mut stmt = conn
+        .prepare("SELECT COUNT(*), source FROM saved_tracks GROUP BY source")
+        .map_err(|e| format!("prepare source counts: {}", e))?;
+    let source_rows = stmt
+        .query_map([], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| format!("query source counts: {}", e))?;
+
+    let mut by_source = std::collections::HashMap::new();
+    let mut total_tracks: i64 = 0;
+    for row in source_rows {
+        let (count, source) = row.map_err(|e| format!("row: {}", e))?;
+        total_tracks += count;
+        by_source.insert(source, count);
+    }
+
+    // Total batches
+    let total_batches: i64 = conn
+        .query_row("SELECT COUNT(*) FROM batches", [], |row| row.get(0))
+        .map_err(|e| format!("batch count: {}", e))?;
+
+    // Unique ICAO addresses
+    let unique_icao: i64 = conn
+        .query_row(
+            "SELECT COUNT(DISTINCT icao_address) FROM saved_tracks",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("unique icao: {}", e))?;
+
+    // Unique airlines (from JSON)
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT json_extract(track_json, '$.airline') FROM saved_tracks WHERE json_extract(track_json, '$.airline') IS NOT NULL AND json_extract(track_json, '$.airline') != ''")
+        .map_err(|e| format!("prepare airlines: {}", e))?;
+    let unique_airlines: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query airlines: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Unique aircraft types
+    let mut stmt = conn
+        .prepare("SELECT DISTINCT json_extract(track_json, '$.aircraft_type') FROM saved_tracks WHERE json_extract(track_json, '$.aircraft_type') IS NOT NULL AND json_extract(track_json, '$.aircraft_type') != ''")
+        .map_err(|e| format!("prepare aircraft types: {}", e))?;
+    let unique_aircraft_types: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query aircraft types: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Global time range
+    let mut stmt = conn
+        .prepare(
+            "SELECT MIN(min_timestamp), MAX(max_timestamp) FROM saved_tracks \
+             WHERE min_timestamp IS NOT NULL AND min_timestamp != ''",
+        )
+        .map_err(|e| format!("prepare time range: {}", e))?;
+
+    let time_range = stmt
+        .query_row([], |row| {
+            let min_s: Option<String> = row.get(0)?;
+            let max_s: Option<String> = row.get(1)?;
+            Ok((min_s, max_s))
+        })
+        .map_err(|e| format!("query time range: {}", e))?;
+
+    let (time_min_ms, time_max_ms) = match time_range {
+        (Some(min_s), Some(max_s)) if !min_s.is_empty() && !max_s.is_empty() => {
+            (ts_to_ms(&min_s).ok(), ts_to_ms(&max_s).ok())
+        }
+        _ => (None, None),
+    };
+
+    Ok(TrackStats {
+        total_tracks,
+        total_batches,
+        by_source,
+        unique_icao,
+        unique_airlines,
+        unique_aircraft_types,
+        time_min_ms,
+        time_max_ms,
+    })
+}
+
+/// Get distinct filter options (airlines, aircraft types, batch names) for a given source.
+pub fn get_distinct_options(path: &PathBuf, source: Option<&str>) -> Result<DistinctOptions, String> {
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    let source_clause: String;
+    let source_param: Option<String> = source.map(|s| crate::manage::source_to_db(s).to_string());
+
+    if let Some(ref s) = source_param {
+        source_clause = format!("WHERE source = '{}'", s.replace('\'', "''"));
+    } else {
+        source_clause = String::new();
+    }
+
+    // Airlines
+    let airline_sql = format!(
+        "SELECT DISTINCT json_extract(track_json, '$.airline') FROM saved_tracks {} \
+         AND json_extract(track_json, '$.airline') IS NOT NULL \
+         AND json_extract(track_json, '$.airline') != '' ORDER BY 1",
+        source_clause
+    );
+    let mut stmt = conn.prepare(&airline_sql).map_err(|e| format!("prepare airlines: {}", e))?;
+    let airlines: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query airlines: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Aircraft types
+    let type_sql = format!(
+        "SELECT DISTINCT json_extract(track_json, '$.aircraft_type') FROM saved_tracks {} \
+         AND json_extract(track_json, '$.aircraft_type') IS NOT NULL \
+         AND json_extract(track_json, '$.aircraft_type') != '' ORDER BY 1",
+        source_clause
+    );
+    let mut stmt = conn.prepare(&type_sql).map_err(|e| format!("prepare aircraft types: {}", e))?;
+    let aircraft_types: Vec<String> = stmt
+        .query_map([], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query aircraft types: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Batch names
+    let batch_sql = if let Some(ref s) = source_param {
+        format!("SELECT id, file_name FROM batches WHERE source = '{}' ORDER BY id DESC", s.replace('\'', "''"))
+    } else {
+        "SELECT id, file_name FROM batches ORDER BY id DESC".to_string()
+    };
+    let mut stmt = conn.prepare(&batch_sql).map_err(|e| format!("prepare batches: {}", e))?;
+    let batch_names: Vec<(i64, String)> = stmt
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| format!("query batches: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    Ok(DistinctOptions {
+        airlines,
+        aircraft_types,
+        batch_names,
+    })
+}
+
+/// Delete a single track from `saved_tracks` and `track_points`,
+/// and decrement the batch's `track_count`. Removes the batch row if count reaches 0.
+pub fn delete_track(path: &PathBuf, icao_address: &str, batch_id: i64) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| format!("begin tx: {}", e))?;
+
+    let result = (|| -> Result<(), String> {
+        // Delete from track_points
+        conn.execute(
+            "DELETE FROM track_points WHERE icao_address = ?1 AND batch_id = ?2",
+            params![icao_address, batch_id],
+        )
+        .map_err(|e| format!("delete track_points: {}", e))?;
+
+        // Delete from saved_tracks
+        conn.execute(
+            "DELETE FROM saved_tracks WHERE icao_address = ?1 AND batch_id = ?2",
+            params![icao_address, batch_id],
+        )
+        .map_err(|e| format!("delete saved_track: {}", e))?;
+
+        // Decrement batch track_count
+        conn.execute(
+            "UPDATE batches SET track_count = track_count - 1 WHERE id = ?1",
+            params![batch_id],
+        )
+        .map_err(|e| format!("update batch count: {}", e))?;
+
+        // Remove batch if count <= 0
+        conn.execute(
+            "DELETE FROM batches WHERE id = ?1 AND track_count <= 0",
+            params![batch_id],
+        )
+        .map_err(|e| format!("cleanup batch: {}", e))?;
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| format!("commit: {}", e))?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
+}
+
+/// Bulk delete tracks. Each element is (icao_address, batch_id).
+pub fn delete_tracks_bulk(
+    path: &PathBuf,
+    tracks: &[(String, i64)],
+) -> Result<(), String> {
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| format!("begin tx: {}", e))?;
+
+    let result = (|| -> Result<(), String> {
+        for (icao_address, batch_id) in tracks {
+            conn.execute(
+                "DELETE FROM track_points WHERE icao_address = ?1 AND batch_id = ?2",
+                params![icao_address, *batch_id],
+            )
+            .map_err(|e| {
+                format!("delete track_points for {}/{}: {}", icao_address, batch_id, e)
+            })?;
+
+            conn.execute(
+                "DELETE FROM saved_tracks WHERE icao_address = ?1 AND batch_id = ?2",
+                params![icao_address, *batch_id],
+            )
+            .map_err(|e| {
+                format!("delete saved_track for {}/{}: {}", icao_address, batch_id, e)
+            })?;
+
+            conn.execute(
+                "UPDATE batches SET track_count = track_count - 1 WHERE id = ?1",
+                params![*batch_id],
+            )
+            .map_err(|e| format!("update batch count: {}", e))?;
+        }
+
+        // Cleanup empty batches
+        conn.execute("DELETE FROM batches WHERE track_count <= 0", [])
+            .map_err(|e| format!("cleanup batches: {}", e))?;
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| format!("commit: {}", e))?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
+}
+
+/// Load full Track data (with positions) for a list of (icao_address, batch_id) pairs.
+/// Used to load selected tracks into the map display and for export.
+pub fn export_tracks(
+    path: &PathBuf,
+    track_ids: &[(String, i64)],
+) -> Result<Vec<Track>, String> {
+    if track_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+
+    // Build IN clause with parameterized values
+    let mut placeholders: Vec<String> = Vec::new();
+    let mut params_vec: Vec<String> = Vec::new();
+    for (icao, batch_id) in track_ids {
+        placeholders.push(format!(
+            "(icao_address = ?{} AND batch_id = ?{})",
+            params_vec.len() + 1,
+            params_vec.len() + 2,
+        ));
+        params_vec.push(icao.clone());
+        params_vec.push(batch_id.to_string());
+    }
+
+    let sql = format!(
+        "SELECT track_json FROM saved_tracks WHERE {}",
+        placeholders.join(" OR ")
+    );
+
+    let param_strs: Vec<&str> = params_vec.iter().map(|s| s.as_str()).collect();
+    let param_dyn: Vec<&dyn rusqlite::types::ToSql> =
+        param_strs.iter().map(|s| s as &dyn rusqlite::types::ToSql).collect();
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .map_err(|e| format!("prepare export: {}", e))?;
+
+    let rows = stmt
+        .query_map(param_dyn.as_slice(), |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query export: {}", e))?;
+
+    let mut tracks = Vec::new();
+    for row in rows {
+        let json = row.map_err(|e| format!("row: {}", e))?;
+        let track: Track =
+            serde_json::from_str(&json).map_err(|e| format!("deserialize track: {}", e))?;
+        tracks.push(track);
+    }
+
+    Ok(tracks)
 }

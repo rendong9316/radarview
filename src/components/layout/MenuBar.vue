@@ -141,6 +141,7 @@ const menus: MenuDef[] = [
       { type: 'submenu', id: 'appearance', label: '外观' },
       { type: 'separator' },
       { type: 'item', id: 'toggle-track-panel', label: '轨迹面板', shortcut: 'Ctrl+Shift+T' },
+      { type: 'item', id: 'toggle-manage-panel', label: '航迹管理系统', shortcut: 'Ctrl+Shift+M' },
       { type: 'item', id: 'toggle-layer-panel', label: '图层控制', shortcut: 'Ctrl+Shift+L' },
       { type: 'item', id: 'toggle-flag-panel', label: '旗标面板', shortcut: 'Ctrl+Shift+F' },
       { type: 'item', id: 'toggle-time-filter', label: '时间过滤', shortcut: 'Ctrl+Shift+E' },

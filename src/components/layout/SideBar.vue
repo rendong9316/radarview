@@ -16,6 +16,7 @@
         @isolate="(key: string) => emit('isolate', key)"
         @clear-isolation="emit('clearIsolation')"
       />
+      <ManagePanel v-else-if="activePanel === 'manage'" />
       <LayerControl v-else-if="activePanel === 'layers'" />
       <FlagPanel v-else-if="activePanel === 'flags'" />
       <TimeFilterPanel
@@ -53,6 +54,7 @@ import LayerControl from '../LayerControl.vue'
 import FlagPanel from '../FlagPanel.vue'
 import TimeFilterPanel from '../TimeFilterPanel.vue'
 import SettingsPanel from '../panels/SettingsPanel.vue'
+import ManagePanel from '../panels/ManagePanel.vue'
 import type { Track, DataSource } from '../../types/track'
 
 defineProps<{
@@ -84,13 +86,14 @@ const { activePanel, sidebarVisible, close } = useActivityBar()
 
 const sidebarWidth = ref(280)
 const MIN_WIDTH = 200
-const MAX_WIDTH = 500
+const MAX_WIDTH = 900
 
 const panelTitles: Record<PanelId, string> = {
   tracks: '轨迹面板',
+  manage: '航迹管理系统',
   layers: '图层控制',
   flags: '旗标面板',
-  timeFilter: '时间过滤',
+  timeFilter: '筛选',
   settings: '设置',
 }
 
@@ -172,7 +175,7 @@ function onResizeEnd() {
 .sidebar-body {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px;
 }
 
 .sidebar-resize {
