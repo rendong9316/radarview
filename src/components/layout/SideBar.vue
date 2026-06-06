@@ -47,7 +47,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useActivityBar, type PanelId } from '../../composables/useActivityBar'
 import TrackPanel from '../TrackPanel.vue'
 import LayerControl from '../LayerControl.vue'
@@ -82,9 +82,7 @@ const emit = defineEmits<{
   clearAll: []
 }>()
 
-const { activePanel, sidebarVisible, close } = useActivityBar()
-
-const sidebarWidth = ref(280)
+const { activePanel, sidebarVisible, sidebarWidth, close } = useActivityBar()
 const MIN_WIDTH = 200
 const MAX_WIDTH = 900
 

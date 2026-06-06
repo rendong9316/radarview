@@ -4,6 +4,7 @@ export type PanelId = 'tracks' | 'layers' | 'flags' | 'timeFilter' | 'manage' | 
 
 const activePanel = ref<PanelId | null>(null)
 const sidebarVisible = ref(false)
+const sidebarWidth = ref(280)
 
 export function useActivityBar() {
   function activate(panel: PanelId): void {
@@ -39,9 +40,16 @@ export function useActivityBar() {
     })
   }, { immediate: false })
 
+  watch(sidebarWidth, (v) => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('sidebar.width', JSON.stringify(v))
+    })
+  }, { immediate: false })
+
   return {
     activePanel,
     sidebarVisible,
+    sidebarWidth,
     activate,
     close,
     isActive,

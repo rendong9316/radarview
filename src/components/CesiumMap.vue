@@ -7,7 +7,7 @@ import { ref, watch, onMounted, onUnmounted } from 'vue'
 import * as Cesium from 'cesium'
 import { invoke } from '@tauri-apps/api/core'
 import type { Track, TrackPoint, DataSource } from '../types/track'
-import { useTrackStyle } from '../composables/useTrackStyle'
+import { useLineColor } from '../composables/useLineColor'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
@@ -34,7 +34,43 @@ let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
-const { getColor, getIcon } = useTrackStyle()
+const { getEffectiveHex, lineColors } = useLineColor()
+
+/** Resolve line/billboard color: custom override > theme default */
+function getLineColor(source: DataSource): Cesium.Color {
+  return Cesium.Color.fromCssColorString(getEffectiveHex(source))
+}
+
+/** Resolve billboard icon: use custom color if set, otherwise theme default */
+function getLineIcon(source: DataSource): string {
+  const hex = getEffectiveHex(source)
+  // Reuse the icon cache from useTrackStyle via a simple canvas render
+  // We need a small helper since getIcon uses its own internal getSourceHexColor
+  return getThemedIcon(hex)
+}
+
+// Simple canvas icon renderer (same logic as useTrackStyle.getCachedIcon)
+let _iconCache = new Map<string, string>()
+function getThemedIcon(hex: string): string {
+  let icon = _iconCache.get(hex)
+  if (!icon) {
+    const size = 24
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')!
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2, size / 2 - 2, 0, Math.PI * 2)
+    ctx.fillStyle = hex
+    ctx.fill()
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    icon = canvas.toDataURL('image/png')
+    _iconCache.set(hex, icon)
+  }
+  return icon
+}
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, selectedPair } = useFlags()
@@ -233,8 +269,8 @@ function getTrailData(points: TrackPoint[], time: number): {
 function createTrackEntities(track: Track) {
   if (!viewer || track.positions.length === 0) return
 
-  const color = getColor(track.source)
-  const icon = getIcon(track.source)
+  const color = getLineColor(track.source)
+  const icon = getLineIcon(track.source)
   const tKey = trackKey(track.id, track.source)
   const isSelected = tKey === props.selectedId
   const isRaw = track.source === 'radar_raw'
@@ -360,7 +396,7 @@ function syncEntities(newTracks: Track[]) {
         }
       } else if (hasEnoughPoints) {
         // Polyline didn't exist before but now has enough points (e.g. filter cleared)
-        const color = getColor(track.source)
+        const color = getLineColor(track.source)
         const tKey = trackKey(track.id, track.source)
         if (!replaying) {
           existing.trailRef.positions = toCartesianArray(track.positions)
@@ -435,7 +471,7 @@ function updateReplayPositions(time: number) {
       if (entities.polyline) {
         entities.polyline.show = allVisible.length >= 2 && visibility.value[entities.source as keyof typeof visibility.value] !== false
       } else if (allVisible.length >= 2) {
-        const color = getColor(track.source)
+        const color = getLineColor(track.source)
         const tKey = trackKey(track.id, track.source)
         const isSel = tKey === props.selectedId
         const isRaw = track.source === 'radar_raw'
@@ -532,6 +568,27 @@ watch(
   { deep: true },
 )
 
+// Reactive line color: update existing polylines & billboards when color changes
+watch(lineColors, () => {
+  for (const [tKey, entry] of entityMap) {
+    const isSelected = tKey === previousSelectedId
+    const isHovered = hoveredTrackId === tKey
+    // Skip selected/hovered — they have special coloring applied separately
+    if (isSelected || isHovered) continue
+
+    const color = getLineColor(entry.source as DataSource)
+    const isRaw = entry.source === 'radar_raw'
+    if (entry.polyline) {
+      ;(entry.polyline.polyline as any).material = color.withAlpha(isRaw ? RAW_ALPHA : NORMAL_ALPHA)
+    }
+    if (entry.billboard) {
+      ;(entry.billboard.billboard as any).image = getLineIcon(entry.source as DataSource)
+    }
+  }
+  _iconCache.clear()
+  viewer?.scene.requestRender()
+}, { deep: true })
+
 // Highlight selected track
 let previousSelectedId: string | null = null
 
@@ -542,7 +599,7 @@ function applyHighlight(trackId: string | null) {
   if (previousSelectedId && previousSelectedId !== trackId) {
     const prev = entityMap.get(previousSelectedId)
     if (prev?.polyline) {
-      const color = getColor(prev.source as DataSource)
+      const color = getLineColor(prev.source as DataSource)
       ;(prev.polyline.polyline as any).material = color.withAlpha(baseAlpha(prev.source))
       ;(prev.polyline.polyline as any).width = baseWidth(prev.source as DataSource)
     }
@@ -555,7 +612,7 @@ function applyHighlight(trackId: string | null) {
   if (trackId) {
     const entry = entityMap.get(trackId)
     if (entry?.polyline) {
-      const color = getColor(entry.source as DataSource)
+      const color = getLineColor(entry.source as DataSource)
       ;(entry.polyline.polyline as any).material = color.withAlpha(SELECTED_ALPHA)
       ;(entry.polyline.polyline as any).width = SELECTED_WIDTH
     }
@@ -617,7 +674,7 @@ function removeHoverHighlight() {
   if (!hoveredTrackId) return
   const entry = entityMap.get(hoveredTrackId)
   if (entry) {
-    const originalColor = getColor(entry.source as DataSource)
+    const originalColor = getLineColor(entry.source as DataSource)
     const isSelected = hoveredTrackId === previousSelectedId
     if (entry.polyline) {
       const p = entry.polyline

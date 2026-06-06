@@ -104,6 +104,7 @@
     <!-- About dialog -->
     <AboutDialog v-if="showAbout" @close="showAbout = false" />
     <ShortcutsDialog v-if="showShortcuts" @close="showShortcuts = false" />
+    <DocsDialog v-if="showDocs" @close="showDocs = false" />
   </div>
 </template>
 
@@ -119,6 +120,7 @@ import SideBar from './components/layout/SideBar.vue'
 import StatusBar from './components/layout/StatusBar.vue'
 import AboutDialog from './components/dialogs/AboutDialog.vue'
 import ShortcutsDialog from './components/dialogs/ShortcutsDialog.vue'
+import DocsDialog from './components/dialogs/DocsDialog.vue'
 import { useTrackLoader } from './composables/useTrackLoader'
 import { useTracks, trackKey, parseTrackKey } from './composables/useTracks'
 import { useReplay } from './composables/useReplay'
@@ -158,6 +160,7 @@ const batches = ref<Batch[]>([])
 const deletingBatchId = ref<number | null>(null)
 const showAbout = ref(false)
 const showShortcuts = ref(false)
+const showDocs = ref(false)
 
 // Resolve saved replay speed before creating the replay composable
 const savedSpeedRaw = getRawSetting('replay.speed')
@@ -220,12 +223,7 @@ function onMenuAction(action: string) {
     }
     case 'about': showAbout.value = true; break
     case 'shortcuts': showShortcuts.value = true; break
-    case 'docs': {
-      import('@tauri-apps/plugin-opener').then(({ openUrl }) => {
-        openUrl('https://github.com/rendong9316/RadarView_BiuldByTauri')
-      })
-      break
-    }
+    case 'docs': showDocs.value = true; break
   }
 }
 
@@ -240,6 +238,15 @@ onMounted(async () => {
   } catch (e) {
     console.error('[App] load_persisted_tracks failed:', e)
   }
+
+  // Restore management panel visible track set (must be after tracks are loaded)
+  try {
+    const { restoreVisibleSet } = await import('./composables/useTrackManagement')
+    await restoreVisibleSet()
+  } catch (e) {
+    console.error('[App] restoreVisibleSet failed:', e)
+  }
+
   await refreshBatches()
 
   // Background DB save completion → refresh batch list + clear persisting UI

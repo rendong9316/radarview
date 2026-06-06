@@ -1,5 +1,28 @@
 <template>
   <div class="settings-panel">
+    <!-- Line color group -->
+    <div class="setting-group">
+      <div class="setting-group-title">线条颜色</div>
+      <div v-for="src in dataSources" :key="'lc-'+src" class="setting-row">
+        <span class="setting-label" :class="src">{{ sourceLabel(src) }}</span>
+        <div class="color-picker-wrapper">
+          <input
+            type="color"
+            class="setting-color-input"
+            :value="effectiveColor(src)"
+            @input="onColorChange(src, ($event.target as HTMLInputElement).value)"
+          />
+          <span class="setting-value color-hex">{{ effectiveColor(src) }}</span>
+        </div>
+        <button
+          v-if="hasCustomColor(src)"
+          class="color-reset-btn"
+          title="重置为默认颜色"
+          @click="onResetColor(src)"
+        >↺</button>
+      </div>
+    </div>
+
     <!-- Line width group -->
     <div class="setting-group">
       <div class="setting-group-title">线宽调节</div>
@@ -96,6 +119,7 @@ import { computed } from 'vue'
 import type { DataSource } from '../../types/track'
 import { useFlagScale } from '../../composables/useFlagScale'
 import { useFontSize } from '../../composables/useFontSize'
+import { useLineColor } from '../../composables/useLineColor'
 
 defineProps<{
   lineWidths: Record<DataSource, number>
@@ -117,9 +141,22 @@ const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
 
 const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
+const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
+
+function effectiveColor(src: DataSource): string {
+  return getEffectiveHex(src)
+}
+
+function onColorChange(src: DataSource, hex: string) {
+  setLineColor(src, hex)
+}
+
+function onResetColor(src: DataSource) {
+  setLineColor(src, null)
+}
 
 function sourceLabel(src: DataSource): string {
   const map: Record<DataSource, string> = { adsb: 'ADS-B', radar: 'Radar', radar_raw: 'Raw', simulation: 'Sim' }
@@ -220,5 +257,57 @@ function sourceLabel(src: DataSource): string {
 }
 .setting-btn.danger:hover {
   background: rgba(244,71,71,0.25);
+}
+
+/* ── Color picker ── */
+.color-picker-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.setting-color-input {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--border-primary);
+  border-radius: 3px;
+  cursor: pointer;
+  background: transparent;
+}
+.setting-color-input::-webkit-color-swatch-wrapper {
+  padding: 1px;
+}
+.setting-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.color-hex {
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.714rem;
+  width: 56px;
+  text-transform: uppercase;
+}
+
+.color-reset-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  font-size: 0.857rem;
+  color: var(--text-tertiary);
+  background: transparent;
+  border: 1px solid var(--border-secondary);
+  border-radius: 3px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.color-reset-btn:hover {
+  color: var(--accent-primary);
+  border-color: var(--accent-primary);
 }
 </style>

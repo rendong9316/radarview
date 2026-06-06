@@ -132,6 +132,16 @@ async function applySettings(raw: Record<string, string>) {
     try { fns.fontSize.value = JSON.parse(raw['display.font_size']) } catch { /* keep default */ }
   }
 
+  // ── Line colors ──
+  const { useLineColor } = await import('./useLineColor')
+  const lc = useLineColor()
+  for (const src of ['adsb', 'radar', 'radar_raw', 'simulation'] as DataSource[]) {
+    const lcKey = `display.line_color.${src}`
+    if (raw[lcKey] !== undefined) {
+      try { lc.lineColors[src] = JSON.parse(raw[lcKey]) } catch { /* keep default */ }
+    }
+  }
+
   // ── Flags ──
   const { useFlags } = await import('./useFlags')
   const fl = useFlags()
@@ -199,4 +209,55 @@ async function applySettings(raw: Record<string, string>) {
       try { ref.value = JSON.parse(raw[key]) } catch { /* keep default */ }
     }
   }
+
+  // ── Sidebar width ──
+  if (raw['sidebar.width'] !== undefined) {
+    try {
+      const { useActivityBar } = await import('./useActivityBar')
+      const ab = useActivityBar()
+      ab.sidebarWidth.value = JSON.parse(raw['sidebar.width'])
+    } catch { /* keep default */ }
+  }
+
+  // ── Manage panel: filter, sort, pageSize ──
+  try {
+    const manageModule = await import('./useTrackManagement')
+    // Load filter
+    if (raw['manage.filter'] !== undefined) {
+      try {
+        const parsed = JSON.parse(raw['manage.filter'])
+        if (parsed && typeof parsed === 'object') {
+          manageModule.filter.value = { ...manageModule.filter.value, ...parsed }
+        }
+      } catch { /* keep default */ }
+    }
+    // Load sort
+    if (raw['manage.sort'] !== undefined) {
+      try {
+        const parsed = JSON.parse(raw['manage.sort'])
+        if (parsed && typeof parsed === 'object' && parsed.column) {
+          manageModule.sortConfig.value = parsed
+        }
+      } catch { /* keep default */ }
+    }
+    // Load page size
+    if (raw['manage.page_size'] !== undefined) {
+      try {
+        const v = JSON.parse(raw['manage.page_size'])
+        if (typeof v === 'number' && v > 0) manageModule.pageSize.value = v
+      } catch { /* keep default */ }
+    }
+    // Enable persistence watchers after loading
+    manageModule.enableManagePersistence()
+
+    // Stage visible keys for restoration after track data is loaded
+    if (raw['manage.visible_keys'] !== undefined) {
+      try {
+        const parsed = JSON.parse(raw['manage.visible_keys'])
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          manageModule.setPendingRestoreKeys(parsed)
+        }
+      } catch { /* keep default */ }
+    }
+  } catch { /* manage module not loaded yet, fine */ }
 }

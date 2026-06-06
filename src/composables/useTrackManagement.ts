@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import type { DataSource } from '../types/track'
 import type {
@@ -17,14 +17,14 @@ const stats = ref<TrackStats | null>(null)
 const statsLoading = ref(false)
 
 /** Current filter (all fields optional — empty = show all) */
-const filter = ref<TrackMetaFilter>(defaultFilter())
+export const filter = ref<TrackMetaFilter>(defaultFilter())
 
 /** Current sort */
-const sortConfig = ref<SortConfig>({ ...DEFAULT_SORT })
+export const sortConfig = ref<SortConfig>({ ...DEFAULT_SORT })
 
 /** Pagination */
 const currentPage = ref(1)
-const pageSize = ref(20)
+export const pageSize = ref(20)
 
 /** Table data */
 const rows = ref<TrackMetaInfo[]>([])
@@ -35,8 +35,101 @@ const loading = ref(false)
 const distinctOptions = ref<DistinctOptions | null>(null)
 
 /** Global visible set: keys = "icao::batchId" for tracks shown on map */
-const visibleTrackKeys = ref<Set<string>>(new Set())
+export const visibleTrackKeys = ref<Set<string>>(new Set())
 const loadedTrackKeys = ref<Set<string>>(new Set())
+
+// ── Persistence: filter, sortConfig, pageSize ──
+
+let _persistEnabled = false
+
+/** Enable persistence watchers (called after settings are loaded to avoid saving defaults) */
+export function enableManagePersistence() {
+  _persistEnabled = true
+}
+
+watch(filter, () => {
+  if (!_persistEnabled) return
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave('manage.filter', JSON.stringify(filter.value))
+  })
+}, { deep: true, immediate: false })
+
+watch(sortConfig, () => {
+  if (!_persistEnabled) return
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave('manage.sort', JSON.stringify(sortConfig.value))
+  })
+}, { deep: true, immediate: false })
+
+watch(pageSize, () => {
+  if (!_persistEnabled) return
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave('manage.page_size', JSON.stringify(pageSize.value))
+  })
+}, { immediate: false })
+
+watch(visibleTrackKeys, () => {
+  if (!_persistEnabled) return
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave('manage.visible_keys', JSON.stringify(Array.from(visibleTrackKeys.value)))
+  })
+}, { deep: true, immediate: false })
+
+// ── Visible set restore ──
+
+/** Saved visible keys pending restoration after track data is loaded */
+let _pendingRestoreKeys: string[] | null = null
+
+/** Called by applySettings to stage saved keys for later restoration */
+export function setPendingRestoreKeys(keys: string[]) {
+  _pendingRestoreKeys = keys
+}
+
+/** Restore the visible set: re-load tracks from DB and add to map.
+ *  Must be called after persisted tracks have been loaded into the tracks composable. */
+export async function restoreVisibleSet() {
+  if (!_pendingRestoreKeys || _pendingRestoreKeys.length === 0) return
+  const keys = _pendingRestoreKeys
+  _pendingRestoreKeys = null
+
+  const tr = await (async () => {
+    const { useTracks } = await import('./useTracks')
+    return useTracks()
+  })()
+  const { fromBackendTracks } = await import('./convertTrack')
+
+  for (const key of keys) {
+    // key format: "icao::batchId"
+    const sepIdx = key.lastIndexOf('::')
+    if (sepIdx < 0) continue
+    const icao = key.substring(0, sepIdx)
+    const batchId = parseInt(key.substring(sepIdx + 2), 10)
+    if (isNaN(batchId)) continue
+
+    try {
+      const tracksJson = JSON.stringify([[icao, batchId]])
+      const fullTracks = await invoke<any[]>('export_tracks_cmd', { tracksJson })
+      if (fullTracks.length > 0) {
+        // fullTracks[0] has raw source string from backend (e.g. "ADS-B")
+        const dbSource = fullTracks[0]?.source ?? ''
+        const frontendSource = dbSourceToFrontend(dbSource)
+        const trKey = `${icao}::${frontendSource}`
+
+        // Check if already loaded (from load_persisted_tracks)
+        const existing = tr.tracks.value.find(
+          t => t.id === icao && t.source === frontendSource
+        )
+        if (!existing) {
+          tr.addTracks(fromBackendTracks(fullTracks))
+        }
+        tr.addToVisibleSet(trKey)
+        visibleTrackKeys.value = new Set(visibleTrackKeys.value).add(key)
+      }
+    } catch (e) {
+      console.error('[manage] restoreVisibleSet failed for', key, e)
+    }
+  }
+}
 
 // ── Helpers ──
 
