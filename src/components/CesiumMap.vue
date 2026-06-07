@@ -1,14 +1,28 @@
 <template>
   <div class="cesium-container" ref="containerRef">
-    <!-- 右键旗标上下文菜单 -->
+    <!-- 右键上下文菜单 -->
     <div
       v-if="contextMenu.visible"
-      class="flag-context-menu"
+      class="context-menu"
       :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
       @click.stop
     >
-      <div class="context-menu-item" @click="handleContextRename">✎ 重命名</div>
-      <div class="context-menu-item context-menu-danger" @click="handleContextDelete">🗑 删除</div>
+      <template v-if="contextMenu.type === 'flag'">
+        <div class="context-menu-item" @click="handleContextRename">✎ 重命名</div>
+        <div class="context-menu-item context-menu-danger" @click="handleContextDelete">🗑 删除</div>
+      </template>
+      <template v-else-if="contextMenu.type === 'track'">
+        <div
+          v-if="manualPointDotsTrackId !== contextMenu.trackId"
+          class="context-menu-item"
+          @click="handleContextShowPointDots"
+        >◉ 显示所有对应点迹</div>
+        <div
+          v-else
+          class="context-menu-item"
+          @click="handleContextHidePointDots"
+        >◌ 隐藏所有对应点迹</div>
+      </template>
     </div>
   </div>
 </template>
@@ -23,6 +37,7 @@ import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import { useFlagScale } from '../composables/useFlagScale'
+import { useTrackPointDots } from '../composables/useTrackPointDots'
 import { trackKey } from '../composables/useTracks'
 import type { Flag } from '../composables/useFlags'
 
@@ -59,9 +74,11 @@ const contextMenu = ref<{
   visible: boolean
   x: number
   y: number
+  type: 'flag' | 'track'
   flagId: string
   flagLabel: string
-}>({ visible: false, x: 0, y: 0, flagId: '', flagLabel: '' })
+  trackId: string
+}>({ visible: false, x: 0, y: 0, type: 'flag', flagId: '', flagLabel: '', trackId: '' })
 
 /** Resolve line/billboard color: custom override > theme default */
 function getLineColor(source: DataSource): Cesium.Color {
@@ -102,6 +119,13 @@ const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
+const { trackPointDotScale, showAllPointDots } = useTrackPointDots()
+
+// ── Track point dots state ──
+/** TrackKey of the manually (right-click) shown point dots */
+const manualPointDotsTrackId = ref<string | null>(null)
+/** Rendered point dot entities, grouped by trackKey */
+const pointDotEntityMap = new Map<string, Cesium.Entity[]>()
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -723,7 +747,7 @@ function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent) {
     return
   }
   const entityId = (picked.id as Cesium.Entity).id
-  if (!entityId || typeof entityId !== 'string' || entityId.startsWith('flag-')) {
+  if (!entityId || typeof entityId !== 'string' || entityId.startsWith('flag-') || entityId.startsWith('pointdot::')) {
     removeHoverHighlight()
     viewer!.scene.requestRender()
     return
@@ -797,6 +821,46 @@ watch(showLabels, (val) => {
   viewer?.scene.requestRender()
 })
 
+// ── Track point dots watchers ──
+
+// Update all point dot billboard scales when slider changes
+watch(trackPointDotScale, (newScale) => {
+  for (const [, dots] of pointDotEntityMap) {
+    for (const entity of dots) {
+      if (entity.billboard) {
+        ;(entity.billboard as any).scale = newScale
+      }
+    }
+  }
+  viewer?.scene.requestRender()
+})
+
+// Sync global point dots when toggle changes
+watch(showAllPointDots, () => {
+  syncGlobalPointDots()
+})
+
+// Clean up point dots when tracks change (filtered out / removed)
+watch(
+  () => props.tracks,
+  (newTracks) => {
+    const keepKeys = new Set(newTracks.map(t => trackKey(t.id, t.source)))
+    for (const [tKey] of pointDotEntityMap) {
+      if (!keepKeys.has(tKey)) {
+        removePointDotsForTrack(tKey)
+      }
+    }
+    if (manualPointDotsTrackId.value && !keepKeys.has(manualPointDotsTrackId.value)) {
+      manualPointDotsTrackId.value = null
+    }
+    // If global toggle is on, create dots for newly added tracks
+    if (showAllPointDots.value) {
+      syncGlobalPointDots()
+    }
+  },
+  { deep: false },
+)
+
 function resetView() {
   if (!viewer) return
   viewer.camera.flyTo({
@@ -820,6 +884,120 @@ function flyToTrack(track: Track) {
   })
 }
 
+// ── 航迹点迹渲染 ──
+
+/** Generate a small cyan circle icon for track point dots (cached) */
+let _pointDotIconDataUrl = ''
+function getPointDotIcon(): string {
+  if (_pointDotIconDataUrl) return _pointDotIconDataUrl
+  const size = 16
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.beginPath()
+  ctx.arc(size / 2, size / 2, size / 2 - 1.5, 0, Math.PI * 2)
+  ctx.fillStyle = '#00ffcc'
+  ctx.fill()
+  ctx.strokeStyle = '#003322'
+  ctx.lineWidth = 1
+  ctx.stroke()
+  _pointDotIconDataUrl = canvas.toDataURL('image/png')
+  return _pointDotIconDataUrl
+}
+
+/** Create point dot entities for a single track */
+function createPointDotsForTrack(track: Track): Cesium.Entity[] {
+  if (!viewer || track.positions.length === 0) return []
+  const icon = getPointDotIcon()
+  const scale = trackPointDotScale.value
+  const tKey = trackKey(track.id, track.source)
+  const dots: Cesium.Entity[] = []
+  for (let i = 0; i < track.positions.length; i++) {
+    const p = track.positions[i]
+    dots.push(viewer.entities.add({
+      id: `pointdot::${tKey}::${i}`,
+      position: Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude),
+      billboard: {
+        image: icon,
+        scale,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      },
+    }))
+  }
+  return dots
+}
+
+/** Remove point dot entities for a single track */
+function removePointDotsForTrack(tKey: string) {
+  if (!viewer) return
+  const dots = pointDotEntityMap.get(tKey)
+  if (!dots) return
+  for (const e of dots) viewer.entities.remove(e)
+  pointDotEntityMap.delete(tKey)
+}
+
+/** Show point dots for a single track (manual right-click operation) */
+function showManualPointDots(trackId: string) {
+  if (manualPointDotsTrackId.value === trackId) return
+  hideManualPointDots()
+  const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
+  if (!track) return
+  viewer!.entities.suspendEvents()
+  try {
+    pointDotEntityMap.set(trackId, createPointDotsForTrack(track))
+  } finally {
+    viewer!.entities.resumeEvents()
+  }
+  manualPointDotsTrackId.value = trackId
+  viewer!.scene.requestRender()
+}
+
+/** Hide manually shown point dots */
+function hideManualPointDots() {
+  if (!manualPointDotsTrackId.value) return
+  removePointDotsForTrack(manualPointDotsTrackId.value)
+  manualPointDotsTrackId.value = null
+  viewer?.scene.requestRender()
+}
+
+/** Sync global point dots: create/remove entities based on showAllPointDots toggle */
+function syncGlobalPointDots() {
+  if (!viewer) return
+  viewer.entities.suspendEvents()
+  try {
+    if (showAllPointDots.value) {
+      for (const track of props.tracks) {
+        const tKey = trackKey(track.id, track.source)
+        if (pointDotEntityMap.has(tKey)) continue
+        pointDotEntityMap.set(tKey, createPointDotsForTrack(track))
+      }
+    } else {
+      for (const [tKey] of pointDotEntityMap) {
+        if (tKey === manualPointDotsTrackId.value) continue
+        removePointDotsForTrack(tKey)
+      }
+    }
+  } finally {
+    viewer!.entities.resumeEvents()
+    viewer!.scene.requestRender()
+  }
+}
+
+/** Clean up all point dot entities */
+function clearAllPointDots() {
+  if (!viewer) return
+  viewer.entities.suspendEvents()
+  try {
+    for (const [tKey] of pointDotEntityMap) {
+      removePointDotsForTrack(tKey)
+    }
+  } finally {
+    viewer!.entities.resumeEvents()
+  }
+  manualPointDotsTrackId.value = null
+}
+
 // ── 右键上下文菜单动作 ──
 function closeContextMenu() {
   contextMenu.value.visible = false
@@ -841,6 +1019,16 @@ function handleContextDelete() {
   if (confirm(`确定要删除旗标「${flag.label}」吗？`)) {
     removeFlag(flag.id)
   }
+  closeContextMenu()
+}
+
+function handleContextShowPointDots() {
+  showManualPointDots(contextMenu.value.trackId)
+  closeContextMenu()
+}
+
+function handleContextHidePointDots() {
+  hideManualPointDots()
   closeContextMenu()
 }
 
@@ -957,8 +1145,8 @@ onMounted(async () => {
     }
     const entityId = (picked.id as Cesium.Entity).id
     if (entityId && typeof entityId === 'string') {
-      // Skip flag entities
-      if (entityId.startsWith('flag-')) {
+      // Skip flag entities and point dot entities
+      if (entityId.startsWith('flag-') || entityId.startsWith('pointdot::')) {
         return
       }
       const trackId = entityId.endsWith('::dot') || entityId.endsWith('::line')
@@ -1030,11 +1218,40 @@ onMounted(async () => {
             visible: true,
             x: movement.position.x,
             y: movement.position.y,
+            type: 'flag',
             flagId: flag.id,
             flagLabel: flag.label,
+            trackId: '',
           }
           return
         }
+      }
+
+      // 航迹右键菜单（仅在高亮状态下弹出）
+      const entityIdStr = entityId as string
+      let trackId: string | null = null
+      if (entityIdStr.startsWith('pointdot::')) {
+        // pointdot::{trackKey}::{index} → extract trackKey
+        const lastSep = entityIdStr.lastIndexOf('::')
+        if (lastSep > 'pointdot::'.length) {
+          trackId = entityIdStr.slice('pointdot::'.length, lastSep)
+        }
+      } else if (entityIdStr.endsWith('::dot') || entityIdStr.endsWith('::line')) {
+        trackId = entityIdStr.slice(0, entityIdStr.lastIndexOf('::'))
+      } else if (entityMap.has(entityIdStr)) {
+        trackId = entityIdStr
+      }
+      if (trackId && entityMap.has(trackId) && hoveredTrackId === trackId) {
+        contextMenu.value = {
+          visible: true,
+          x: movement.position.x,
+          y: movement.position.y,
+          type: 'track',
+          flagId: '',
+          flagLabel: '',
+          trackId,
+        }
+        return
       }
     }
     // 右键空地/非旗标实体 → 关闭菜单
@@ -1057,6 +1274,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  clearAllPointDots()
   clearAllEntities()
   clearAllFlagEntities()
   if (arcEntity && viewer) {
@@ -1119,8 +1337,8 @@ defineExpose({ getViewer: () => viewer, flyToTrack, flyToFlag, resetView })
   height: 100%;
 }
 
-/* ── 右键旗标上下文菜单 ── */
-.flag-context-menu {
+/* ── 右键上下文菜单 ── */
+.context-menu {
   position: absolute;
   z-index: 1000;
   min-width: 120px;

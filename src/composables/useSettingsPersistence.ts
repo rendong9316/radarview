@@ -125,6 +125,16 @@ async function applySettings(raw: Record<string, string>) {
     try { fs.flagScale.value = JSON.parse(raw['display.flag_scale']) } catch { /* keep default */ }
   }
 
+  // ── Track point dot settings ──
+  const { useTrackPointDots } = await import('./useTrackPointDots')
+  const tpds = useTrackPointDots()
+  if (raw['display.track_point_dot_scale'] !== undefined) {
+    try { tpds.trackPointDotScale.value = JSON.parse(raw['display.track_point_dot_scale']) } catch { /* keep default */ }
+  }
+  if (raw['display.show_all_point_dots'] !== undefined) {
+    try { tpds.showAllPointDots.value = JSON.parse(raw['display.show_all_point_dots']) } catch { /* keep default */ }
+  }
+
   // ── Font size ──
   const { useFontSize } = await import('./useFontSize')
   const fns = useFontSize()

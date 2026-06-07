@@ -77,6 +77,32 @@
       </div>
     </div>
 
+    <!-- Track point dots group -->
+    <div class="setting-group">
+      <div class="setting-group-title">点迹显示</div>
+      <div class="setting-row">
+        <span class="setting-label point-dot-label">全局显示</span>
+        <label class="toggle-switch">
+          <input type="checkbox" :checked="showAllPointDots" @change="toggleAllPointDots()" />
+          <span class="toggle-slider"></span>
+        </label>
+        <span class="setting-value toggle-text">{{ showAllPointDots ? '开' : '关' }}</span>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label point-dot-label">圆球大小</span>
+        <input
+          type="range"
+          class="setting-slider"
+          min="0.2"
+          max="5.0"
+          step="0.1"
+          :value="trackPointDotScaleVal"
+          @input="setTrackPointDotScale(Number(($event.target as HTMLInputElement).value))"
+        />
+        <span class="setting-value">{{ trackPointDotScaleVal.toFixed(1) }}</span>
+      </div>
+    </div>
+
     <!-- Font size group -->
     <div class="setting-group">
       <div class="setting-group-title">字号大小</div>
@@ -120,6 +146,7 @@ import type { DataSource } from '../../types/track'
 import { useFlagScale } from '../../composables/useFlagScale'
 import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
+import { useTrackPointDots } from '../../composables/useTrackPointDots'
 
 defineProps<{
   lineWidths: Record<DataSource, number>
@@ -142,9 +169,11 @@ const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
 const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
+const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots } = useTrackPointDots()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
+const trackPointDotScaleVal = computed(() => trackPointDotScale.value)
 
 function effectiveColor(src: DataSource): string {
   return getEffectiveHex(src)
@@ -203,6 +232,7 @@ function sourceLabel(src: DataSource): string {
 .setting-label.radar_raw { color: var(--source-radar_raw); }
 .setting-label.flag-label { color: var(--accent-primary); }
 .setting-label.font-label { color: var(--text-primary); }
+.setting-label.point-dot-label { color: #00ffcc; }
 
 .setting-slider {
   flex: 1;
@@ -309,5 +339,47 @@ function sourceLabel(src: DataSource): string {
 .color-reset-btn:hover {
   color: var(--accent-primary);
   border-color: var(--accent-primary);
+}
+
+/* ── Toggle switch ── */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 3px;
+  top: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+.toggle-switch input:checked + .toggle-slider {
+  background: #00cc99;
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+}
+.toggle-text {
+  width: 24px;
 }
 </style>
