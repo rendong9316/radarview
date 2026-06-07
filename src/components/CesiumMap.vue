@@ -832,6 +832,61 @@ onMounted(async () => {
     destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
   })
 
+  // ===== 无极缩放（Stepless Zoom）=====
+  // 禁用 Cesium 内置的步进式滚轮缩放
+  viewer.scene.screenSpaceCameraController.zoomEventTypes = []
+
+  // 注册原生 wheel 事件，按 deltaY 比例调整相机距离
+  const zoomCanvas = viewer.scene.canvas
+  const onWheel = (event: WheelEvent) => {
+    event.preventDefault()
+
+    // 归一化 delta：deltaMode 0=像素 1=行 2=页
+    // 鼠标滚轮一档 ≈ 100px，触摸板连续产生小数值
+    let deltaPx = event.deltaY
+    if (event.deltaMode === 1) {
+      deltaPx = event.deltaY * 33 // 行模式 → 像素
+    } else if (event.deltaMode === 2) {
+      deltaPx = event.deltaY * 800 // 页模式 → 像素
+    }
+
+    // 缩放系数：每 100px 滚轮 ≈ 5% 距离变化（deltaY>0=缩小 deltaY<0=放大）
+    const sensitivity = 0.0005
+    const zoomFactor = 1 + deltaPx * sensitivity
+
+    const cam = viewer!.camera
+    const { globe } = viewer!.scene
+    const { width, height } = zoomCanvas
+
+    // 取屏幕中心点，计算到椭球面的投影
+    const center = cam.pickEllipsoid(
+      new Cesium.Cartesian2(width / 2, height / 2),
+      globe.ellipsoid,
+    )
+
+    if (Cesium.defined(center)) {
+      const direction = Cesium.Cartesian3.subtract(
+        cam.position,
+        center!,
+        new Cesium.Cartesian3(),
+      )
+      const distance = Cesium.Cartesian3.magnitude(direction)
+      const newDistance = Cesium.Math.clamp(
+        distance * zoomFactor,
+        100,        // 最低 ≈ 100m
+        20000000,   // 最高 ≈ 20000km
+      )
+
+      const normalized = Cesium.Cartesian3.normalize(direction, new Cesium.Cartesian3())
+      const offset = Cesium.Cartesian3.multiplyByScalar(normalized, newDistance, new Cesium.Cartesian3())
+      const newPosition = Cesium.Cartesian3.add(center!, offset, new Cesium.Cartesian3())
+
+      cam.position = newPosition
+      viewer!.scene.requestRender()
+    }
+  }
+  zoomCanvas.addEventListener('wheel', onWheel, { passive: false })
+
   syncEntities(props.tracks)
   pinIconDataUrl = createPinIcon()
   syncFlagEntities()
