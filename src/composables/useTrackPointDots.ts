@@ -6,6 +6,9 @@ const trackPointDotScale = ref(1.0)
 /** Global toggle: when enabled, all displayed tracks show their point dots. */
 const showAllPointDots = ref(false)
 
+/** Incremented each time the user requests "clear all point dots". Watched by CesiumMap. */
+const clearAllCounter = ref(0)
+
 export function useTrackPointDots() {
   function setTrackPointDotScale(v: number) {
     trackPointDotScale.value = Math.max(0.2, Math.min(5.0, Math.round(v * 10) / 10))
@@ -13,6 +16,10 @@ export function useTrackPointDots() {
 
   function toggleAllPointDots() {
     showAllPointDots.value = !showAllPointDots.value
+  }
+
+  function requestClearAll() {
+    clearAllCounter.value++
   }
 
   // Persist dot scale changes
@@ -29,5 +36,5 @@ export function useTrackPointDots() {
     })
   }, { immediate: false })
 
-  return { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots }
+  return { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, clearAllCounter, requestClearAll }
 }

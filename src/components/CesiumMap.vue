@@ -13,7 +13,7 @@
       </template>
       <template v-else-if="contextMenu.type === 'track'">
         <div
-          v-if="manualPointDotsTrackId !== contextMenu.trackId"
+          v-if="!isTrackShowingDots(contextMenu.trackId)"
           class="context-menu-item"
           @click="handleContextShowPointDots"
         >◉ 显示所有对应点迹</div>
@@ -119,13 +119,22 @@ const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
-const { trackPointDotScale, showAllPointDots } = useTrackPointDots()
+const { trackPointDotScale, showAllPointDots, clearAllCounter } = useTrackPointDots()
 
 // ── Track point dots state ──
-/** TrackKey of the manually (right-click) shown point dots */
-const manualPointDotsTrackId = ref<string | null>(null)
+/** TrackKeys the user has manually chosen to show (multiple tracks supported) */
+const manualPointDotsTrackIds = ref(new Set<string>())
+/** TrackKeys the user has explicitly hidden in global mode */
+const globalHiddenTrackKeys = ref(new Set<string>())
 /** Rendered point dot entities, grouped by trackKey */
 const pointDotEntityMap = new Map<string, Cesium.Entity[]>()
+/** Last visible point dot index during replay, per trackKey. Used to avoid redundant updates. */
+const pointDotLastLo = new Map<string, number>()
+
+/** Check whether point dots are currently rendered for a given trackKey */
+function isTrackShowingDots(trackKey: string): boolean {
+  return pointDotEntityMap.has(trackKey)
+}
 
 let arcEntity: Cesium.Entity | undefined
 
@@ -538,6 +547,19 @@ function updateReplayPositions(time: number) {
         })
       }
     }
+
+    // --- Point dots: sync visibility with replay progress (runs every frame, guards on pointDotLastLo) ---
+    const tKey = trackKey(track.id, track.source)
+    const dotEntities = pointDotEntityMap.get(tKey)
+    if (dotEntities && dotEntities.length > 0) {
+      const prevLo = pointDotLastLo.get(tKey) ?? -1
+      if (trail.lo !== prevLo) {
+        pointDotLastLo.set(tKey, trail.lo)
+        for (let i = 0; i < dotEntities.length; i++) {
+          dotEntities[i].show = i <= trail.lo
+        }
+      }
+    }
   }
   viewer.scene.requestRender()
 }
@@ -565,6 +587,13 @@ watch(
         // Restore billboard to last position
         entities.billboard.position = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude) as any
       }
+      // Restore all point dots to visible
+      for (const [, dotEntities] of pointDotEntityMap) {
+        for (const e of dotEntities) {
+          e.show = true
+        }
+      }
+      pointDotLastLo.clear()
       reapplyVisibility()
       viewer?.scene.requestRender()
     }
@@ -836,27 +865,24 @@ watch(trackPointDotScale, (newScale) => {
 })
 
 // Sync global point dots when toggle changes
-watch(showAllPointDots, () => {
+watch(showAllPointDots, (val) => {
+  if (!val) {
+    // Global turned off: clear the hidden list (only meaningful in global mode)
+    globalHiddenTrackKeys.value = new Set()
+  }
   syncGlobalPointDots()
+})
+
+// Clear all point dots when requested from settings
+watch(clearAllCounter, () => {
+  clearAllPointDots()
 })
 
 // Clean up point dots when tracks change (filtered out / removed)
 watch(
   () => props.tracks,
-  (newTracks) => {
-    const keepKeys = new Set(newTracks.map(t => trackKey(t.id, t.source)))
-    for (const [tKey] of pointDotEntityMap) {
-      if (!keepKeys.has(tKey)) {
-        removePointDotsForTrack(tKey)
-      }
-    }
-    if (manualPointDotsTrackId.value && !keepKeys.has(manualPointDotsTrackId.value)) {
-      manualPointDotsTrackId.value = null
-    }
-    // If global toggle is on, create dots for newly added tracks
-    if (showAllPointDots.value) {
-      syncGlobalPointDots()
-    }
+  () => {
+    syncGlobalPointDots()
   },
   { deep: false },
 )
@@ -937,45 +963,82 @@ function removePointDotsForTrack(tKey: string) {
   pointDotEntityMap.delete(tKey)
 }
 
-/** Show point dots for a single track (manual right-click operation) */
+/** Show point dots for a single track (right-click manual operation).
+ *  Supports multiple tracks simultaneously. */
 function showManualPointDots(trackId: string) {
-  if (manualPointDotsTrackId.value === trackId) return
-  hideManualPointDots()
-  const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
-  if (!track) return
-  viewer!.entities.suspendEvents()
-  try {
-    pointDotEntityMap.set(trackId, createPointDotsForTrack(track))
-  } finally {
-    viewer!.entities.resumeEvents()
-  }
-  manualPointDotsTrackId.value = trackId
-  viewer!.scene.requestRender()
-}
+  // Add to manual set
+  const nextManual = new Set(manualPointDotsTrackIds.value)
+  nextManual.add(trackId)
+  manualPointDotsTrackIds.value = nextManual
 
-/** Hide manually shown point dots */
-function hideManualPointDots() {
-  if (!manualPointDotsTrackId.value) return
-  removePointDotsForTrack(manualPointDotsTrackId.value)
-  manualPointDotsTrackId.value = null
+  // Remove from global-hidden so it's no longer suppressed
+  const nextHidden = new Set(globalHiddenTrackKeys.value)
+  nextHidden.delete(trackId)
+  globalHiddenTrackKeys.value = nextHidden
+
+  // Create dots if not already rendered
+  if (!pointDotEntityMap.has(trackId)) {
+    const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
+    if (track) {
+      viewer!.entities.suspendEvents()
+      try {
+        pointDotEntityMap.set(trackId, createPointDotsForTrack(track))
+      } finally {
+        viewer!.entities.resumeEvents()
+      }
+    }
+  }
   viewer?.scene.requestRender()
 }
 
-/** Sync global point dots: create/remove entities based on showAllPointDots toggle */
+/** Hide point dots for a specific track (right-click manual operation) */
+function hidePointDotsForTrack(trackId: string) {
+  // Remove from manual set
+  const nextManual = new Set(manualPointDotsTrackIds.value)
+  nextManual.delete(trackId)
+  manualPointDotsTrackIds.value = nextManual
+
+  // In global mode, mark as explicitly hidden so sync won't recreate it
+  if (showAllPointDots.value) {
+    const nextHidden = new Set(globalHiddenTrackKeys.value)
+    nextHidden.add(trackId)
+    globalHiddenTrackKeys.value = nextHidden
+  }
+
+  // Remove rendered dots
+  removePointDotsForTrack(trackId)
+  viewer?.scene.requestRender()
+}
+
+/** Sync global point dots: apply showAllPointDots + manual overrides + hidden list */
 function syncGlobalPointDots() {
   if (!viewer) return
   viewer.entities.suspendEvents()
   try {
-    if (showAllPointDots.value) {
-      for (const track of props.tracks) {
-        const tKey = trackKey(track.id, track.source)
-        if (pointDotEntityMap.has(tKey)) continue
+    for (const track of props.tracks) {
+      const tKey = trackKey(track.id, track.source)
+      const manual = manualPointDotsTrackIds.value.has(tKey)
+      const global = showAllPointDots.value && !globalHiddenTrackKeys.value.has(tKey)
+      const shouldShow = manual || global
+
+      if (shouldShow && !pointDotEntityMap.has(tKey)) {
         pointDotEntityMap.set(tKey, createPointDotsForTrack(track))
-      }
-    } else {
-      for (const [tKey] of pointDotEntityMap) {
-        if (tKey === manualPointDotsTrackId.value) continue
+      } else if (!shouldShow && pointDotEntityMap.has(tKey)) {
         removePointDotsForTrack(tKey)
+      }
+    }
+
+    // Clean up dots for tracks no longer in the display list
+    const keepKeys = new Set(props.tracks.map(t => trackKey(t.id, t.source)))
+    for (const [tKey] of pointDotEntityMap) {
+      if (!keepKeys.has(tKey)) {
+        removePointDotsForTrack(tKey)
+        const nm = new Set(manualPointDotsTrackIds.value)
+        nm.delete(tKey)
+        manualPointDotsTrackIds.value = nm
+        const nh = new Set(globalHiddenTrackKeys.value)
+        nh.delete(tKey)
+        globalHiddenTrackKeys.value = nh
       }
     }
   } finally {
@@ -995,7 +1058,8 @@ function clearAllPointDots() {
   } finally {
     viewer!.entities.resumeEvents()
   }
-  manualPointDotsTrackId.value = null
+  manualPointDotsTrackIds.value = new Set()
+  globalHiddenTrackKeys.value = new Set()
 }
 
 // ── 右键上下文菜单动作 ──
@@ -1028,7 +1092,7 @@ function handleContextShowPointDots() {
 }
 
 function handleContextHidePointDots() {
-  hideManualPointDots()
+  hidePointDotsForTrack(contextMenu.value.trackId)
   closeContextMenu()
 }
 

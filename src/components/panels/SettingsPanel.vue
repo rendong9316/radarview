@@ -89,6 +89,9 @@
         <span class="setting-value toggle-text">{{ showAllPointDots ? '开' : '关' }}</span>
       </div>
       <div class="setting-row">
+        <button class="setting-btn clear-dots-btn" @click="requestClearAll()">🗑 清空所有点迹显示</button>
+      </div>
+      <div class="setting-row">
         <span class="setting-label point-dot-label">圆球大小</span>
         <input
           type="range"
@@ -169,7 +172,7 @@ const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
 const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
-const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots } = useTrackPointDots()
+const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll } = useTrackPointDots()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
@@ -287,6 +290,16 @@ function sourceLabel(src: DataSource): string {
 }
 .setting-btn.danger:hover {
   background: rgba(244,71,71,0.25);
+}
+.clear-dots-btn {
+  width: 100%;
+  text-align: center;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+.clear-dots-btn:hover {
+  color: var(--error);
+  border-color: var(--error);
 }
 
 /* ── Color picker ── */
