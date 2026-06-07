@@ -1,5 +1,16 @@
 <template>
-  <div class="cesium-container" ref="containerRef"></div>
+  <div class="cesium-container" ref="containerRef">
+    <!-- 右键旗标上下文菜单 -->
+    <div
+      v-if="contextMenu.visible"
+      class="flag-context-menu"
+      :style="{ left: contextMenu.x + 'px', top: contextMenu.y + 'px' }"
+      @click.stop
+    >
+      <div class="context-menu-item" @click="handleContextRename">✎ 重命名</div>
+      <div class="context-menu-item context-menu-danger" @click="handleContextDelete">🗑 删除</div>
+    </div>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -32,9 +43,25 @@ const containerRef = ref<HTMLDivElement>()
 let viewer: Cesium.Viewer | null = null
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
+let rightClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
+
+// 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
+let ctxMenuFn: ((e: MouseEvent) => void) | null = null
+let ctxClickOutsideFn: (() => void) | null = null
+let ctxKeyFn: ((e: KeyboardEvent) => void) | null = null
+let ctxCanvasEl: HTMLCanvasElement | null = null
 const { getEffectiveHex, lineColors } = useLineColor()
+
+// ── 右键上下文菜单状态 ──
+const contextMenu = ref<{
+  visible: boolean
+  x: number
+  y: number
+  flagId: string
+  flagLabel: string
+}>({ visible: false, x: 0, y: 0, flagId: '', flagLabel: '' })
 
 /** Resolve line/billboard color: custom override > theme default */
 function getLineColor(source: DataSource): Cesium.Color {
@@ -73,7 +100,7 @@ function getThemedIcon(hex: string): string {
 }
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
-const { flags, addFlag, removeFlag, selectedPair } = useFlags()
+const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
 
 let arcEntity: Cesium.Entity | undefined
@@ -793,6 +820,30 @@ function flyToTrack(track: Track) {
   })
 }
 
+// ── 右键上下文菜单动作 ──
+function closeContextMenu() {
+  contextMenu.value.visible = false
+}
+
+function handleContextRename() {
+  const flag = flags.value.find((f) => f.id === contextMenu.value.flagId)
+  if (!flag) return
+  const newLabel = prompt('请输入新名称：', flag.label)
+  if (newLabel && newLabel.trim()) {
+    renameFlag(flag.id, newLabel.trim())
+  }
+  closeContextMenu()
+}
+
+function handleContextDelete() {
+  const flag = flags.value.find((f) => f.id === contextMenu.value.flagId)
+  if (!flag) return
+  if (confirm(`确定要删除旗标「${flag.label}」吗？`)) {
+    removeFlag(flag.id)
+  }
+  closeContextMenu()
+}
+
 onMounted(async () => {
   if (!containerRef.value) return
 
@@ -961,6 +1012,48 @@ onMounted(async () => {
     const lng = Cesium.Math.toDegrees(cartographic.longitude)
     addFlag(lat, lng)
   }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK)
+
+  // ── 右键旗标上下文菜单 ──
+  ctxCanvasEl = viewer.scene.canvas
+
+  // 方案：用 Cesium 自己的 ScreenSpaceEventHandler（RIGHT_CLICK 必定触发）
+  rightClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  rightClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    const picked = viewer!.scene.pick(movement.position)
+    if (Cesium.defined(picked) && picked.id instanceof Cesium.Entity) {
+      const entityId = picked.id.id
+      if (typeof entityId === 'string' && entityId.startsWith('flag-')) {
+        const flagId = entityId.slice(5)
+        const flag = flags.value.find((f) => f.id === flagId)
+        if (flag) {
+          contextMenu.value = {
+            visible: true,
+            x: movement.position.x,
+            y: movement.position.y,
+            flagId: flag.id,
+            flagLabel: flag.label,
+          }
+          return
+        }
+      }
+    }
+    // 右键空地/非旗标实体 → 关闭菜单
+    closeContextMenu()
+  }, Cesium.ScreenSpaceEventType.RIGHT_CLICK)
+
+  // 阻止浏览器默认右键菜单
+  ctxMenuFn = (e: MouseEvent) => e.preventDefault()
+  ctxCanvasEl.addEventListener('contextmenu', ctxMenuFn)
+
+  // 点击菜单外部关闭
+  ctxClickOutsideFn = () => closeContextMenu()
+  document.addEventListener('click', ctxClickOutsideFn)
+
+  // Esc 关闭菜单
+  ctxKeyFn = (e: KeyboardEvent) => {
+    if (e.key === 'Escape') closeContextMenu()
+  }
+  document.addEventListener('keydown', ctxKeyFn)
 })
 
 onUnmounted(() => {
@@ -974,6 +1067,10 @@ onUnmounted(() => {
     dblClickHandler.destroy()
     dblClickHandler = null
   }
+  if (rightClickHandler) {
+    rightClickHandler.destroy()
+    rightClickHandler = null
+  }
   if (clickHandler) {
     clickHandler.destroy()
     clickHandler = null
@@ -982,6 +1079,20 @@ onUnmounted(() => {
     moveHandler.destroy()
     moveHandler = null
   }
+  // 清理右键上下文菜单事件监听
+  if (ctxCanvasEl && ctxMenuFn) {
+    ctxCanvasEl.removeEventListener('contextmenu', ctxMenuFn)
+  }
+  if (ctxClickOutsideFn) {
+    document.removeEventListener('click', ctxClickOutsideFn)
+  }
+  if (ctxKeyFn) {
+    document.removeEventListener('keydown', ctxKeyFn)
+  }
+  ctxMenuFn = null
+  ctxClickOutsideFn = null
+  ctxKeyFn = null
+  ctxCanvasEl = null
   if (viewer) {
     viewer.destroy()
     viewer = null
@@ -1006,5 +1117,36 @@ defineExpose({ getViewer: () => viewer, flyToTrack, flyToFlag, resetView })
   inset: 0;
   width: 100%;
   height: 100%;
+}
+
+/* ── 右键旗标上下文菜单 ── */
+.flag-context-menu {
+  position: absolute;
+  z-index: 1000;
+  min-width: 120px;
+  background: var(--bg-panel, #1e1e2e);
+  border: 1px solid var(--border-color, #3a3a5c);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+  font-size: 13px;
+  user-select: none;
+}
+
+.context-menu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--text-primary, #cdd6f4);
+  transition: background 0.15s;
+}
+
+.context-menu-item:hover {
+  background: var(--accent-primary, #3b82f6);
+  color: #fff;
+}
+
+.context-menu-danger:hover {
+  background: #ef4444;
+  color: #fff;
 }
 </style>
