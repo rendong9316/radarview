@@ -226,13 +226,15 @@ async function applySettings(raw: Record<string, string>) {
     }
   }
 
-  // ── Sidebar width ──
-  if (raw['sidebar.width'] !== undefined) {
-    try {
-      const { useActivityBar } = await import('./useActivityBar')
-      const ab = useActivityBar()
-      ab.sidebarWidth.value = JSON.parse(raw['sidebar.width'])
-    } catch { /* keep default */ }
+  // ── Sidebar width (per-panel) ──
+  const { useActivityBar } = await import('./useActivityBar')
+  const ab = useActivityBar()
+  const panelIds = ['tracks', 'manage', 'layers', 'flags', 'timeFilter', 'settings'] as const
+  for (const pid of panelIds) {
+    const key = `sidebar.width.${pid}`
+    if (raw[key] !== undefined) {
+      try { ab.setPanelWidth(pid, JSON.parse(raw[key])) } catch { /* keep default */ }
+    }
   }
 
   // ── Manage panel: filter, sort, pageSize ──
