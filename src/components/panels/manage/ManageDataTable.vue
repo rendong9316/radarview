@@ -30,7 +30,8 @@
           v-for="row in rows"
           :key="`${row.icao_address}::${row.batch_id}`"
           class="data-row"
-          :class="{ visible: isVisible(row.icao_address, row.batch_id) }"
+          :class="{ visible: isVisible(row.icao_address, row.batch_id), highlighted: isHighlighted(row.icao_address) }"
+          :data-icao="row.icao_address"
           @contextmenu.prevent="onCtx($event, row)"
         >
           <td class="col-eye" @click.stop="$emit('toggleVisible', row)">
@@ -69,8 +70,11 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, onMounted, onUnmounted } from 'vue'
+import { reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { TrackMetaInfo } from '../../../types/manage'
+import { useTrackHighlight } from '../../../composables/useTrackHighlight'
+
+const { isHighlighted, highlightedIcaos } = useTrackHighlight()
 
 defineProps<{
   rows: TrackMetaInfo[]
@@ -110,6 +114,29 @@ function onCtx(e: MouseEvent, row: TrackMetaInfo) {
 }
 function closeCtx() { ctx.visible = false; ctx.row = null }
 function ctxAct(_action: string) { closeCtx() } // simplified — actual actions handled by dedicated buttons
+
+// Scroll to first highlighted row when highlights change, with flash animation
+watch(highlightedIcaos, async (newVal, oldVal) => {
+  await nextTick()
+  const highlightedRow = document.querySelector<HTMLElement>('.data-row.highlighted')
+  if (highlightedRow) {
+    highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
+  // Flash animation: briefly add just-highlighted class to newly added rows
+  const prev = oldVal ?? new Set<string>()
+  const added = [...newVal].filter(icao => !prev.has(icao))
+  if (added.length > 0) {
+    const rows = document.querySelectorAll<HTMLElement>('.data-row.highlighted')
+    rows.forEach(row => {
+      const icao = row.dataset.icao
+      if (icao && added.includes(icao)) {
+        row.classList.add('just-highlighted')
+        setTimeout(() => row.classList.remove('just-highlighted'), 800)
+      }
+    })
+  }
+}, { deep: true })
+
 onMounted(() => window.addEventListener('click', closeCtx))
 onUnmounted(() => window.removeEventListener('click', closeCtx))
 </script>
@@ -147,6 +174,14 @@ onUnmounted(() => window.removeEventListener('click', closeCtx))
 .data-row { cursor: default; border-bottom: 1px solid var(--border-tertiary); }
 .data-row:hover { background: rgba(255,255,255,0.03); }
 .data-row.visible { background: rgba(0,122,204,0.08); }
+.data-row.highlighted { background: rgba(255,200,0,0.15); outline: 1px solid rgba(255,200,0,0.4); }
+.data-row.just-highlighted {
+  animation: highlight-flash 0.8s ease-out;
+}
+@keyframes highlight-flash {
+  0%   { background: rgba(255,220,60,0.5); }
+  100% { background: rgba(255,200,0,0.15); }
+}
 .data-row td {
   padding: 2px 4px; font-size: 0.714rem; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;

@@ -22,6 +22,10 @@
           class="context-menu-item"
           @click="handleContextHidePointDots"
         >◌ 隐藏所有对应点迹</div>
+        <div
+          class="context-menu-item"
+          @click="handleContextShowDetail"
+        >📋 详细信息</div>
       </template>
     </div>
   </div>
@@ -37,6 +41,7 @@ import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import { useFlagScale } from '../composables/useFlagScale'
+import { useTrackHighlight } from '../composables/useTrackHighlight'
 import { useTrackPointDots } from '../composables/useTrackPointDots'
 import { trackKey } from '../composables/useTracks'
 import type { Flag } from '../composables/useFlags'
@@ -51,6 +56,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'track-pick': [trackId: string | null]
+  'show-track-detail': [payload: { icao: string; source: string }]
 }>()
 
 const containerRef = ref<HTMLDivElement>()
@@ -119,6 +125,7 @@ const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
+const { addHighlight } = useTrackHighlight()
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
 
 // ── Track point dots state ──
@@ -1159,6 +1166,17 @@ function handleContextShowPointDots() {
 
 function handleContextHidePointDots() {
   hidePointDotsForTrack(contextMenu.value.trackId)
+  closeContextMenu()
+}
+
+function handleContextShowDetail() {
+  const trackId = contextMenu.value.trackId
+  // Extract ICAO and source from trackKey (format: "icao::source")
+  const sepIdx = trackId.lastIndexOf('::')
+  const icao = sepIdx > 0 ? trackId.substring(0, sepIdx) : trackId
+  const source = sepIdx > 0 ? trackId.substring(sepIdx + 2) : ''
+  addHighlight(icao)
+  emit('show-track-detail', { icao, source })
   closeContextMenu()
 }
 

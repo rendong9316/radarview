@@ -38,6 +38,7 @@
           :line-widths="lineWidths"
           :dot-scale="dotScale"
           @track-pick="onTrackPick"
+          @show-track-detail="onShowTrackDetail"
         />
 
         <!-- Drop overlay -->
@@ -153,7 +154,7 @@ const { dotScale, setDotScale } = useDotScale()
 const { batchPanelOpen } = usePanelStates()
 const { visibility, toggle: toggleVisible } = useLayerVisibility()
 const { clearAllFlags } = useFlags()
-const { activate: activatePanel } = useActivityBar()
+const { activate: activatePanel, isActive } = useActivityBar()
 const { cycleTheme } = useTheme()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
@@ -354,6 +355,19 @@ function onTrackPick(compositeKey: string | null) {
   } else {
     clearIsolation()
   }
+}
+function onShowTrackDetail(payload: { icao: string; source: string }) {
+  // Set filter BEFORE opening panel to avoid race: loadAll() reads filter on mount
+  import('./composables/useTrackManagement').then((mod) => {
+    const { setFilter } = mod.useTrackManagement()
+    setFilter({
+      source: (payload.source || undefined) as any,
+      searchText: payload.icao,
+    })
+    if (!isActive('manage')) {
+      activatePanel('manage')
+    }
+  })
 }
 function onClearIsolation() { clearIsolation() }
 function onClear() { replay.pause(); clearAll() }

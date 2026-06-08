@@ -28,6 +28,7 @@
     <div class="toolbar">
       <span class="toolbar-info">匹配 {{ totalCount }} 条 · 本页 {{ rows.length }} 条 · 地图可见 {{ visibleOnPage }} 条</span>
       <div class="toolbar-actions">
+        <button v-if="highlightedIcaos.size > 0" class="tb-btn highlight-clear" @click="clearAllHighlights">✦ 取消全部高亮</button>
         <button class="tb-btn" @click="showAllOnPage">👁 本页全显</button>
         <button class="tb-btn" @click="clearVisibleSet">清空地图</button>
         <button class="tb-btn danger" @click="deleteVisibleTracks">🗑 删可见</button>
@@ -62,6 +63,7 @@
 <script setup lang="ts">
 import { onMounted, computed } from 'vue'
 import { useTrackManagement } from '../../composables/useTrackManagement'
+import { useTrackHighlight } from '../../composables/useTrackHighlight'
 import ManageFilterBar from './manage/ManageFilterBar.vue'
 import ManageDataTable from './manage/ManageDataTable.vue'
 import ManagePagination from './manage/ManagePagination.vue'
@@ -76,6 +78,8 @@ const {
   toggleVisible, showAllOnPage, clearVisibleSet,
   deleteTrack, deleteVisibleTracks, exportVisibleTracks,
 } = useTrackManagement()
+
+const { highlightedIcaos, clearAllHighlights } = useTrackHighlight()
 
 function sourceLabel(s: string): string {
   if (s === 'ADS-B') return '📡 ADS-B'
@@ -130,4 +134,6 @@ onMounted(() => { loadAll() })
 .tb-btn:hover { background: var(--button-hover); color: var(--text-primary); }
 .tb-btn.danger { color: var(--semantic-error, #e88); }
 .tb-btn.danger:hover { background: rgba(220, 50, 50, 0.15); }
+.tb-btn.highlight-clear { color: #e8a020; border-color: rgba(232,160,32,0.4); }
+.tb-btn.highlight-clear:hover { background: rgba(232,160,32,0.1); color: #f0c040; }
 </style>
