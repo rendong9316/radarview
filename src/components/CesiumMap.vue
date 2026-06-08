@@ -119,7 +119,7 @@ const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
-const { trackPointDotScale, showAllPointDots, clearAllCounter } = useTrackPointDots()
+const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
 
 // ── Track point dots state ──
 /** TrackKeys the user has manually chosen to show (multiple tracks supported) */
@@ -864,6 +864,23 @@ watch(trackPointDotScale, (newScale) => {
   viewer?.scene.requestRender()
 })
 
+// Update point dot billboard images when custom color or line color changes
+watch([pointDotColors, lineColors], () => {
+  for (const [tKey, dots] of pointDotEntityMap) {
+    // Resolve the source from entityMap
+    const entry = entityMap.get(tKey)
+    if (!entry) continue
+    const color = getPointDotColor(entry.source as DataSource)
+    const icon = getPointDotIcon(color)
+    for (const entity of dots) {
+      if (entity.billboard) {
+        ;(entity.billboard as any).image = icon
+      }
+    }
+  }
+  viewer?.scene.requestRender()
+}, { deep: true })
+
 // Sync global point dots when toggle changes
 watch(showAllPointDots, (val) => {
   if (!val) {
@@ -912,30 +929,79 @@ function flyToTrack(track: Track) {
 
 // ── 航迹点迹渲染 ──
 
-/** Generate a small cyan circle icon for track point dots (cached) */
-let _pointDotIconDataUrl = ''
-function getPointDotIcon(): string {
-  if (_pointDotIconDataUrl) return _pointDotIconDataUrl
-  const size = 16
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')!
-  ctx.beginPath()
-  ctx.arc(size / 2, size / 2, size / 2 - 1.5, 0, Math.PI * 2)
-  ctx.fillStyle = '#00ffcc'
-  ctx.fill()
-  ctx.strokeStyle = '#003322'
-  ctx.lineWidth = 1
-  ctx.stroke()
-  _pointDotIconDataUrl = canvas.toDataURL('image/png')
-  return _pointDotIconDataUrl
+/** Generate a high-contrast color from a hex line color.
+ *  Uses HSL complementary (hue +180°) with boosted saturation and mid lightness
+ *  so dots stand out against the track line and the dark map background. */
+function contrastColor(hex: string): string {
+  const r = parseInt(hex.slice(1, 3), 16) / 255
+  const g = parseInt(hex.slice(3, 5), 16) / 255
+  const b = parseInt(hex.slice(5, 7), 16) / 255
+  const max = Math.max(r, g, b), min = Math.min(r, g, b)
+  const l = (max + min) / 2
+  let h = 0, s = 0
+  if (max !== min) {
+    const d = max - min
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+    h = max === r ? ((g - b) / d + (g < b ? 6 : 0)) / 6
+      : max === g ? ((b - r) / d + 2) / 6
+      : ((r - g) / d + 4) / 6
+  }
+  // Rotate hue 180°, boost saturation, fix mid-bright lightness
+  h = (h + 0.5) % 1
+  s = Math.max(s, 0.75)
+  const nl = 0.55
+  const hue2rgb = (p: number, q: number, t: number) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1
+    if (t < 1 / 6) return p + (q - p) * 6 * t
+    if (t < 1 / 2) return q
+    if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6
+    return p
+  }
+  const q = nl < 0.5 ? nl * (1 + s) : nl + s - nl * s
+  const p = 2 * nl - q
+  const nr = Math.round(hue2rgb(p, q, h + 1 / 3) * 255)
+  const ng = Math.round(hue2rgb(p, q, h) * 255)
+  const nb = Math.round(hue2rgb(p, q, h - 1 / 3) * 255)
+  return `#${nr.toString(16).padStart(2, '0')}${ng.toString(16).padStart(2, '0')}${nb.toString(16).padStart(2, '0')}`
+}
+
+/** Resolve the color for a track's point dots: custom override > auto contrast of line color */
+function getPointDotColor(source: DataSource): string {
+  const custom = pointDotColors[source]
+  if (custom) return custom
+  return contrastColor(getEffectiveHex(source))
+}
+
+/** Icon cache keyed by fill color hex */
+const _pointDotIconCache = new Map<string, string>()
+
+/** Generate a small circle icon for track point dots (cached by color) */
+function getPointDotIcon(color: string): string {
+  let icon = _pointDotIconCache.get(color)
+  if (!icon) {
+    const size = 16
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')!
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2, size / 2 - 1.5, 0, Math.PI * 2)
+    ctx.fillStyle = color
+    ctx.fill()
+    ctx.strokeStyle = '#000'
+    ctx.lineWidth = 1
+    ctx.stroke()
+    icon = canvas.toDataURL('image/png')
+    _pointDotIconCache.set(color, icon)
+  }
+  return icon
 }
 
 /** Create point dot entities for a single track */
 function createPointDotsForTrack(track: Track): Cesium.Entity[] {
   if (!viewer || track.positions.length === 0) return []
-  const icon = getPointDotIcon()
+  const color = getPointDotColor(track.source)
+  const icon = getPointDotIcon(color)
   const scale = trackPointDotScale.value
   const tKey = trackKey(track.id, track.source)
   const dots: Cesium.Entity[] = []

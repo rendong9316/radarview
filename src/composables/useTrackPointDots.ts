@@ -1,4 +1,5 @@
-import { ref, watch } from 'vue'
+import { ref, reactive, watch } from 'vue'
+import type { DataSource } from '../types/track'
 
 /** Global scale for track point dots, shared across the app. */
 const trackPointDotScale = ref(1.0)
@@ -8,6 +9,14 @@ const showAllPointDots = ref(false)
 
 /** Incremented each time the user requests "clear all point dots". Watched by CesiumMap. */
 const clearAllCounter = ref(0)
+
+/** Per-source custom point dot colors. null = auto (contrast of line color). */
+const pointDotColors = reactive<Record<DataSource, string | null>>({
+  adsb: null,
+  radar: null,
+  radar_raw: null,
+  simulation: null,
+})
 
 export function useTrackPointDots() {
   function setTrackPointDotScale(v: number) {
@@ -20,6 +29,14 @@ export function useTrackPointDots() {
 
   function requestClearAll() {
     clearAllCounter.value++
+  }
+
+  function setPointDotColor(source: DataSource, hex: string | null) {
+    pointDotColors[source] = hex
+  }
+
+  function hasCustomPointDotColor(source: DataSource): boolean {
+    return pointDotColors[source] !== null
   }
 
   // Persist dot scale changes
@@ -36,5 +53,19 @@ export function useTrackPointDots() {
     })
   }, { immediate: false })
 
-  return { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, clearAllCounter, requestClearAll }
+  // Persist point dot colors
+  watch(pointDotColors, () => {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      for (const [src, v] of Object.entries(pointDotColors)) {
+        scheduleSave(`display.point_dot_color.${src}`, JSON.stringify(v))
+      }
+    })
+  }, { deep: true, immediate: false })
+
+  return {
+    trackPointDotScale, setTrackPointDotScale,
+    showAllPointDots, toggleAllPointDots,
+    clearAllCounter, requestClearAll,
+    pointDotColors, setPointDotColor, hasCustomPointDotColor,
+  }
 }

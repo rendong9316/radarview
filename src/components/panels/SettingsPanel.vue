@@ -106,6 +106,29 @@
       </div>
     </div>
 
+    <!-- Point dot color group -->
+    <div class="setting-group">
+      <div class="setting-group-title">点迹颜色</div>
+      <div v-for="src in dataSources" :key="'pdc-'+src" class="setting-row">
+        <span class="setting-label point-dot-label" :class="src">{{ sourceLabel(src) }}</span>
+        <div class="color-picker-wrapper">
+          <input
+            type="color"
+            class="setting-color-input"
+            :value="effectivePointDotColor(src)"
+            @input="onPointDotColorChange(src, ($event.target as HTMLInputElement).value)"
+          />
+          <span class="setting-value color-hex">{{ effectivePointDotColor(src) }}</span>
+        </div>
+        <button
+          v-if="hasCustomPointDotColor(src)"
+          class="color-reset-btn"
+          title="重置为自动对比色"
+          @click="onResetPointDotColor(src)"
+        >↺</button>
+      </div>
+    </div>
+
     <!-- Font size group -->
     <div class="setting-group">
       <div class="setting-group-title">字号大小</div>
@@ -172,7 +195,7 @@ const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
 const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
-const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll } = useTrackPointDots()
+const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
@@ -193,6 +216,17 @@ function onResetColor(src: DataSource) {
 function sourceLabel(src: DataSource): string {
   const map: Record<DataSource, string> = { adsb: 'ADS-B', radar: 'Radar', radar_raw: 'Raw', simulation: 'Sim' }
   return map[src] ?? src
+}
+
+// ── Point dot color helpers ──
+function effectivePointDotColor(src: DataSource): string {
+  return pointDotColors[src] ?? '#00ffcc'  // show cyan as the "auto" indicator
+}
+function onPointDotColorChange(src: DataSource, hex: string) {
+  setPointDotColor(src, hex)
+}
+function onResetPointDotColor(src: DataSource) {
+  setPointDotColor(src, null)
 }
 </script>
 

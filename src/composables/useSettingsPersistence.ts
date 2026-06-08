@@ -134,6 +134,12 @@ async function applySettings(raw: Record<string, string>) {
   if (raw['display.show_all_point_dots'] !== undefined) {
     try { tpds.showAllPointDots.value = JSON.parse(raw['display.show_all_point_dots']) } catch { /* keep default */ }
   }
+  for (const src of ['adsb', 'radar', 'radar_raw', 'simulation'] as DataSource[]) {
+    const key = `display.point_dot_color.${src}`
+    if (raw[key] !== undefined) {
+      try { tpds.pointDotColors[src] = JSON.parse(raw[key]) } catch { /* keep default */ }
+    }
+  }
 
   // ── Font size ──
   const { useFontSize } = await import('./useFontSize')
