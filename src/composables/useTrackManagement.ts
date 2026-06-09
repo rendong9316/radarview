@@ -370,7 +370,14 @@ export function useTrackManagement() {
     const icao = row.icao_address
     const batchId = row.batch_id
     const source = dbSourceToFrontend(row.source)
-    if (!confirm(`确定删除航迹 ${icao} (${row.source})？此操作不可撤销。`)) return
+    const { useConfirmDialog } = await import('./useConfirmDialog')
+    const { show } = useConfirmDialog()
+    const ok = await show({
+      title: '删除航迹',
+      message: `确定删除航迹 ${icao} (${row.source})？\n此操作不可撤销。`,
+      variant: 'danger',
+    })
+    if (!ok) return
     try {
       await invoke('delete_track_cmd', { icaoAddress: icao, batchId })
       const key = dbKey(icao, batchId)
@@ -394,7 +401,14 @@ export function useTrackManagement() {
       }
     }
     if (toDelete.length === 0) return
-    if (!confirm(`确定删除 ${toDelete.length} 条航迹？此操作不可撤销。`)) return
+    const { useConfirmDialog } = await import('./useConfirmDialog')
+    const { show } = useConfirmDialog()
+    const ok = await show({
+      title: '批量删除航迹',
+      message: `确定删除 ${toDelete.length} 条航迹？\n此操作不可撤销。`,
+      variant: 'danger',
+    })
+    if (!ok) return
 
     try {
       const ids: [string, number][] = toDelete.map(([icao, bid]) => [icao, bid])

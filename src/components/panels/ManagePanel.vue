@@ -37,6 +37,9 @@
       </div>
     </div>
 
+    <!-- Confirm dialog for delete -->
+    <ConfirmDialog />
+
     <!-- Table -->
     <ManageDataTable
       :rows="rows"
@@ -67,6 +70,7 @@ import { useTrackHighlight } from '../../composables/useTrackHighlight'
 import ManageFilterBar from './manage/ManageFilterBar.vue'
 import ManageDataTable from './manage/ManageDataTable.vue'
 import ManagePagination from './manage/ManagePagination.vue'
+import ConfirmDialog from '../dialogs/ConfirmDialog.vue'
 
 const {
   stats, statsLoading, totalCount,
