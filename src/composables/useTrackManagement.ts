@@ -38,6 +38,11 @@ const distinctOptions = ref<DistinctOptions | null>(null)
 export const visibleTrackKeys = ref<Set<string>>(new Set())
 const loadedTrackKeys = ref<Set<string>>(new Set())
 
+/** Global hidden (soft-deleted) set: keys = "icao::dbSource" (e.g. "780ABC::ADS-B").
+ *  Uses DB source string so filtering works on both metadata rows and persisted tracks.
+ *  Data stays in DB; restore via undo or re-import. */
+export const deletedTrackKeys = ref<Set<string>>(new Set())
+
 // ── Persistence: filter, sortConfig, pageSize ──
 
 let _persistEnabled = false
@@ -75,6 +80,13 @@ watch(visibleTrackKeys, () => {
   })
 }, { deep: true, immediate: false })
 
+watch(deletedTrackKeys, () => {
+  if (!_persistEnabled) return
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave('manage.deleted_keys', JSON.stringify(Array.from(deletedTrackKeys.value)))
+  })
+}, { deep: true, immediate: false })
+
 // ── Visible set restore ──
 
 /** Saved visible keys pending restoration after track data is loaded */
@@ -83,6 +95,21 @@ let _pendingRestoreKeys: string[] | null = null
 /** Called by applySettings to stage saved keys for later restoration */
 export function setPendingRestoreKeys(keys: string[]) {
   _pendingRestoreKeys = keys
+}
+
+/** Saved deleted keys pending restoration */
+let _pendingDeletedKeys: string[] | null = null
+
+/** Called by applySettings to stage saved deleted keys */
+export function setPendingDeletedKeys(keys: string[]) {
+  _pendingDeletedKeys = keys
+}
+
+/** Apply staged deleted keys after settings are loaded */
+export function applyDeletedKeys() {
+  if (!_pendingDeletedKeys || _pendingDeletedKeys.length === 0) return
+  deletedTrackKeys.value = new Set(_pendingDeletedKeys)
+  _pendingDeletedKeys = null
 }
 
 /** Restore the visible set: re-load tracks from DB and add to map.
@@ -216,7 +243,9 @@ export function useTrackManagement() {
         limit: pageSize.value,
         offset: (currentPage.value - 1) * pageSize.value,
       })
-      rows.value = resp.rows
+      rows.value = resp.rows.filter(
+        r => !deletedTrackKeys.value.has(`${r.icao_address}::${r.source}`)
+      )
       totalCount.value = resp.total_count
     } catch (e) {
       console.error('[manage] fetchMetadata failed:', e)
@@ -364,7 +393,7 @@ export function useTrackManagement() {
     return count
   })
 
-  // ── Delete ──
+  // ── Delete (soft-delete: hides from UI, data stays in DB) ──
 
   async function deleteTrack(row: TrackMetaInfo) {
     const icao = row.icao_address
@@ -373,59 +402,150 @@ export function useTrackManagement() {
     const { useConfirmDialog } = await import('./useConfirmDialog')
     const { show } = useConfirmDialog()
     const ok = await show({
-      title: '删除航迹',
-      message: `确定删除航迹 ${icao} (${row.source})？\n此操作不可撤销。`,
+      title: '隐藏航迹',
+      message: `确定隐藏航迹 ${icao} (${row.source})？\n数据保留在数据库中，可通过撤销恢复。`,
       variant: 'danger',
     })
     if (!ok) return
-    try {
-      await invoke('delete_track_cmd', { icaoAddress: icao, batchId })
-      const key = dbKey(icao, batchId)
-      const tKey = trKey(icao, source)
-      const newVis = new Set(visibleTrackKeys.value); newVis.delete(key); visibleTrackKeys.value = newVis
-      const newLd = new Set(loadedTrackKeys.value); newLd.delete(key); loadedTrackKeys.value = newLd
-      const tr = await getUseTracks()
-      tr.removeFromVisibleSet(tKey)
-      tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
-      await fetchStats()
-      fetchMetadata()
-    } catch (e) { console.error('[manage] deleteTrack failed:', e) }
+
+    const tr = await getUseTracks()
+
+    // Mark as deleted (key = "icao::dbSource")
+    const delKey = `${icao}::${row.source}`
+    const key = dbKey(icao, batchId)
+    const newDel = new Set(deletedTrackKeys.value)
+    newDel.add(delKey)
+    deletedTrackKeys.value = newDel
+
+    // Remove from visible/loaded sets
+    const newVis = new Set(visibleTrackKeys.value); newVis.delete(key); visibleTrackKeys.value = newVis
+    const newLd = new Set(loadedTrackKeys.value); newLd.delete(key); loadedTrackKeys.value = newLd
+
+    // Remove from map and tracks array
+    const tKey = trKey(icao, source)
+    tr.removeFromVisibleSet(tKey)
+    tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+
+    // Push to undo stack (session-lifetime only)
+    const { useUndoStack } = await import('./useUndoStack')
+    const undoStack = useUndoStack()
+    undoStack.push(`航迹 ${icao} (${row.source})`, [{
+      icao,
+      batchId,
+      dbSource: row.source,
+      frontendSource: source,
+      wasVisible: true, // was visible in the toggled sense (we just removed it)
+      dbKey: key,
+      trKey: tKey,
+      row,
+    }])
+
+    await fetchStats()
+    fetchMetadata()
   }
 
   async function deleteVisibleTracks() {
-    const toDelete: [string, number, string][] = []
+    const toDelete: TrackMetaInfo[] = []
     for (const row of rows.value) {
       const key = dbKey(row.icao_address, row.batch_id)
       if (visibleTrackKeys.value.has(key)) {
-        toDelete.push([row.icao_address, row.batch_id, dbSourceToFrontend(row.source)])
+        toDelete.push(row)
       }
     }
     if (toDelete.length === 0) return
     const { useConfirmDialog } = await import('./useConfirmDialog')
     const { show } = useConfirmDialog()
     const ok = await show({
-      title: '批量删除航迹',
-      message: `确定删除 ${toDelete.length} 条航迹？\n此操作不可撤销。`,
+      title: '批量隐藏航迹',
+      message: `确定隐藏 ${toDelete.length} 条航迹？\n数据保留在数据库中，可通过撤销恢复。`,
       variant: 'danger',
     })
     if (!ok) return
 
-    try {
-      const ids: [string, number][] = toDelete.map(([icao, bid]) => [icao, bid])
-      await invoke('delete_tracks_bulk_cmd', { tracksJson: JSON.stringify(ids) })
-      const tr = await getUseTracks()
-      const newVis = new Set(visibleTrackKeys.value)
-      const newLd = new Set(loadedTrackKeys.value)
-      for (const [icao, batchId, source] of toDelete) {
-        const key = dbKey(icao, batchId)
-        newVis.delete(key); newLd.delete(key)
-        tr.removeFromVisibleSet(`${icao}::${source}`)
-        tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+    const tr = await getUseTracks()
+    const undoItems: import('./useUndoStack').UndoItem[] = []
+    const newDel = new Set(deletedTrackKeys.value)
+    const newVis = new Set(visibleTrackKeys.value)
+    const newLd = new Set(loadedTrackKeys.value)
+
+    for (const row of toDelete) {
+      const icao = row.icao_address
+      const batchId = row.batch_id
+      const source = dbSourceToFrontend(row.source)
+      const key = dbKey(icao, batchId)
+      const tKey = trKey(icao, source)
+
+      newDel.add(`${icao}::${row.source}`)
+      newVis.delete(key)
+      newLd.delete(key)
+      tr.removeFromVisibleSet(tKey)
+      tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+
+      undoItems.push({
+        icao, batchId,
+        dbSource: row.source,
+        frontendSource: source,
+        wasVisible: true,
+        dbKey: key,
+        trKey: tKey,
+        row,
+      })
+    }
+
+    deletedTrackKeys.value = newDel
+    visibleTrackKeys.value = newVis
+    loadedTrackKeys.value = newLd
+
+    const { useUndoStack } = await import('./useUndoStack')
+    useUndoStack().push(`${toDelete.length} 条航迹`, undoItems)
+
+    await fetchStats()
+    fetchMetadata()
+  }
+
+  /** Undo the most recent soft-delete. Restores tracks to the UI from DB. */
+  async function undoDelete(): Promise<boolean> {
+    const { useUndoStack } = await import('./useUndoStack')
+    const undoStack = useUndoStack()
+    const entry = undoStack.pop()
+    if (!entry) return false
+
+    // Remove from deleted keys (key = "icao::dbSource")
+    const newDel = new Set(deletedTrackKeys.value)
+    for (const item of entry.items) {
+      newDel.delete(`${item.icao}::${item.dbSource}`)
+    }
+    deletedTrackKeys.value = newDel
+
+    // Restore to visible set and re-load tracks from DB
+    const tr = await getUseTracks()
+    for (const item of entry.items) {
+      // Re-add to visibleTrackKeys and loadedTrackKeys
+      visibleTrackKeys.value = new Set(visibleTrackKeys.value).add(item.dbKey)
+      loadedTrackKeys.value = new Set(loadedTrackKeys.value).add(item.dbKey)
+
+      // Check if track already in memory (e.g. still in tracks array from another batch)
+      const existing = tr.tracks.value.find(
+        t => t.id === item.icao && t.source === item.frontendSource
+      )
+      if (!existing) {
+        try {
+          const tracksJson = JSON.stringify([[item.icao, item.batchId]])
+          const fullTracks = await invoke<any[]>('export_tracks_cmd', { tracksJson })
+          if (fullTracks.length > 0) {
+            const { fromBackendTracks } = await getConvertTrack()
+            tr.addTracks(fromBackendTracks(fullTracks))
+          }
+        } catch (e) {
+          console.error('[manage] undoDelete: reload track failed for', item.icao, e)
+        }
       }
-      visibleTrackKeys.value = newVis; loadedTrackKeys.value = newLd
-      await fetchStats()
-      fetchMetadata()
-    } catch (e) { console.error('[manage] deleteVisibleTracks failed:', e) }
+      tr.addToVisibleSet(item.trKey)
+    }
+
+    await fetchStats()
+    fetchMetadata()
+    return true
   }
 
   // ── Export ──
@@ -474,7 +594,7 @@ export function useTrackManagement() {
     totalVisibleCount, visibleOnPage,
 
     // Delete
-    deleteTrack, deleteVisibleTracks,
+    deleteTrack, deleteVisibleTracks, undoDelete,
 
     // Export
     exportVisibleTracks,

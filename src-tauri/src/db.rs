@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 use rusqlite::{params, Connection};
@@ -421,6 +422,136 @@ pub fn save_batch(
             conn.execute("COMMIT", [])
                 .map_err(|e| format!("commit: {}", e))?;
             Ok(batch_id)
+        }
+        Err(e) => {
+            let _ = conn.execute("ROLLBACK", []);
+            Err(e)
+        }
+    }
+}
+
+/// When re-importing a file whose batch already exists, find tracks that were
+/// deleted since the first import and insert only the missing ones.
+/// Returns the number of tracks actually added (0 = nothing missing).
+pub fn append_missing_tracks(
+    path: &PathBuf,
+    file_name: &str,
+    source: &str,
+    tracks: &[Track],
+) -> Result<usize, String> {
+    let conn = Connection::open(path).map_err(|e| format!("open db: {}", e))?;
+    conn.busy_timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| format!("set busy timeout: {}", e))?;
+
+    // Find the existing batch
+    let batch_id: i64 = conn
+        .query_row(
+            "SELECT id FROM batches WHERE file_name = ?1",
+            params![file_name],
+            |row| row.get(0),
+        )
+        .map_err(|e| format!("find batch by file_name '{}': {}", file_name, e))?;
+
+    // Collect existing ICAOs for this batch
+    let mut stmt = conn
+        .prepare("SELECT icao_address FROM saved_tracks WHERE batch_id = ?1")
+        .map_err(|e| format!("prepare: {}", e))?;
+    let existing: HashSet<String> = stmt
+        .query_map(params![batch_id], |row| row.get::<_, String>(0))
+        .map_err(|e| format!("query existing icaos: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    // Filter to tracks not yet in this batch
+    let missing: Vec<&Track> = tracks
+        .iter()
+        .filter(|t| !existing.contains(&t.icao_address))
+        .collect();
+
+    if missing.is_empty() {
+        return Ok(0);
+    }
+
+    let added = missing.len();
+
+    conn.execute("BEGIN IMMEDIATE", [])
+        .map_err(|e| format!("begin tx: {}", e))?;
+
+    let result = (|| -> Result<(), String> {
+        // Insert missing saved_tracks + collect track_points rows
+        let total_positions: usize = missing.iter().map(|t| t.positions.len()).sum();
+        let mut point_rows: Vec<String> = Vec::with_capacity(total_positions);
+
+        {
+            let mut ins_stmt = conn
+                .prepare(
+                    "INSERT OR REPLACE INTO saved_tracks \
+                     (icao_address, batch_id, track_json, source, min_timestamp, max_timestamp, point_count) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                )
+                .map_err(|e| format!("prepare saved_tracks: {}", e))?;
+
+            for track in &missing {
+                let json = serde_json::to_string(track)
+                    .map_err(|e| format!("serialize track: {}", e))?;
+                let (min_ts, max_ts, pt_count) = extract_track_meta(track);
+
+                ins_stmt
+                    .execute(params![
+                        track.icao_address,
+                        batch_id,
+                        json,
+                        source,
+                        min_ts,
+                        max_ts,
+                        pt_count,
+                    ])
+                    .map_err(|e| format!("insert saved_track: {}", e))?;
+
+                let icao_esc = track.icao_address.replace('\'', "''");
+                let src_esc = source.replace('\'', "''");
+                for pos in &track.positions {
+                    let ts_ms = ts_to_ms(&pos.timestamp)?;
+                    if ts_ms == 0 {
+                        continue;
+                    }
+                    point_rows.push(format!(
+                        "('{}',{},{},'{}',{},{},{},{},{},{})",
+                        icao_esc, batch_id, ts_ms, src_esc,
+                        pos.latitude, pos.longitude, pos.altitude,
+                        pos.heading, pos.ground_speed, pos.vertical_rate,
+                    ));
+                }
+            }
+        }
+
+        // Batch insert track_points
+        for chunk in point_rows.chunks(5000) {
+            let sql = format!(
+                "INSERT OR IGNORE INTO track_points \
+                 (icao_address, batch_id, timestamp_ms, source, latitude, longitude, altitude, heading, ground_speed, vertical_rate) \
+                 VALUES {}",
+                chunk.join(",")
+            );
+            conn.execute(&sql, [])
+                .map_err(|e| format!("insert track_points batch: {}", e))?;
+        }
+
+        // Update batch track_count
+        conn.execute(
+            "UPDATE batches SET track_count = track_count + ?1 WHERE id = ?2",
+            params![added as i64, batch_id],
+        )
+        .map_err(|e| format!("update batch count: {}", e))?;
+
+        Ok(())
+    })();
+
+    match result {
+        Ok(()) => {
+            conn.execute("COMMIT", [])
+                .map_err(|e| format!("commit: {}", e))?;
+            Ok(added)
         }
         Err(e) => {
             let _ = conn.execute("ROLLBACK", []);

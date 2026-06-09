@@ -232,9 +232,17 @@ onMounted(async () => {
   // ── Load persisted user settings FIRST ──
   await loadAllSettings()
 
+  // Apply soft-deleted track keys (must be after loadAllSettings, before loading tracks)
   try {
-    const saved = await invoke('load_persisted_tracks') as any[]
-    console.log('[App] load_persisted_tracks returned', saved.length, 'tracks')
+    const { applyDeletedKeys, deletedTrackKeys } = await import('./composables/useTrackManagement')
+    applyDeletedKeys()
+    // Filter out soft-deleted tracks from persisted load
+    const savedRaw = await invoke('load_persisted_tracks') as any[]
+    console.log('[App] load_persisted_tracks returned', savedRaw.length, 'tracks')
+    const saved = savedRaw.filter(
+      (t: any) => !deletedTrackKeys.value.has(`${t.icao_address}::${t.source}`)
+    )
+    console.log('[App] after soft-delete filter:', saved.length, 'tracks')
     if (saved.length > 0) setAll(fromBackendTracks(saved))
   } catch (e) {
     console.error('[App] load_persisted_tracks failed:', e)

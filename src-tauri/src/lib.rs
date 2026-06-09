@@ -54,8 +54,25 @@ fn import_adsb_file(
             }
         });
     } else {
-        // Already imported — fire event so frontend clears persisting state
-        std::thread::spawn(move || { let _ = app_handle.emit("batch-saved", ()); });
+        // Batch exists — check for and re-import any tracks deleted since first import
+        let tracks_clone = tracks.clone();
+        let path_clone = db_path_buf.clone();
+        let fname = file_name.clone();
+        let handle = app_handle.clone();
+        std::thread::spawn(move || {
+            match db::append_missing_tracks(&path_clone, &fname, "ADS-B", &tracks_clone) {
+                Ok(added) => {
+                    if added > 0 {
+                        eprintln!(
+                            "[import_adsb_file] appended {} missing track(s) to existing batch",
+                            added
+                        );
+                    }
+                }
+                Err(e) => eprintln!("[import_adsb_file] append missing failed: {}", e),
+            }
+            let _ = handle.emit("batch-saved", ());
+        });
     }
 
     let dtos: Vec<TrackDto> = tracks.into_par_iter().map(|t| t.to_dto()).collect();
@@ -92,7 +109,25 @@ fn import_radar_file(
             }
         });
     } else {
-        std::thread::spawn(move || { let _ = app_handle.emit("batch-saved", ()); });
+        // Batch exists — check for and re-import any tracks deleted since first import
+        let tracks_clone = tracks.clone();
+        let path_clone = db_path_buf.clone();
+        let fname = file_name.clone();
+        let handle = app_handle.clone();
+        std::thread::spawn(move || {
+            match db::append_missing_tracks(&path_clone, &fname, "Radar", &tracks_clone) {
+                Ok(added) => {
+                    if added > 0 {
+                        eprintln!(
+                            "[import_radar_file] appended {} missing track(s) to existing batch",
+                            added
+                        );
+                    }
+                }
+                Err(e) => eprintln!("[import_radar_file] append missing failed: {}", e),
+            }
+            let _ = handle.emit("batch-saved", ());
+        });
     }
 
     Ok(tracks.into_iter().map(|t| t.to_dto()).collect())
@@ -124,7 +159,25 @@ fn import_radar_raw_file(
             }
         });
     } else {
-        std::thread::spawn(move || { let _ = app_handle.emit("batch-saved", ()); });
+        // Batch exists — check for and re-import any tracks deleted since first import
+        let tracks_clone = tracks.clone();
+        let path_clone = db_path_buf.clone();
+        let fname = file_name.clone();
+        let handle = app_handle.clone();
+        std::thread::spawn(move || {
+            match db::append_missing_tracks(&path_clone, &fname, "RadarRaw", &tracks_clone) {
+                Ok(added) => {
+                    if added > 0 {
+                        eprintln!(
+                            "[import_radar_raw_file] appended {} missing track(s) to existing batch",
+                            added
+                        );
+                    }
+                }
+                Err(e) => eprintln!("[import_radar_raw_file] append missing failed: {}", e),
+            }
+            let _ = handle.emit("batch-saved", ());
+        });
     }
 
     Ok(tracks.into_iter().map(|t| t.to_dto()).collect())

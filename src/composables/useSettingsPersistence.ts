@@ -277,5 +277,15 @@ async function applySettings(raw: Record<string, string>) {
         }
       } catch { /* keep default */ }
     }
+
+    // Stage deleted (soft-deleted) keys for filtering after track data is loaded
+    if (raw['manage.deleted_keys'] !== undefined) {
+      try {
+        const parsed = JSON.parse(raw['manage.deleted_keys'])
+        if (Array.isArray(parsed)) {
+          manageModule.setPendingDeletedKeys(parsed)
+        }
+      } catch { /* keep default */ }
+    }
   } catch { /* manage module not loaded yet, fine */ }
 }

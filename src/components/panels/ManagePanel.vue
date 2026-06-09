@@ -40,6 +40,13 @@
     <!-- Confirm dialog for delete -->
     <ConfirmDialog />
 
+    <!-- Undo toast for soft-delete -->
+    <UndoToast
+      :top="undoStackTop"
+      :count="undoStackCount"
+      @undo="handleUndo"
+    />
+
     <!-- Table -->
     <ManageDataTable
       :rows="rows"
@@ -71,6 +78,10 @@ import ManageFilterBar from './manage/ManageFilterBar.vue'
 import ManageDataTable from './manage/ManageDataTable.vue'
 import ManagePagination from './manage/ManagePagination.vue'
 import ConfirmDialog from '../dialogs/ConfirmDialog.vue'
+import UndoToast from './manage/UndoToast.vue'
+import { useUndoStack } from '../../composables/useUndoStack'
+
+const undoStack = useUndoStack()
 
 const {
   stats, statsLoading, totalCount,
@@ -80,10 +91,13 @@ const {
   loadAll, fetchStats, fetchMetadata,
   setSort, setPage, setPageSize,
   toggleVisible, showAllOnPage, clearVisibleSet,
-  deleteTrack, deleteVisibleTracks, exportVisibleTracks,
+  deleteTrack, deleteVisibleTracks, undoDelete, exportVisibleTracks,
 } = useTrackManagement()
 
 const { highlightedIcaos, clearAllHighlights } = useTrackHighlight()
+
+const undoStackTop = computed(() => undoStack.top.value)
+const undoStackCount = computed(() => undoStack.count.value)
 
 function sourceLabel(s: string): string {
   if (s === 'ADS-B') return '📡 ADS-B'
@@ -100,6 +114,10 @@ const formatTimeRange = computed(() => {
 })
 
 function refresh() { fetchStats(); fetchMetadata() }
+
+async function handleUndo() {
+  await undoDelete()
+}
 
 onMounted(() => { loadAll() })
 </script>
