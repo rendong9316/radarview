@@ -16,6 +16,8 @@
         :dot-scale="dotScale"
         :batch-count="batches.length"
         :track-count="trackCount"
+        :tile-sources="tileSources"
+        :active-source="activeSource"
         @isolate="onIsolateTrack"
         @clear-isolation="onClearIsolation"
         @time-filter-apply="onTimeFilterApply"
@@ -26,6 +28,7 @@
         @toggle-labels="toggleLabels"
         @reset-view="handleResetView"
         @clear-all="onClear"
+        @switch-tile-source="onSwitchTileSource"
       />
 
       <!-- Editor area (CesiumMap) -->
@@ -135,6 +138,7 @@ import { useLayerVisibility } from './composables/useLayerVisibility'
 import { useFlags } from './composables/useFlags'
 import { useActivityBar } from './composables/useActivityBar'
 import { useTheme } from './composables/useTheme'
+import { useTileSource } from './composables/useTileSource'
 import { loadAllSettings, getRawSetting, flushSaves } from './composables/useSettingsPersistence'
 import { useTracks as useTracksModule } from './composables/useTracks'
 import type { DataSource } from './types/track'
@@ -156,6 +160,7 @@ const { visibility, toggle: toggleVisible } = useLayerVisibility()
 const { clearAllFlags } = useFlags()
 const { activate: activatePanel, isActive } = useActivityBar()
 const { cycleTheme } = useTheme()
+const { tileSources, activeSource, fetchTileSources, setActiveSource, onSourceChanged } = useTileSource()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
 const deletingBatchId = ref<number | null>(null)
@@ -231,6 +236,16 @@ function onMenuAction(action: string) {
 onMounted(async () => {
   // ── Load persisted user settings FIRST ──
   await loadAllSettings()
+
+  // ── Initialize tile sources ──
+  await fetchTileSources()
+  onSourceChanged(() => {
+    const info = tileSources.value.find(s => s.file_name === activeSource.value)
+    mapRef.value?.switchTileLayer(info?.max_zoom)
+  })
+  await nextTick()
+  const initInfo = tileSources.value.find(s => s.file_name === activeSource.value)
+  mapRef.value?.switchTileLayer(initInfo?.max_zoom)
 
   // Apply soft-deleted track keys (must be after loadAllSettings, before loading tracks)
   try {
@@ -396,6 +411,11 @@ function onShowTrackDetail(payload: { icao: string; source: string }) {
 function onClearIsolation() { clearIsolation() }
 function onClear() { replay.pause(); clearAll() }
 function handleResetView() { mapRef.value?.resetView() }
+async function onSwitchTileSource(fileName: string) {
+  await setActiveSource(fileName)
+  const info = tileSources.value.find(s => s.file_name === fileName)
+  mapRef.value?.switchTileLayer(info?.max_zoom)
+}
 
 const dragOver = ref(false)
 let dragCounter = 0

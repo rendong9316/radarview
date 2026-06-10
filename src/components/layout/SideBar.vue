@@ -32,12 +32,15 @@
         :dot-scale="dotScale"
         :batch-count="batchCount"
         :track-count="trackCount"
+        :tile-sources="tileSources"
+        :active-source="activeSource"
         @set-line-width="(src: DataSource, v: number) => emit('setLineWidth', src, v)"
         @set-dot-scale="(src: DataSource, v: number) => emit('setDotScale', src, v)"
         @toggle-batch-panel="emit('toggleBatchPanel')"
         @toggle-labels="emit('toggleLabels')"
         @reset-view="emit('resetView')"
         @clear-all="emit('clearAll')"
+        @switch-tile-source="(fileName: string) => emit('switchTileSource', fileName)"
       />
     </div>
 
@@ -56,6 +59,7 @@ import TimeFilterPanel from '../TimeFilterPanel.vue'
 import SettingsPanel from '../panels/SettingsPanel.vue'
 import ManagePanel from '../panels/ManagePanel.vue'
 import type { Track, DataSource } from '../../types/track'
+import type { TileSourceInfo } from '../../composables/useTileSource'
 
 defineProps<{
   tracks: Track[]
@@ -67,6 +71,8 @@ defineProps<{
   dotScale: Record<DataSource, number>
   batchCount: number
   trackCount: number
+  tileSources: TileSourceInfo[]
+  activeSource: string
 }>()
 
 const emit = defineEmits<{
@@ -80,6 +86,7 @@ const emit = defineEmits<{
   toggleLabels: []
   resetView: []
   clearAll: []
+  switchTileSource: [fileName: string]
 }>()
 
 const { activePanel, sidebarVisible, sidebarWidth, close } = useActivityBar()

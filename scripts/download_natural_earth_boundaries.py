@@ -21,6 +21,14 @@ OUTPUT_DIR = PROJECT_DIR / "public" / "boundaries"
 
 DATASETS = [
     {
+        "name": "coastline",
+        "url": "https://naciscdn.org/naturalearth/10m/physical/ne_10m_coastline.zip",
+        "zip": TEMP_DIR / "ne_10m_coastline.zip",
+        "output": OUTPUT_DIR / "coastline.geojson",
+        "tolerance": 0.008,
+        "properties": ["featurecla", "scalerank"],
+    },
+    {
         "name": "admin0",
         "url": "https://naciscdn.org/naturalearth/10m/cultural/ne_10m_admin_0_boundary_lines_land.zip",
         "zip": TEMP_DIR / "ne_10m_admin_0_boundary_lines_land.zip",

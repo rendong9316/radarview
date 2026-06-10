@@ -13,7 +13,7 @@ use std::time::Instant;
 use rayon::prelude::*;
 use tauri::Manager;
 use tauri::Emitter;
-use tile_server::{find_mbtiles, get_tile_server_port, start_tile_server};
+use tile_server::{init_and_start_tile_server, get_tile_server_port, list_tile_sources, set_active_tile_source};
 use track::Track;
 use track::TrackDto;
 
@@ -342,9 +342,8 @@ pub fn run() {
                 .path()
                 .resource_dir()
                 .expect("Failed to resolve resource directory");
-            let mbtiles_path = find_mbtiles(&resource_dir)
-                .expect("No .mbtiles file found in resource directory");
-            start_tile_server(mbtiles_path).expect("Failed to start tile server");
+            init_and_start_tile_server(&resource_dir)
+                .expect("Failed to initialize tile server");
 
             let data_dir = app
                 .path()
@@ -359,6 +358,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             get_tile_server_port,
+            list_tile_sources,
+            set_active_tile_source,
             import_adsb_file,
             import_radar_file,
             import_radar_raw_file,

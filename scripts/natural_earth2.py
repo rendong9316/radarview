@@ -32,12 +32,12 @@ Image.MAX_IMAGE_PIXELS = None
 SOURCE_ZIPS = [
     {
         "zip_path": Path(r"D:\download_edge\HYP_HR_SR_W_DR.zip"),
-        "mbtiles_name": "HYP_HR_SR_W_DR.mbtiles",
+        "mbtiles_name": "HYP_HR_SR_W_DR6.mbtiles",
         "map_name": "Natural Earth Hypso Shaded Relief"
     },
     {
         "zip_path": Path(r"D:\download_edge\GRAY_HR_SR.zip"),
-        "mbtiles_name": "GRAY_HR_SR.mbtiles",
+        "mbtiles_name": "GRAY_HR_SR6.mbtiles",
         "map_name": "Natural Earth Gray Shaded Relief"
     }
 ]

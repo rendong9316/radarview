@@ -68,6 +68,7 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 - **导入按钮长时间显示"保存中"不复原**：后台线程写 DB 时遇到锁竞争会等待 `busy_timeout(30s)`。检查终端 `eprintln!` 日志中的 `background save failed` 定位原因。
 - **航迹数据二次导入时正确合并**：前端 `addTracks()` 按 `icao_address::source` 组合键去重，同键航迹只合并新时间点的 position，不覆盖已有数据。
 - **时间显示差 8 小时**：数据源（MAT/CSV）时间戳均为北京时间 (UTC+8) 的 naive 字符串。`track.rs:ts_to_ms` 必须用 `FixedOffset::east_opt(8*3600)` 解析，`db.rs:ms_to_ts` 必须用 `with_timezone(&china_tz)` 格式化，禁止 `and_utc()` / 纯 UTC 格式化，否则全链路时区不一致。
+- **行政区划线宽调节性能**：`admin1.geojson` 被 Cesium 拆为 ~45K 个 Entity，任何全量遍历都极重。**禁止**用 `CallbackProperty` 替代静态 width（`clampToGround: true` 时 GPU shader 崩溃，`false` 时 45K×60fps 回调拖垮帧率）；**禁止**用 `PolylineCollection`（`@private` API，`_createVertexArray` 导致全局卡顿）。当前方案：GeoJsonDataSource 加载 + 实体缓存 + 防抖遍历，切换可见性 O(1)（`dataSource.show`），线宽更新在 `@change` 松手时执行一次 ~200-1500ms。`src/components/CesiumMap.vue:loadBoundaryLayers`、`applyBoundaryVisibility`、`applyAllBoundaryWidths`。
 
 ## 用户设置持久化
 

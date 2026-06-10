@@ -59,6 +59,17 @@
       <span class="row-value">{{ boundaryWidths.admin0.toFixed(1) }}</span>
     </div>
     <div class="setting-row">
+      <span class="row-label" style="color: #000000">海岸</span>
+      <input
+        type="range"
+        class="row-slider"
+        min="0.2" max="5.0" step="0.1"
+        :value="boundaryWidths.coastline"
+        @input="setBoundaryWidth('coastline', Number(($event.target as HTMLInputElement).value))"
+      />
+      <span class="row-value">{{ boundaryWidths.coastline.toFixed(1) }}</span>
+    </div>
+    <div class="setting-row">
       <span class="row-label" style="color: #77808f">省界</span>
       <input
         type="range"
@@ -68,6 +79,60 @@
         @input="setBoundaryWidth('admin1', Number(($event.target as HTMLInputElement).value))"
       />
       <span class="row-value">{{ boundaryWidths.admin1.toFixed(1) }}</span>
+    </div>
+    <div class="setting-row">
+      <span class="row-label" style="color: #d8dee9">国界色</span>
+      <div class="color-control">
+        <input
+          type="color"
+          class="color-input"
+          :value="boundaryColors.admin0"
+          @input="setBoundaryColor('admin0', ($event.target as HTMLInputElement).value)"
+        />
+        <span class="color-hex">{{ boundaryColors.admin0 }}</span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="row-label" style="color: #000000">海岸色</span>
+      <div class="color-control">
+        <input
+          type="color"
+          class="color-input"
+          :value="boundaryColors.coastline"
+          @input="setBoundaryColor('coastline', ($event.target as HTMLInputElement).value)"
+        />
+        <span class="color-hex">{{ boundaryColors.coastline }}</span>
+      </div>
+    </div>
+    <div class="setting-row">
+      <span class="row-label" style="color: #77808f">省界色</span>
+      <div class="color-control">
+        <input
+          type="color"
+          class="color-input"
+          :value="boundaryColors.admin1"
+          @input="setBoundaryColor('admin1', ($event.target as HTMLInputElement).value)"
+        />
+        <span class="color-hex">{{ boundaryColors.admin1 }}</span>
+      </div>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <!-- 瓦片来源 -->
+    <div class="section-header">瓦片来源</div>
+    <div class="setting-row">
+      <select
+        class="tile-select"
+        :value="activeSource"
+        @change="$emit('switchTileSource', ($event.target as HTMLSelectElement).value)"
+      >
+        <option
+          v-for="ts in tileSources"
+          :key="ts.file_name"
+          :value="ts.file_name"
+        >{{ ts.display_name }}</option>
+      </select>
     </div>
 
     <div class="section-divider"></div>
@@ -190,6 +255,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { DataSource } from '../../types/track'
+import type { TileSourceInfo } from '../../composables/useTileSource'
 import { useFlagScale } from '../../composables/useFlagScale'
 import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
@@ -201,6 +267,8 @@ defineProps<{
   dotScale: Record<DataSource, number>
   batchCount: number
   trackCount: number
+  tileSources: TileSourceInfo[]
+  activeSource: string
 }>()
 
 defineEmits<{
@@ -210,6 +278,7 @@ defineEmits<{
   toggleLabels: []
   resetView: []
   clearAll: []
+  switchTileSource: [fileName: string]
 }>()
 
 const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
@@ -218,7 +287,7 @@ const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
 const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
-const { boundaryVisible, boundaryWidths, setBoundaryVisible, setBoundaryWidth } = useBoundaryLayers()
+const { boundaryVisible, boundaryWidths, boundaryColors, setBoundaryVisible, setBoundaryWidth, setBoundaryColor } = useBoundaryLayers()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
@@ -434,4 +503,21 @@ function onResetPointDotColor(src: DataSource) {
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(12px);
 }
+
+/* ── Tile source select ── */
+.tile-select {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-secondary);
+  border-radius: 2px;
+  font-size: 0.786rem;
+  cursor: pointer;
+  outline: none;
+  font-family: inherit;
+}
+.tile-select:hover { border-color: var(--accent-primary); }
+.tile-select:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 1px rgba(0,212,255,0.2); }
+.tile-select option { background: var(--bg-secondary); color: var(--text-primary); }
 </style>

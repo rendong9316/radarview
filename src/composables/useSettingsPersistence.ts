@@ -122,10 +122,16 @@ async function applySettings(raw: Record<string, string>) {
   if (raw['display.boundary_visible'] !== undefined) {
     try { bl.boundaryVisible.value = JSON.parse(raw['display.boundary_visible']) } catch { /* keep default */ }
   }
-  for (const layer of ['admin0', 'admin1'] as const) {
+  for (const layer of ['coastline', 'admin0', 'admin1'] as const) {
     const key = `display.boundary_width.${layer}`
     if (raw[key] !== undefined) {
       try { bl.boundaryWidths[layer] = JSON.parse(raw[key]) } catch { /* keep default */ }
+    }
+  }
+  for (const layer of ['coastline', 'admin0', 'admin1'] as const) {
+    const key = `display.boundary_color.${layer}`
+    if (raw[key] !== undefined) {
+      try { bl.boundaryColors[layer] = JSON.parse(raw[key]) } catch { /* keep default */ }
     }
   }
 
@@ -167,6 +173,13 @@ async function applySettings(raw: Record<string, string>) {
     if (raw[lcKey] !== undefined) {
       try { lc.lineColors[src] = JSON.parse(raw[lcKey]) } catch { /* keep default */ }
     }
+  }
+
+  // ── Tile source ──
+  const tsModule = await import('./useTileSource')
+  const ts = tsModule.useTileSource()
+  if (raw['tile.source'] !== undefined) {
+    try { ts.activeSource.value = JSON.parse(raw['tile.source']) } catch { /* keep default */ }
   }
 
   // ── Flags ──
