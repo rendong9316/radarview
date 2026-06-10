@@ -1485,6 +1485,11 @@ defineExpose({ getViewer: () => viewer, flyToTrack, flyToFlag, resetView })
   height: 100%;
 }
 
+/* 隐藏 Cesium ion logo */
+.cesium-container :deep(.cesium-widget-credits) {
+  display: none !important;
+}
+
 /* ── 右键上下文菜单 ── */
 .context-menu {
   position: absolute;

@@ -112,6 +112,22 @@ export function applyDeletedKeys() {
   _pendingDeletedKeys = null
 }
 
+/** Clear soft-deleted status for imported tracks (by ICAO + DB source).
+ *  Called after re-importing a file to restore previously hidden tracks.
+ *  Returns the number of tracks restored. */
+export function restoreSoftDeletedTracks(icaos: string[], dbSource: string): number {
+  let count = 0
+  const newDel = new Set(deletedTrackKeys.value)
+  for (const icao of icaos) {
+    const dk = `${icao}::${dbSource}`
+    if (newDel.delete(dk)) count++
+  }
+  if (count > 0) {
+    deletedTrackKeys.value = newDel
+  }
+  return count
+}
+
 /** Restore the visible set: re-load tracks from DB and add to map.
  *  Must be called after persisted tracks have been loaded into the tracks composable. */
 export async function restoreVisibleSet() {

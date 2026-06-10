@@ -300,6 +300,13 @@ async function handleImportAdsb() {
     if (result.length) {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      // Restore any previously soft-deleted tracks from this file
+      const { restoreSoftDeletedTracks, useTrackManagement: mgmt } = await import('./composables/useTrackManagement')
+      const restored = restoreSoftDeletedTracks(result.map(t => t.id), 'ADS-B')
+      if (restored > 0) {
+        console.log(`[import] restored ${restored} soft-deleted ADS-B track(s)`)
+        mgmt().fetchMetadata()
+      }
       await nextTick()
     }
     await refreshBatches()
@@ -315,6 +322,12 @@ async function handleImportRadar() {
     if (result.length) {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      const { restoreSoftDeletedTracks, useTrackManagement: mgmt } = await import('./composables/useTrackManagement')
+      const restored = restoreSoftDeletedTracks(result.map(t => t.id), 'Radar')
+      if (restored > 0) {
+        console.log(`[import] restored ${restored} soft-deleted Radar track(s)`)
+        mgmt().fetchMetadata()
+      }
     }
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
@@ -327,6 +340,12 @@ async function handleImportRadarRaw() {
     if (result.length) {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      const { restoreSoftDeletedTracks, useTrackManagement: mgmt } = await import('./composables/useTrackManagement')
+      const restored = restoreSoftDeletedTracks(result.map(t => t.id), 'RadarRaw')
+      if (restored > 0) {
+        console.log(`[import] restored ${restored} soft-deleted RadarRaw track(s)`)
+        mgmt().fetchMetadata()
+      }
     }
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
