@@ -69,10 +69,12 @@ let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let rightClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
-let boundaryDataSources = new Map<BoundaryLayerKey, Cesium.GeoJsonDataSource>()
-/** Cached flat arrays of polyline entities — avoids iterating dataSource.entities.values each time */
-let boundaryPolylines = new Map<BoundaryLayerKey, Cesium.Entity[]>()
-
+interface BoundaryCollection {
+  collection: Cesium.PolylineCollection
+  polylines: any[]  // Cesium.Polyline instances (plain objects, no Entity overhead)
+  color: Cesium.Color
+}
+let boundaryCollections = new Map<BoundaryLayerKey, BoundaryCollection>()
 // 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
 let ctxMenuFn: ((e: MouseEvent) => void) | null = null
 let ctxClickOutsideFn: (() => void) | null = null
@@ -204,29 +206,75 @@ const flagEntityMap = new Map<string, Cesium.Entity>()
 async function loadBoundaryLayers() {
   if (!viewer) return
 
+  const t0 = performance.now()
+
   const results = await Promise.allSettled(
     BOUNDARY_LAYERS.map(async (layer) => {
-      const dataSource = await Cesium.GeoJsonDataSource.load(layer.url, {
-        stroke: Cesium.Color.fromCssColorString(layer.stroke).withAlpha(layer.alpha),
-        fill: Cesium.Color.TRANSPARENT,
-        strokeWidth: boundaryWidths[layer.key],
-        markerSize: 0,
-        clampToGround: true,
-      })
-      await viewer?.dataSources.add(dataSource)
-      dataSource.show = boundaryVisible.value
-      boundaryDataSources.set(layer.key, dataSource)
+      const color = Cesium.Color.fromCssColorString(layer.stroke).withAlpha(layer.alpha)
+      const width = boundaryWidths[layer.key]
 
-      // Pre-cache polyline entities for fast width updates — avoids
-      // iterating dataSource.entities.values on every slider tick.
-      const polylines: Cesium.Entity[] = []
-      for (const entity of dataSource.entities.values) {
-        if (entity.polyline) polylines.push(entity)
+      // Fetch & parse GeoJSON ourselves — raw coordinates go into PolylineCollection
+      const resp = await fetch(layer.url)
+      const geojson = await resp.json()
+
+      const collection = new (Cesium as any).PolylineCollection()
+      viewer!.scene.primitives.add(collection)
+      collection.show = boundaryVisible.value
+
+      const polylines: any[] = []
+      const features = geojson.features || []
+
+      for (const feature of features) {
+        const geom = feature.geometry
+        if (!geom) continue
+        const coords = geom.coordinates
+        if (!coords) continue
+
+        // Normalize to flat [lon, lat, 0, lon, lat, 0, ...] arrays per ring
+        const collect = (c: any): number[][] => {
+          if (!Array.isArray(c) || c.length === 0) return []
+          if (typeof c[0] === 'number') return []
+          if (Array.isArray(c[0]) && c[0].length > 0 && typeof c[0][0] === 'number') {
+            const flat: number[] = []
+            for (const pt of c) flat.push(pt[0], pt[1], 0)
+            return flat.length >= 6 ? [flat] : []
+          }
+          const out: number[][] = []
+          for (const sub of c) out.push(...collect(sub))
+          return out
+        }
+
+        let lineStrings: number[][] = []
+        if (geom.type === 'Polygon') {
+          for (const ring of coords) lineStrings.push(...collect(ring))
+        } else if (geom.type === 'MultiPolygon') {
+          for (const poly of coords) {
+            for (const ring of poly) lineStrings.push(...collect(ring))
+          }
+        } else if (geom.type === 'LineString') {
+          lineStrings = collect(coords)
+        } else if (geom.type === 'MultiLineString') {
+          lineStrings = collect(coords)
+        }
+
+        for (const flat of lineStrings) {
+          const positions = Cesium.Cartesian3.fromDegreesArrayHeights(flat)
+          const p = collection.add({
+            positions,
+            width,
+            material: Cesium.Material.fromType('Color', { color }),
+            show: true,
+          })
+          polylines.push(p)
+        }
       }
-      boundaryPolylines.set(layer.key, polylines)
-      console.log(`[boundary] ${layer.key}: cached ${polylines.length} polyline entities`)
 
-      return dataSource
+      boundaryCollections.set(layer.key, { collection, polylines, color })
+      console.log(
+        '[boundary] ' + layer.key + ': ' + polylines.length + ' lines ' +
+        '(' + (performance.now() - t0).toFixed(0) + 'ms)'
+      )
+      return { layer: layer.key, count: polylines.length }
     }),
   )
 
@@ -236,50 +284,53 @@ async function loadBoundaryLayers() {
     }
   }
 
+  console.log('[boundary] layers loaded in ' + (performance.now() - t0).toFixed(0) + 'ms total')
   viewer?.scene.requestRender()
 }
 
 function clearBoundaryLayers() {
   if (!viewer) {
-    boundaryDataSources.clear()
-    boundaryPolylines.clear()
+    boundaryCollections.clear()
     return
   }
-  for (const dataSource of boundaryDataSources.values()) {
-    viewer.dataSources.remove(dataSource, true)
+  for (const { collection } of boundaryCollections.values()) {
+    viewer.scene.primitives.remove(collection)
   }
-  boundaryDataSources.clear()
-  boundaryPolylines.clear()
+  boundaryCollections.clear()
 }
 
-/** Toggle boundary visibility — only flips dataSource.show, does NOT iterate entities */
+/** Toggle boundary visibility — flips PolylineCollection.show (O(1), no iteration) */
 function applyBoundaryVisibility() {
   for (const layer of BOUNDARY_LAYERS) {
-    const dataSource = boundaryDataSources.get(layer.key)
-    if (!dataSource) continue
-    dataSource.show = boundaryVisible.value
+    const bc = boundaryCollections.get(layer.key)
+    if (!bc) continue
+    bc.collection.show = boundaryVisible.value
   }
 }
 
-/** Update stroke width for a single boundary layer (uses cached polyline array) */
-function applyBoundaryWidth(layerKey: BoundaryLayerKey) {
-  const polylines = boundaryPolylines.get(layerKey)
-  if (!polylines || polylines.length === 0) return
-  const width = boundaryWidths[layerKey]
-  const ds = boundaryDataSources.get(layerKey)
-  ds?.entities.suspendEvents()
-  for (const entity of polylines) {
-    ;(entity.polyline as any).width = width
-  }
-  ds?.entities.resumeEvents()
-}
-
-/** Update stroke width for all boundary layers */
+/** Update stroke width for all boundary layers.
+ *  Polyline.width is a PLAIN JS property — no Cesium Entity/Property overhead.
+ *  9K polylines = 9K simple assignments, then flag for GPU rebuild next frame. */
 function applyAllBoundaryWidths() {
+  const t0 = performance.now()
   for (const layer of BOUNDARY_LAYERS) {
-    applyBoundaryWidth(layer.key)
+    const bc = boundaryCollections.get(layer.key)
+    if (!bc) continue
+    const width = boundaryWidths[layer.key]
+    for (const p of bc.polylines) {
+      p.width = width
+    }
+    // Dirty flag — tells Cesium's render loop to rebuild vertex buffers.
+    // Do NOT call .update(frameState) manually; it's called by the scene.
+    ;(bc.collection as any)._createVertexArray = true
+    ;(bc.collection as any)._createBatchTable = true
+  }
+  const elapsed = performance.now() - t0
+  if (elapsed > 15) {
+    console.log('[boundary] width update: ' + elapsed.toFixed(1) + 'ms (slow!)')
   }
 }
+
 
 // Generate pin icon via canvas
 function createPinIcon(): string {
@@ -738,15 +789,14 @@ watch(
   { deep: true },
 )
 
-// Boundary visibility toggle — fast path: only flips dataSource.show
+// Boundary visibility toggle — flips PolylineCollection.show (O(1))
 watch(boundaryVisible, () => {
   applyBoundaryVisibility()
   viewer?.scene.requestRender()
 })
 
-// Boundary width change — debounced: during rapid slider drag the reactive value
-// updates instantly (UI stays responsive), but the heavy per-entity width loop only
-// runs once after the user pauses for 60ms, avoiding 9K+ entity updates at 60 Hz.
+// Boundary width change — debounced 60ms. Polyline.width is a plain JS
+// property, so the actual update runs in ~10ms even for 10K polylines.
 let boundaryWidthDebounce: ReturnType<typeof setTimeout> | null = null
 watch(boundaryWidths, () => {
   if (boundaryWidthDebounce) clearTimeout(boundaryWidthDebounce)
@@ -756,6 +806,7 @@ watch(boundaryWidths, () => {
     viewer?.scene.requestRender()
   }, 60)
 }, { deep: true })
+
 
 // Reactive line width: update existing polylines when slider changes
 watch(
