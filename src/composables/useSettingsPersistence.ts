@@ -93,11 +93,13 @@ async function applySettings(raw: Record<string, string>) {
   const { useDotScale } = await import('./useDotScale')
   const { useLayerVisibility } = await import('./useLayerVisibility')
   const { useLabelVisibility } = await import('./useLabelVisibility')
+  const { useBoundaryLayers } = await import('./useBoundaryLayers')
 
   const lw = useLineWidth()
   const ds = useDotScale()
   const lv = useLayerVisibility()
   const lbl = useLabelVisibility()
+  const bl = useBoundaryLayers()
 
   for (const src of ['adsb', 'radar', 'radar_raw', 'simulation'] as DataSource[]) {
     const lwKey = `display.line_width.${src}`
@@ -116,6 +118,15 @@ async function applySettings(raw: Record<string, string>) {
 
   if (raw['display.show_labels'] !== undefined) {
     try { lbl.showLabels.value = JSON.parse(raw['display.show_labels']) } catch { /* keep default */ }
+  }
+  if (raw['display.boundary_visible'] !== undefined) {
+    try { bl.boundaryVisible.value = JSON.parse(raw['display.boundary_visible']) } catch { /* keep default */ }
+  }
+  for (const layer of ['admin0', 'admin1'] as const) {
+    const key = `display.boundary_width.${layer}`
+    if (raw[key] !== undefined) {
+      try { bl.boundaryWidths[layer] = JSON.parse(raw[key]) } catch { /* keep default */ }
+    }
   }
 
   // ── Flag scale ──

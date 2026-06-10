@@ -37,6 +37,41 @@
 
     <div class="section-divider"></div>
 
+    <!-- 行政边界 -->
+    <div class="section-header">行政边界</div>
+    <div class="setting-row">
+      <span class="row-label" style="color: var(--text-primary)">边界线</span>
+      <label class="toggle-switch">
+        <input type="checkbox" :checked="boundaryVisible" @change="setBoundaryVisible(($event.target as HTMLInputElement).checked)" />
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="row-value toggle-label">{{ boundaryVisible ? '开' : '关' }}</span>
+    </div>
+    <div class="setting-row">
+      <span class="row-label" style="color: #d8dee9">国界</span>
+      <input
+        type="range"
+        class="row-slider"
+        min="0.2" max="5.0" step="0.1"
+        :value="boundaryWidths.admin0"
+        @input="setBoundaryWidth('admin0', Number(($event.target as HTMLInputElement).value))"
+      />
+      <span class="row-value">{{ boundaryWidths.admin0.toFixed(1) }}</span>
+    </div>
+    <div class="setting-row">
+      <span class="row-label" style="color: #77808f">省界</span>
+      <input
+        type="range"
+        class="row-slider"
+        min="0.2" max="5.0" step="0.1"
+        :value="boundaryWidths.admin1"
+        @input="setBoundaryWidth('admin1', Number(($event.target as HTMLInputElement).value))"
+      />
+      <span class="row-value">{{ boundaryWidths.admin1.toFixed(1) }}</span>
+    </div>
+
+    <div class="section-divider"></div>
+
     <!-- 圆球直径 -->
     <div class="section-header">圆球直径</div>
     <div v-for="src in dataSources" :key="'ds-'+src" class="setting-row">
@@ -159,6 +194,7 @@ import { useFlagScale } from '../../composables/useFlagScale'
 import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
 import { useTrackPointDots } from '../../composables/useTrackPointDots'
+import { useBoundaryLayers } from '../../composables/useBoundaryLayers'
 
 defineProps<{
   lineWidths: Record<DataSource, number>
@@ -182,6 +218,7 @@ const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
 const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
+const { boundaryVisible, boundaryWidths, setBoundaryVisible, setBoundaryWidth } = useBoundaryLayers()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)

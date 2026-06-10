@@ -34,6 +34,7 @@ src-tauri/target/
 
 # Large map data
 src-tauri/*.mbtiles
+scripts/temp/
 
 # Test data files
 *.csv

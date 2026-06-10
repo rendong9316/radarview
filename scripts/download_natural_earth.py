@@ -27,9 +27,9 @@ PROJECT_DIR = SCRIPT_DIR.parent
 TILES_DIR = PROJECT_DIR / "tiles"
 TEMP_DIR = SCRIPT_DIR / "temp"
 
-NE_URL = "https://naciscdn.org/naturalearth/10m/raster/NE1_HR_LC_SR_W_DR.zip"
-NE_ZIP = TEMP_DIR / "NE1_HR_LC_SR_W_DR.zip"
-MBTILES_PATH = TILES_DIR / "natural_earth.mbtiles"
+NE_URL = "https://naciscdn.org/naturalearth/10m/raster/HYP_HR_SR_W_DR.zip"
+NE_ZIP = TEMP_DIR / "HYP_HR_SR_W_DR.zip"
+MBTILES_PATH = TILES_DIR / "natural_earth_Gray_Earth.mbtiles"
 
 TILE_SIZE = 256
 

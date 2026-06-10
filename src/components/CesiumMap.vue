@@ -44,6 +44,7 @@ import { useFlagScale } from '../composables/useFlagScale'
 import { useTrackHighlight } from '../composables/useTrackHighlight'
 import { useTrackPointDots } from '../composables/useTrackPointDots'
 import { useTheme } from '../composables/useTheme'
+import { useBoundaryLayers, type BoundaryLayerKey } from '../composables/useBoundaryLayers'
 import { trackKey } from '../composables/useTracks'
 import type { Flag } from '../composables/useFlags'
 
@@ -68,6 +69,9 @@ let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let rightClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
+let boundaryDataSources = new Map<BoundaryLayerKey, Cesium.GeoJsonDataSource>()
+/** Cached flat arrays of polyline entities — avoids iterating dataSource.entities.values each time */
+let boundaryPolylines = new Map<BoundaryLayerKey, Cesium.Entity[]>()
 
 // 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
 let ctxMenuFn: ((e: MouseEvent) => void) | null = null
@@ -141,6 +145,7 @@ const { flagScale } = useFlagScale()
 const { addHighlight } = useTrackHighlight()
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
 const { activeTheme, getThemeVar } = useTheme()
+const { boundaryVisible, boundaryWidths } = useBoundaryLayers()
 
 // ── Track point dots state ──
 /** TrackKeys the user has manually chosen to show (multiple tracks supported) */
@@ -161,6 +166,25 @@ let arcEntity: Cesium.Entity | undefined
 
 const LABEL_FONT_BASE = '12px sans-serif'
 const LABEL_FONT_LARGE = '18px sans-serif'
+const BOUNDARY_LAYERS = [
+  {
+    key: 'admin1',
+    url: '/boundaries/admin1.geojson',
+    stroke: '#77808f',
+    alpha: 0.55,
+  },
+  {
+    key: 'admin0',
+    url: '/boundaries/admin0.geojson',
+    stroke: '#d8dee9',
+    alpha: 0.85,
+  },
+] as const satisfies ReadonlyArray<{
+  key: BoundaryLayerKey
+  url: string
+  stroke: string
+  alpha: number
+}>
 
 interface TrackEntities {
   polyline: Cesium.Entity | undefined
@@ -176,6 +200,86 @@ interface TrackEntities {
 
 const entityMap = new Map<string, TrackEntities>()
 const flagEntityMap = new Map<string, Cesium.Entity>()
+
+async function loadBoundaryLayers() {
+  if (!viewer) return
+
+  const results = await Promise.allSettled(
+    BOUNDARY_LAYERS.map(async (layer) => {
+      const dataSource = await Cesium.GeoJsonDataSource.load(layer.url, {
+        stroke: Cesium.Color.fromCssColorString(layer.stroke).withAlpha(layer.alpha),
+        fill: Cesium.Color.TRANSPARENT,
+        strokeWidth: boundaryWidths[layer.key],
+        markerSize: 0,
+        clampToGround: true,
+      })
+      await viewer?.dataSources.add(dataSource)
+      dataSource.show = boundaryVisible.value
+      boundaryDataSources.set(layer.key, dataSource)
+
+      // Pre-cache polyline entities for fast width updates — avoids
+      // iterating dataSource.entities.values on every slider tick.
+      const polylines: Cesium.Entity[] = []
+      for (const entity of dataSource.entities.values) {
+        if (entity.polyline) polylines.push(entity)
+      }
+      boundaryPolylines.set(layer.key, polylines)
+      console.log(`[boundary] ${layer.key}: cached ${polylines.length} polyline entities`)
+
+      return dataSource
+    }),
+  )
+
+  for (const result of results) {
+    if (result.status === 'rejected') {
+      console.warn('Failed to load Natural Earth boundary layer:', result.reason)
+    }
+  }
+
+  viewer?.scene.requestRender()
+}
+
+function clearBoundaryLayers() {
+  if (!viewer) {
+    boundaryDataSources.clear()
+    boundaryPolylines.clear()
+    return
+  }
+  for (const dataSource of boundaryDataSources.values()) {
+    viewer.dataSources.remove(dataSource, true)
+  }
+  boundaryDataSources.clear()
+  boundaryPolylines.clear()
+}
+
+/** Toggle boundary visibility — only flips dataSource.show, does NOT iterate entities */
+function applyBoundaryVisibility() {
+  for (const layer of BOUNDARY_LAYERS) {
+    const dataSource = boundaryDataSources.get(layer.key)
+    if (!dataSource) continue
+    dataSource.show = boundaryVisible.value
+  }
+}
+
+/** Update stroke width for a single boundary layer (uses cached polyline array) */
+function applyBoundaryWidth(layerKey: BoundaryLayerKey) {
+  const polylines = boundaryPolylines.get(layerKey)
+  if (!polylines || polylines.length === 0) return
+  const width = boundaryWidths[layerKey]
+  const ds = boundaryDataSources.get(layerKey)
+  ds?.entities.suspendEvents()
+  for (const entity of polylines) {
+    ;(entity.polyline as any).width = width
+  }
+  ds?.entities.resumeEvents()
+}
+
+/** Update stroke width for all boundary layers */
+function applyAllBoundaryWidths() {
+  for (const layer of BOUNDARY_LAYERS) {
+    applyBoundaryWidth(layer.key)
+  }
+}
 
 // Generate pin icon via canvas
 function createPinIcon(): string {
@@ -633,6 +737,25 @@ watch(
   },
   { deep: true },
 )
+
+// Boundary visibility toggle — fast path: only flips dataSource.show
+watch(boundaryVisible, () => {
+  applyBoundaryVisibility()
+  viewer?.scene.requestRender()
+})
+
+// Boundary width change — debounced: during rapid slider drag the reactive value
+// updates instantly (UI stays responsive), but the heavy per-entity width loop only
+// runs once after the user pauses for 60ms, avoiding 9K+ entity updates at 60 Hz.
+let boundaryWidthDebounce: ReturnType<typeof setTimeout> | null = null
+watch(boundaryWidths, () => {
+  if (boundaryWidthDebounce) clearTimeout(boundaryWidthDebounce)
+  boundaryWidthDebounce = setTimeout(() => {
+    boundaryWidthDebounce = null
+    applyAllBoundaryWidths()
+    viewer?.scene.requestRender()
+  }, 60)
+}, { deep: true })
 
 // Reactive line width: update existing polylines when slider changes
 watch(
@@ -1233,6 +1356,7 @@ onMounted(async () => {
       tileHeight: 256,
     }),
   )
+  await loadBoundaryLayers()
 
   viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
@@ -1447,6 +1571,7 @@ onUnmounted(() => {
   clearAllPointDots()
   clearAllEntities()
   clearAllFlagEntities()
+  clearBoundaryLayers()
   if (arcEntity && viewer) {
     viewer.entities.remove(arcEntity)
     arcEntity = undefined
