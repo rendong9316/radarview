@@ -64,16 +64,15 @@ export function useTrackLoader() {
     console.log('[loadAdsbFile] selected file:', selected)
 
     loading.value = true
-    persisting.value = false
+    persisting.value = true // set before IPC — batch-saved may fire before we return
     progress.value = 0
     const t0 = performance.now()
     try {
       const raw = await invoke('import_adsb_file', { filePath: selected as string }) as any[]
       const t1 = performance.now()
       console.log(`[perf] IPC call (parse+DTO+transfer): ${(t1 - t0).toFixed(0)}ms  |  tracks=${raw.length}`)
-      // Tracks parsed & returned → switch to persisting while DB saves in background
+      // Tracks parsed — loading done, persisting stays true until batch-saved fires
       loading.value = false
-      persisting.value = true
       const tracks = await convertInChunks(raw)
       const t2 = performance.now()
       console.log(`[perf] convertInChunks: ${(t2 - t1).toFixed(0)}ms`)
@@ -95,14 +94,13 @@ export function useTrackLoader() {
     if (!selected) return []
 
     loading.value = true
-    persisting.value = false
+    persisting.value = true // set before IPC — batch-saved may fire before we return
     progress.value = 0
     await startProgressListener()
     try {
       const raw = await invoke('import_radar_file', { filePath: selected as string }) as any[]
       progress.value = 90
       loading.value = false
-      persisting.value = true
       return await convertInChunks(raw)
     } catch (e) {
       loading.value = false
@@ -122,14 +120,13 @@ export function useTrackLoader() {
     if (!selected) return []
 
     loading.value = true
-    persisting.value = false
+    persisting.value = true // set before IPC — batch-saved may fire before we return
     progress.value = 0
     await startProgressListener()
     try {
       const raw = await invoke('import_radar_raw_file', { filePath: selected as string }) as any[]
       progress.value = 90
       loading.value = false
-      persisting.value = true
       return await convertInChunks(raw)
     } catch (e) {
       loading.value = false
