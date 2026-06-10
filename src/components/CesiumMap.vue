@@ -43,6 +43,7 @@ import { useFlags } from '../composables/useFlags'
 import { useFlagScale } from '../composables/useFlagScale'
 import { useTrackHighlight } from '../composables/useTrackHighlight'
 import { useTrackPointDots } from '../composables/useTrackPointDots'
+import { useTheme } from '../composables/useTheme'
 import { trackKey } from '../composables/useTracks'
 import type { Flag } from '../composables/useFlags'
 
@@ -121,12 +122,25 @@ function getThemedIcon(hex: string): string {
   }
   return icon
 }
+
+/** Update Cesium scene background and globe base color to match current theme */
+function updateCesiumBackground() {
+  if (!viewer) return
+  const bgHex = getThemeVar('--cesium-bg') || '#1a1a2e'
+  const globeHex = getThemeVar('--cesium-globe-base') || '#1a1a2e'
+  const bgColor = Cesium.Color.fromCssColorString(bgHex)
+  const globeColor = Cesium.Color.fromCssColorString(globeHex)
+  viewer.scene.backgroundColor = bgColor
+  viewer.scene.globe.baseColor = globeColor
+  viewer.scene.requestRender()
+}
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
 const { addHighlight } = useTrackHighlight()
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
+const { activeTheme, getThemeVar } = useTheme()
 
 // ── Track point dots state ──
 /** TrackKeys the user has manually chosen to show (multiple tracks supported) */
@@ -1180,6 +1194,11 @@ function handleContextShowDetail() {
   closeContextMenu()
 }
 
+// Watch theme changes to update Cesium background color
+watch(activeTheme, () => {
+  updateCesiumBackground()
+})
+
 onMounted(async () => {
   if (!containerRef.value) return
 
@@ -1218,6 +1237,9 @@ onMounted(async () => {
   viewer.camera.setView({
     destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
   })
+
+  // Apply theme-aware background color
+  updateCesiumBackground()
 
   // ===== 无极缩放（Stepless Zoom）=====
   // 禁用 Cesium 内置的步进式滚轮缩放

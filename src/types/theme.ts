@@ -76,6 +76,10 @@ export interface ThemeColors {
   '--source-radar': string
   '--source-radar_raw': string
   '--source-simulation': string
+
+  // Cesium scene background
+  '--cesium-bg': string
+  '--cesium-globe-base': string
 }
 
 export type ThemeId = 'dark' | 'light' | 'hc'

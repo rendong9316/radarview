@@ -68,5 +68,8 @@ export const lightTheme: Theme = {
     '--source-radar': '#00885a',
     '--source-radar_raw': '#d47300',
     '--source-simulation': '#7744aa',
+
+    '--cesium-bg': '#d6e0ea',
+    '--cesium-globe-base': '#d6e0ea',
   },
 }

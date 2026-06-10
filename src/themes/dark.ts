@@ -68,5 +68,8 @@ export const darkTheme: Theme = {
     '--source-radar': '#00ff88',
     '--source-radar_raw': '#ff8800',
     '--source-simulation': '#aa88ff',
+
+    '--cesium-bg': '#1a1a2e',
+    '--cesium-globe-base': '#1a1a2e',
   },
 }

@@ -68,5 +68,8 @@ export const hcTheme: Theme = {
     '--source-radar': '#00ff88',
     '--source-radar_raw': '#ffaa00',
     '--source-simulation': '#cc88ff',
+
+    '--cesium-bg': '#000000',
+    '--cesium-globe-base': '#000000',
   },
 }
