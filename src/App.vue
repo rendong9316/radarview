@@ -174,9 +174,7 @@ const showAbout = ref(false)
 const showShortcuts = ref(false)
 const showDocs = ref(false)
 
-// Resolve saved replay speed before creating the replay composable
-const savedSpeedRaw = getRawSetting('replay.speed')
-const initialReplaySpeed = savedSpeedRaw ? (() => { try { const v = JSON.parse(savedSpeedRaw); return typeof v === 'number' && v > 0 ? v : undefined } catch { return undefined } })() : undefined
+// Replay speed is restored from settings in onMounted after loadAllSettings()
 
 function onTimeFilterApply(min: number, max: number) {
   setUniversalTimeRange(min, max)
@@ -218,7 +216,7 @@ const displayTracks = computed(() => {
   return candidates
 })
 
-const replay = useReplay(displayTracks, initialReplaySpeed)
+const replay = useReplay(displayTracks)
 const unifiedReplayTime = computed(() =>
   replay.isReplayActive.value ? replay.currentTime.value : null
 )
@@ -260,6 +258,16 @@ function onMenuAction(action: string) {
 onMounted(async () => {
   // ── Load persisted user settings FIRST ──
   await loadAllSettings()
+
+  // Restore persisted replay speed (must be after loadAllSettings because
+  // getRawSetting reads from _raw which is empty at module level)
+  const savedSpeedRaw = getRawSetting('replay.speed')
+  if (savedSpeedRaw) {
+    try {
+      const v = JSON.parse(savedSpeedRaw)
+      if (typeof v === 'number' && v > 0) replay.setSpeed(v)
+    } catch { /* keep default */ }
+  }
 
   // ── Initialize tile sources ──
   await fetchTileSources()

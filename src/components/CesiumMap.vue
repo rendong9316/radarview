@@ -54,6 +54,7 @@ import { useTrackPointDots } from '../composables/useTrackPointDots'
 import { useTheme } from '../composables/useTheme'
 import { useBoundaryLayers, type BoundaryLayerKey } from '../composables/useBoundaryLayers'
 import { trackKey } from '../composables/useTracks'
+import { scheduleSave, getRawSetting, whenSettingsLoaded } from '../composables/useSettingsPersistence'
 import type { Flag } from '../composables/useFlags'
 
 const props = defineProps<{
@@ -1432,6 +1433,59 @@ watch(activeTheme, () => {
   updateCesiumBackground()
 })
 
+// ── Camera state persistence ──
+
+interface CameraState {
+  longitude: number
+  latitude: number
+  height: number
+  heading: number
+  pitch: number
+  roll: number
+}
+
+let _cameraSaveTimer: ReturnType<typeof setTimeout> | null = null
+
+function persistCameraState() {
+  if (!viewer) return
+  const cam = viewer.camera
+  const cartographic = Cesium.Cartographic.fromCartesian(cam.position)
+  const state: CameraState = {
+    longitude: Cesium.Math.toDegrees(cartographic.longitude),
+    latitude: Cesium.Math.toDegrees(cartographic.latitude),
+    height: cartographic.height,
+    heading: cam.heading,
+    pitch: cam.pitch,
+    roll: cam.roll,
+  }
+  scheduleSave('camera.state', JSON.stringify(state))
+}
+
+function restoreCameraState() {
+  if (!viewer) return
+  const raw = getRawSetting('camera.state')
+  if (!raw) return false
+  try {
+    const s: CameraState = JSON.parse(raw)
+    if (
+      typeof s.longitude !== 'number' || typeof s.latitude !== 'number' ||
+      typeof s.height !== 'number' || typeof s.heading !== 'number' ||
+      typeof s.pitch !== 'number' || typeof s.roll !== 'number'
+    ) return false
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(s.longitude, s.latitude, s.height),
+      orientation: {
+        heading: s.heading,
+        pitch: s.pitch,
+        roll: s.roll,
+      },
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 onMounted(async () => {
   if (!containerRef.value) return
 
@@ -1469,9 +1523,13 @@ onMounted(async () => {
   )
   await loadBoundaryLayers()
 
-  viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
-  })
+  // Restore saved camera state, or use default view
+  await whenSettingsLoaded()
+  if (!restoreCameraState()) {
+    viewer.camera.setView({
+      destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
+    })
+  }
 
   // Apply theme-aware background color
   updateCesiumBackground()
@@ -1530,6 +1588,12 @@ onMounted(async () => {
     }
   }
   zoomCanvas.addEventListener('wheel', onWheel, { passive: false })
+
+  // Persist camera state on move end (debounced 500ms)
+  viewer.camera.moveEnd.addEventListener(() => {
+    if (_cameraSaveTimer) clearTimeout(_cameraSaveTimer)
+    _cameraSaveTimer = setTimeout(persistCameraState, 500)
+  })
 
   syncEntities(props.tracks)
   pinIconDataUrl = createPinIcon()
@@ -1679,6 +1743,13 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  // Final camera state save + cleanup
+  if (_cameraSaveTimer) {
+    clearTimeout(_cameraSaveTimer)
+    _cameraSaveTimer = null
+  }
+  persistCameraState()
+
   clearAllPointDots()
   clearAllEntities()
   clearAllFlagEntities()

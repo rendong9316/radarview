@@ -7,6 +7,13 @@ import type { DataSource } from '../types/track'
 const pending = new Map<string, string>()
 let timer: ReturnType<typeof setTimeout> | null = null
 let _loaded = false
+let _loadedResolve: (() => void) | null = null
+const _loadedPromise = new Promise<void>((resolve) => { _loadedResolve = resolve })
+
+/** Resolves when settings have been loaded and applied. Safe to call any time. */
+export function whenSettingsLoaded(): Promise<void> {
+  return _loadedPromise
+}
 
 const DEBOUNCE_MS = 300
 
@@ -71,6 +78,7 @@ export async function loadAllSettings() {
 
   // Enable auto-save watchers now that initial values are set
   _loaded = true
+  _loadedResolve?.()
 }
 
 /** Get a raw setting value by key (for one-off reads like replay speed). */
@@ -250,7 +258,8 @@ async function applySettings(raw: Record<string, string>) {
     }
   }
 
-  // ── Sidebar width (per-panel) ──
+  // Sidebar: load per-panel widths FIRST (so panelWidths is populated
+  // before activePanel watcher reads from it)
   const { useActivityBar } = await import('./useActivityBar')
   const ab = useActivityBar()
   const panelIds = ['tracks', 'manage', 'layers', 'flags', 'timeFilter', 'settings'] as const
@@ -259,6 +268,16 @@ async function applySettings(raw: Record<string, string>) {
     if (raw[key] !== undefined) {
       try { ab.setPanelWidth(pid, JSON.parse(raw[key])) } catch { /* keep default */ }
     }
+  }
+
+  // Sidebar visibility (harmless, no width dependency)
+  if (raw['sidebar.visible'] !== undefined) {
+    try { ab.sidebarVisible.value = JSON.parse(raw['sidebar.visible']) } catch { /* keep default */ }
+  }
+
+  // Sidebar active panel -- MUST be last so panelWidths is already seeded
+  if (raw['sidebar.active_panel'] !== undefined) {
+    try { ab.activePanel.value = JSON.parse(raw['sidebar.active_panel']) } catch { /* keep default */ }
   }
 
   // ── Manage panel: filter, sort, pageSize ──
