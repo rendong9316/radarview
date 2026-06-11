@@ -57,6 +57,7 @@
       @set-sort="setSort"
       @toggle-visible="toggleVisible"
       @delete-track="deleteTrack"
+      @view-point-data="onViewPointData"
     />
 
     <!-- Pagination -->
@@ -80,6 +81,8 @@ import ManagePagination from './manage/ManagePagination.vue'
 import ConfirmDialog from '../dialogs/ConfirmDialog.vue'
 import UndoToast from './manage/UndoToast.vue'
 import { useUndoStack } from '../../composables/useUndoStack'
+import { loadAndOpenViewer } from '../../composables/useTrackPointViewer'
+import type { TrackMetaInfo } from '../../types/manage'
 
 const undoStack = useUndoStack()
 
@@ -117,6 +120,10 @@ function refresh() { fetchStats(); fetchMetadata() }
 
 async function handleUndo() {
   await undoDelete()
+}
+
+function onViewPointData(row: TrackMetaInfo) {
+  loadAndOpenViewer(row.icao_address, row.batch_id)
 }
 
 onMounted(() => { loadAll() })

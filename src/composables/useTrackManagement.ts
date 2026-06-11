@@ -195,6 +195,16 @@ function dbSourceToFrontend(dbSource: string): DataSource {
   }
 }
 
+function frontendToDbSource(source: string): string {
+  switch (source) {
+    case 'adsb': return 'ADS-B'
+    case 'radar': return 'Radar'
+    case 'radar_raw': return 'RadarRaw'
+    case 'simulation': return 'Simulation'
+    default: return 'ADS-B'
+  }
+}
+
 async function getUseTracks() {
   const { useTracks } = await import('./useTracks')
   return useTracks()
@@ -460,6 +470,60 @@ export function useTrackManagement() {
     fetchMetadata()
   }
 
+  /** Delete a track by icao + frontend DataSource (no batch_id needed).
+   *  Used from CesiumMap context menu where batch_id is unavailable. */
+  async function deleteTrackByKey(icao: string, source: DataSource): Promise<boolean> {
+    const dbSource = frontendToDbSource(source)
+    const { useConfirmDialog } = await import('./useConfirmDialog')
+    const { show } = useConfirmDialog()
+    const ok = await show({
+      title: '隐藏航迹',
+      message: `确定隐藏航迹 ${icao} (${dbSource})？\n数据保留在数据库中，可通过撤销恢复。`,
+      variant: 'danger',
+    })
+    if (!ok) return false
+
+    const tr = await getUseTracks()
+
+    // Mark as deleted
+    const delKey = `${icao}::${dbSource}`
+    const newDel = new Set(deletedTrackKeys.value)
+    newDel.add(delKey)
+    deletedTrackKeys.value = newDel
+
+    // Remove from in-memory tracks
+    tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+
+    // Clean up visible/loaded sets: remove all entries matching this icao
+    const newVis = new Set(visibleTrackKeys.value)
+    const newLd = new Set(loadedTrackKeys.value)
+    for (const key of visibleTrackKeys.value) {
+      if (key.startsWith(`${icao}::`)) newVis.delete(key)
+    }
+    for (const key of loadedTrackKeys.value) {
+      if (key.startsWith(`${icao}::`)) newLd.delete(key)
+    }
+    visibleTrackKeys.value = newVis
+    loadedTrackKeys.value = newLd
+
+    // Push to undo stack
+    const { useUndoStack } = await import('./useUndoStack')
+    const undoStack = useUndoStack()
+    undoStack.push(`航迹 ${icao} (${dbSource})`, [{
+      icao,
+      batchId: 0, // unknown — restore via re-import/reload
+      dbSource,
+      frontendSource: source,
+      wasVisible: true,
+      dbKey: '',
+      trKey: trKey(icao, source),
+    }])
+
+    await fetchStats()
+    fetchMetadata()
+    return true
+  }
+
   async function deleteVisibleTracks() {
     const toDelete: TrackMetaInfo[] = []
     for (const row of rows.value) {
@@ -610,7 +674,7 @@ export function useTrackManagement() {
     totalVisibleCount, visibleOnPage,
 
     // Delete
-    deleteTrack, deleteVisibleTracks, undoDelete,
+    deleteTrack, deleteTrackByKey, deleteVisibleTracks, undoDelete,
 
     // Export
     exportVisibleTracks,

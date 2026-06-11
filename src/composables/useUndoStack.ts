@@ -14,8 +14,8 @@ export interface UndoItem {
   dbKey: string
   /** icao+frontendSource key for useTracks visible set restore */
   trKey: string
-  /** Row metadata for table display */
-  row: TrackMetaInfo
+  /** Row metadata for table display (may be unavailable for map-context deletes) */
+  row?: TrackMetaInfo
 }
 
 export interface UndoEntry {

@@ -42,6 +42,8 @@
           :dot-scale="dotScale"
           @track-pick="onTrackPick"
           @show-track-detail="onShowTrackDetail"
+          @delete-track="onDeleteTrack"
+          @view-track-points="onViewTrackPoints"
         />
 
         <!-- Drop overlay -->
@@ -109,6 +111,7 @@
     <AboutDialog v-if="showAbout" @close="showAbout = false" />
     <ShortcutsDialog v-if="showShortcuts" @close="showShortcuts = false" />
     <DocsDialog v-if="showDocs" @close="showDocs = false" />
+    <TrackPointDialog v-if="viewingTrack" :track="viewingTrack" :loading="viewingTrackLoading" @close="closeTrackPointViewer" />
   </div>
 </template>
 
@@ -125,6 +128,9 @@ import StatusBar from './components/layout/StatusBar.vue'
 import AboutDialog from './components/dialogs/AboutDialog.vue'
 import ShortcutsDialog from './components/dialogs/ShortcutsDialog.vue'
 import DocsDialog from './components/dialogs/DocsDialog.vue'
+import TrackPointDialog from './components/dialogs/TrackPointDialog.vue'
+import { viewingTrack, viewingTrackLoading, closeTrackPointViewer, openTrackPointViewer } from './composables/useTrackPointViewer'
+import { deletedTrackKeys } from './composables/useTrackManagement'
 import { useTrackLoader } from './composables/useTrackLoader'
 import { useTracks, trackKey, parseTrackKey } from './composables/useTracks'
 import { useReplay } from './composables/useReplay'
@@ -180,18 +186,36 @@ function onTimeFilterClear() {
   clearAllTimeRanges()
 }
 
+/** Convert frontend DataSource to DB source string for deletedTrackKeys lookup */
+function trackSourceToDbSource(source: string): string {
+  switch (source) {
+    case 'adsb': return 'ADS-B'
+    case 'radar': return 'Radar'
+    case 'radar_raw': return 'RadarRaw'
+    case 'simulation': return 'Simulation'
+    default: return 'ADS-B'
+  }
+}
+
 const displayTracks = computed(() => {
-  // Priority 1: Management panel multi-select visible set
+  // Determine the candidate set
+  let candidates: typeof tracks.value
   if (visibleTrackIds.value.size > 0) {
-    return tracks.value.filter(tr => visibleTrackIds.value.has(trackKey(tr.id, tr.source)))
-  }
-  // Priority 2: TrackPanel single isolation
-  if (isolatedTrackId.value) {
+    // Priority 1: Management panel multi-select visible set
+    candidates = tracks.value.filter(tr => visibleTrackIds.value.has(trackKey(tr.id, tr.source)))
+  } else if (isolatedTrackId.value) {
+    // Priority 2: TrackPanel single isolation
     const t = tracks.value.find(tr => trackKey(tr.id, tr.source) === isolatedTrackId.value)
-    return t ? [t] : []
+    candidates = t ? [t] : []
+  } else {
+    // Priority 3: Default — show all filtered tracks
+    candidates = filteredTracks.value
   }
-  // Priority 3: Default — show all filtered tracks
-  return filteredTracks.value
+  // Filter out soft-deleted tracks
+  if (deletedTrackKeys.value.size > 0) {
+    candidates = candidates.filter(tr => !deletedTrackKeys.value.has(`${tr.id}::${trackSourceToDbSource(tr.source)}`))
+  }
+  return candidates
 })
 
 const replay = useReplay(displayTracks, initialReplaySpeed)
@@ -243,6 +267,30 @@ onMounted(async () => {
     const info = tileSources.value.find(s => s.file_name === activeSource.value)
     mapRef.value?.switchTileLayer(info?.max_zoom)
   })
+
+  // Sync backend ACTIVE_SOURCE to match persisted (or default) frontend state
+  // Without this, the backend always serves sources[0] (alphabetically first),
+  // causing a mismatch between the displayed dropdown and actual tiles.
+  const resolvedInfo = tileSources.value.find(s => s.file_name === activeSource.value)
+  if (resolvedInfo) {
+    try {
+      await invoke('set_active_tile_source', { fileName: activeSource.value })
+    } catch (e) {
+      console.error('[App] Failed to sync active tile source on startup:', e)
+      // Fallback to first available source if persisted one is missing
+      if (tileSources.value.length > 0) {
+        activeSource.value = tileSources.value[0].file_name
+        await invoke('set_active_tile_source', { fileName: activeSource.value })
+      }
+    }
+  } else {
+    // Persisted source no longer available, reset to first
+    if (tileSources.value.length > 0) {
+      activeSource.value = tileSources.value[0].file_name
+      await invoke('set_active_tile_source', { fileName: activeSource.value })
+    }
+  }
+
   await nextTick()
   const initInfo = tileSources.value.find(s => s.file_name === activeSource.value)
   mapRef.value?.switchTileLayer(initInfo?.max_zoom)
@@ -407,6 +455,14 @@ function onShowTrackDetail(payload: { icao: string; source: string }) {
       activatePanel('manage')
     }
   })
+}
+async function onDeleteTrack(payload: { icao: string; source: string }) {
+  const mod = await import('./composables/useTrackManagement')
+  const { deleteTrackByKey } = mod.useTrackManagement()
+  await deleteTrackByKey(payload.icao, payload.source as DataSource)
+}
+function onViewTrackPoints(track: import('./types/track').Track) {
+  openTrackPointViewer(track)
 }
 function onClearIsolation() { clearIsolation() }
 function onClear() { replay.pause(); clearAll() }

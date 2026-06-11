@@ -26,6 +26,14 @@
           class="context-menu-item"
           @click="handleContextShowDetail"
         >📋 详细信息</div>
+        <div
+          class="context-menu-item"
+          @click="handleContextViewPoints"
+        >📋 查看点迹数据</div>
+        <div
+          class="context-menu-item context-menu-danger"
+          @click="handleContextDeleteTrack"
+        >🗑 删除该航迹</div>
       </template>
     </div>
   </div>
@@ -59,6 +67,8 @@ const props = defineProps<{
 const emit = defineEmits<{
   'track-pick': [trackId: string | null]
   'show-track-detail': [payload: { icao: string; source: string }]
+  'delete-track': [payload: { icao: string; source: string }]
+  'view-track-points': [track: Track]
 }>()
 
 const containerRef = ref<HTMLDivElement>()
@@ -508,6 +518,7 @@ function createTrackEntities(track: Track) {
         width,
         material: color.withAlpha(alpha),
         clampToGround: false,
+        arcType: Cesium.ArcType.GEODESIC,
       },
     })
   }
@@ -624,6 +635,7 @@ function syncEntities(newTracks: Track[]) {
             width: tSel ? SELECTED_WIDTH : baseWidth(track.source),
             material: color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? 0.6 : NORMAL_ALPHA),
             clampToGround: false,
+            arcType: Cesium.ArcType.GEODESIC,
           },
         })
       }
@@ -698,6 +710,7 @@ function updateReplayPositions(time: number) {
             width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
             material: color.withAlpha(isSel ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA),
             clampToGround: false,
+            arcType: Cesium.ArcType.GEODESIC,
           },
         })
       }
@@ -1355,6 +1368,24 @@ function handleContextShowDetail() {
   const source = sepIdx > 0 ? trackId.substring(sepIdx + 2) : ''
   addHighlight(icao)
   emit('show-track-detail', { icao, source })
+  closeContextMenu()
+}
+
+function handleContextViewPoints() {
+  const trackId = contextMenu.value.trackId
+  const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
+  if (track) {
+    emit('view-track-points', track)
+  }
+  closeContextMenu()
+}
+
+function handleContextDeleteTrack() {
+  const trackId = contextMenu.value.trackId
+  const sepIdx = trackId.lastIndexOf('::')
+  const icao = sepIdx > 0 ? trackId.substring(0, sepIdx) : trackId
+  const source = sepIdx > 0 ? trackId.substring(sepIdx + 2) : ''
+  emit('delete-track', { icao, source })
   closeContextMenu()
 }
 

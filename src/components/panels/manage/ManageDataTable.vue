@@ -60,10 +60,8 @@
 
     <Teleport to="body">
       <div v-if="ctx.visible" class="context-menu" :style="{ position: 'fixed', top: ctx.y + 'px', left: ctx.x + 'px', zIndex: 100 }" @click.stop>
-        <button class="ctx-item" @click="ctxAct('toggle')">👁 切换可见</button>
-        <button class="ctx-item" @click="ctxAct('copy')">📋 复制 ICAO</button>
-        <button class="ctx-item" @click="ctxAct('export')">💾 导出此航迹</button>
-        <button class="ctx-item danger" @click="ctxAct('delete')">🗑 删除</button>
+        <button class="ctx-item" @click="ctxAct('view-points')">📋 查看点迹数据</button>
+        <button class="ctx-item danger" @click="ctxAct('delete')">🗑 删除该航迹</button>
       </div>
     </Teleport>
   </div>
@@ -84,10 +82,11 @@ defineProps<{
   isVisible: (_icao: string, _bid: number) => boolean
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   setSort: [col: string]
   toggleVisible: [row: TrackMetaInfo]
   deleteTrack: [row: TrackMetaInfo]
+  viewPointData: [row: TrackMetaInfo]
 }>()
 
 function srcLabel(s: string): string {
@@ -113,7 +112,15 @@ function onCtx(e: MouseEvent, row: TrackMetaInfo) {
   ctx.visible = true; ctx.x = e.clientX; ctx.y = e.clientY; ctx.row = row
 }
 function closeCtx() { ctx.visible = false; ctx.row = null }
-function ctxAct(_action: string) { closeCtx() } // simplified — actual actions handled by dedicated buttons
+function ctxAct(action: string) {
+  if (!ctx.row) { closeCtx(); return }
+  if (action === 'delete') {
+    emit('deleteTrack', ctx.row)
+  } else if (action === 'view-points') {
+    emit('viewPointData', ctx.row)
+  }
+  closeCtx()
+}
 
 // Scroll to first highlighted row when highlights change, with flash animation
 watch(highlightedIcaos, async (newVal, oldVal) => {
