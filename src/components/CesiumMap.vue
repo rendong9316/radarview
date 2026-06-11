@@ -431,13 +431,39 @@ function syncFlagEntities() {
 
 /** Batch-convert TrackPoint[] → Cartesian3[] using Cesium's SIMD-optimized API.
  *  Eliminates ~N individual fromDegrees() calls with one vectorized operation. */
+function isFinitePoint(p: TrackPoint): boolean {
+  return Number.isFinite(p.longitude) &&
+    Number.isFinite(p.latitude) &&
+    Number.isFinite(p.altitude) &&
+    p.longitude >= -180 && p.longitude <= 180 &&
+    p.latitude >= -90 && p.latitude <= 90
+}
+
+/** Batch-convert TrackPoint[] → Cartesian3[] for polyline rendering.
+ *  Consecutive near-duplicate vertices are removed only for the line mesh;
+ *  point-dot rendering still shows the original observations. Cesium's wide
+ *  polyline triangulation can draw long spurious triangles when fed
+ *  zero-length/near-zero-length segments. */
 function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
-  const flat = new Array(positions.length * 3)
+  const flat: number[] = []
+  let lastLng = Number.NaN
+  let lastLat = Number.NaN
+  let lastAlt = Number.NaN
+
   for (let i = 0; i < positions.length; i++) {
     const p = positions[i]
-    flat[i * 3]     = p.longitude
-    flat[i * 3 + 1] = p.latitude
-    flat[i * 3 + 2] = p.altitude
+    if (!isFinitePoint(p)) continue
+
+    const sameAsLast =
+      Math.abs(p.longitude - lastLng) < 1e-7 &&
+      Math.abs(p.latitude - lastLat) < 1e-7 &&
+      Math.abs(p.altitude - lastAlt) < 0.1
+    if (sameAsLast) continue
+
+    flat.push(p.longitude, p.latitude, p.altitude)
+    lastLng = p.longitude
+    lastLat = p.latitude
+    lastAlt = p.altitude
   }
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
 }
@@ -1279,6 +1305,8 @@ function syncGlobalPointDots() {
   if (!viewer) return
   viewer.entities.suspendEvents()
   try {
+    const activeTracks = new Map(props.tracks.map(track => [trackKey(track.id, track.source), track]))
+
     for (const track of props.tracks) {
       const tKey = trackKey(track.id, track.source)
       const manual = manualPointDotsTrackIds.value.has(tKey)
@@ -1287,15 +1315,25 @@ function syncGlobalPointDots() {
 
       if (shouldShow && !pointDotEntityMap.has(tKey)) {
         pointDotEntityMap.set(tKey, createPointDotsForTrack(track))
+      } else if (shouldShow && pointDotEntityMap.has(tKey)) {
+        const dots = pointDotEntityMap.get(tKey)!
+        if (dots.length !== track.positions.length) {
+          removePointDotsForTrack(tKey)
+          pointDotEntityMap.set(tKey, createPointDotsForTrack(track))
+        } else {
+          for (let i = 0; i < track.positions.length; i++) {
+            const p = track.positions[i]
+            dots[i].position = Cesium.Cartesian3.fromDegrees(p.longitude, p.latitude, p.altitude) as any
+          }
+        }
       } else if (!shouldShow && pointDotEntityMap.has(tKey)) {
         removePointDotsForTrack(tKey)
       }
     }
 
     // Clean up dots for tracks no longer in the display list
-    const keepKeys = new Set(props.tracks.map(t => trackKey(t.id, t.source)))
     for (const [tKey] of pointDotEntityMap) {
-      if (!keepKeys.has(tKey)) {
+      if (!activeTracks.has(tKey)) {
         removePointDotsForTrack(tKey)
         const nm = new Set(manualPointDotsTrackIds.value)
         nm.delete(tKey)
