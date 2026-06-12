@@ -8,6 +8,7 @@ const fontSize = ref(14)
 
 function applyFontSize(v: number) {
   // Set root font-size; CSS declarations use rem units to scale relative to this.
+  if (isNaN(v) || v <= 0) return
   document.documentElement.style.fontSize = v + 'px'
 }
 

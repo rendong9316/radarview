@@ -56,7 +56,7 @@ export function vincentyKm(lat1: number, lng1: number, lat2: number, lng2: numbe
     sinAlpha = (Math.cos(U1) * Math.cos(U2) * sinLambda) / sinSigma
     cos2Alpha = 1 - sinAlpha * sinAlpha
     cos2SigmaM = cosSigma - (2 * Math.sin(U1) * Math.sin(U2)) / cos2Alpha
-    if (isNaN(cos2SigmaM)) cos2SigmaM = 0 // equatorial line
+    if (!isFinite(cos2SigmaM)) cos2SigmaM = 0 // equatorial line
 
     const C = (F / 16) * cos2Alpha * (4 + F * (4 - 3 * cos2Alpha))
     lambdaP = lambda

@@ -150,6 +150,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
   }
 
   function setSpeed(s: number) {
+    if (!isFinite(s) || s <= 0) return
     speed.value = s
   }
 

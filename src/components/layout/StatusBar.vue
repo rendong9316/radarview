@@ -48,8 +48,8 @@
           type="number"
           :value="speed"
           min="1"
-          @keydown.enter="$emit('setSpeed', Number(($event.target as HTMLInputElement).value))"
-          @blur="$emit('setSpeed', Number(($event.target as HTMLInputElement).value))"
+          @keydown.enter="onCustomSpeed(($event.target as HTMLInputElement).value)"
+          @blur="onCustomSpeed(($event.target as HTMLInputElement).value)"
           title="自定义倍速 (回车生效)"
         />
       </div>
@@ -129,6 +129,12 @@ function seekFromClientX(clientX: number) {
   const rect = progressRef.value.getBoundingClientRect()
   const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
   emit('seek', ratio)
+}
+
+function onCustomSpeed(raw: string) {
+  const v = Number(raw)
+  if (!isFinite(v) || v <= 0) return
+  emit('setSpeed', v)
 }
 
 function onSeek(e: MouseEvent) {

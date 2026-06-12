@@ -50,7 +50,10 @@ fn import_adsb_file(
         std::thread::spawn(move || {
             match db::save_batch(&path_clone, &fname, "ADS-B", &tracks_clone) {
                 Ok(_) => { let _ = handle.emit("batch-saved", ()); }
-                Err(e) => eprintln!("[import_adsb_file] background save failed: {}", e),
+                Err(e) => {
+                    eprintln!("[import_adsb_file] background save failed: {}", e);
+                    let _ = handle.emit("batch-save-failed", format!("ADS-B {}: {}", fname, e));
+                }
             }
         });
     } else {
@@ -68,10 +71,13 @@ fn import_adsb_file(
                             added
                         );
                     }
+                    let _ = handle.emit("batch-saved", ());
                 }
-                Err(e) => eprintln!("[import_adsb_file] append missing failed: {}", e),
+                Err(e) => {
+                    eprintln!("[import_adsb_file] append missing failed: {}", e);
+                    let _ = handle.emit("batch-save-failed", format!("ADS-B append {}: {}", fname, e));
+                }
             }
-            let _ = handle.emit("batch-saved", ());
         });
     }
 
@@ -105,7 +111,10 @@ fn import_radar_file(
         std::thread::spawn(move || {
             match db::save_batch(&path_clone, &fname, "Radar", &tracks_clone) {
                 Ok(_) => { let _ = handle.emit("batch-saved", ()); }
-                Err(e) => eprintln!("[import_radar_file] background save failed: {}", e),
+                Err(e) => {
+                    eprintln!("[import_radar_file] background save failed: {}", e);
+                    let _ = handle.emit("batch-save-failed", format!("Radar {}: {}", fname, e));
+                }
             }
         });
     } else {
@@ -123,10 +132,13 @@ fn import_radar_file(
                             added
                         );
                     }
+                    let _ = handle.emit("batch-saved", ());
                 }
-                Err(e) => eprintln!("[import_radar_file] append missing failed: {}", e),
+                Err(e) => {
+                    eprintln!("[import_radar_file] append missing failed: {}", e);
+                    let _ = handle.emit("batch-save-failed", format!("Radar append {}: {}", fname, e));
+                }
             }
-            let _ = handle.emit("batch-saved", ());
         });
     }
 
@@ -155,7 +167,10 @@ fn import_radar_raw_file(
         std::thread::spawn(move || {
             match db::save_batch(&path_clone, &fname, "RadarRaw", &tracks_clone) {
                 Ok(_) => { let _ = handle.emit("batch-saved", ()); }
-                Err(e) => eprintln!("[import_radar_raw_file] background save failed: {}", e),
+                Err(e) => {
+                    eprintln!("[import_radar_raw_file] background save failed: {}", e);
+                    let _ = handle.emit("batch-save-failed", format!("RadarRaw {}: {}", fname, e));
+                }
             }
         });
     } else {
@@ -173,10 +188,13 @@ fn import_radar_raw_file(
                             added
                         );
                     }
+                    let _ = handle.emit("batch-saved", ());
                 }
-                Err(e) => eprintln!("[import_radar_raw_file] append missing failed: {}", e),
+                Err(e) => {
+                    eprintln!("[import_radar_raw_file] append missing failed: {}", e);
+                    let _ = handle.emit("batch-save-failed", format!("RadarRaw append {}: {}", fname, e));
+                }
             }
-            let _ = handle.emit("batch-saved", ());
         });
     }
 

@@ -11,6 +11,7 @@ const lineWidths = reactive<Record<DataSource, number>>({
 
 export function useLineWidth() {
   function setLineWidth(source: DataSource, width: number) {
+    if (isNaN(width)) return
     lineWidths[source] = Math.max(0.5, Math.min(10, width))
   }
 

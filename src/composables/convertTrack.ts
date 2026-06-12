@@ -43,6 +43,7 @@ interface TrackDto {
 
 /** Fast timestamp parser — charCode math. Input is local time from Python strftime. */
 function parseTimestamp(raw: string): number {
+  if (raw.length < 19) return 0
   const Y = (raw.charCodeAt(0) - 48) * 1000 + (raw.charCodeAt(1) - 48) * 100 + (raw.charCodeAt(2) - 48) * 10 + (raw.charCodeAt(3) - 48)
   const M = (raw.charCodeAt(5) - 48) * 10 + (raw.charCodeAt(6) - 48)
   const D = (raw.charCodeAt(8) - 48) * 10 + (raw.charCodeAt(9) - 48)

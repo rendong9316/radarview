@@ -314,7 +314,21 @@ onMounted(async () => {
       (t: any) => !deletedTrackKeys.value.has(`${t.icao_address}::${t.source}`)
     )
     console.log('[App] after soft-delete filter:', saved.length, 'tracks')
+    // Save restored selectedId/isolatedTrackId before setAll() wipes them
+    const savedSelectedId = selectedId.value
+    const savedIsolatedId = isolatedTrackId.value
+
     if (saved.length > 0) setAll(fromBackendTracks(saved))
+
+    // Restore only if referenced tracks still exist in the loaded data
+    if (savedSelectedId) {
+      const exists = tracks.value.some(t => trackKey(t.id, t.source) === savedSelectedId)
+      if (exists) selectedId.value = savedSelectedId
+    }
+    if (savedIsolatedId) {
+      const exists = tracks.value.some(t => trackKey(t.id, t.source) === savedIsolatedId)
+      if (exists) isolatedTrackId.value = savedIsolatedId
+    }
   } catch (e) {
     console.error('[App] load_persisted_tracks failed:', e)
   }
@@ -333,6 +347,18 @@ onMounted(async () => {
   listen('batch-saved', () => {
     loader.onPersistComplete()
     refreshBatches()
+  })
+
+  // Background DB save failure → notify user (silent data loss prevention)
+  listen('batch-save-failed', (event: any) => {
+    const msg = typeof event.payload === 'string' ? event.payload : '未知错误'
+    console.error('[App] batch-save-failed:', msg)
+    errorMsg.value = `数据保存失败: ${msg}`
+    setTimeout(() => {
+      if (errorMsg.value === `数据保存失败: ${msg}`) {
+        errorMsg.value = ''
+      }
+    }, 8000)
   })
 
   // Flush pending setting saves before the window closes
@@ -473,7 +499,14 @@ function onViewTrackPoints(track: import('./types/track').Track) {
   openTrackPointViewer(track)
 }
 function onClearIsolation() { clearIsolation() }
-function onClear() { replay.pause(); clearAll() }
+async function onClear() {
+  replay.pause()
+  clearAll()
+  // Also clear management panel visible set to prevent stale keys after re-import
+  import('./composables/useTrackManagement').then(mod => {
+    mod.useTrackManagement().clearVisibleSet()
+  })
+}
 function handleResetView() { mapRef.value?.resetView() }
 async function onSwitchTileSource(fileName: string) {
   await setActiveSource(fileName)

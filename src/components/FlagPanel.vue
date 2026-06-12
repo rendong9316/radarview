@@ -100,6 +100,10 @@ function handlePlaceFlag() {
     coordError.value = '请输入经纬度'
     return
   }
+  if (isNaN(inputLat.value) || isNaN(inputLng.value)) {
+    coordError.value = '请输入有效数字'
+    return
+  }
   if (inputLat.value < -90 || inputLat.value > 90) {
     coordError.value = '纬度范围 -90 ~ 90'
     return
@@ -119,7 +123,8 @@ function onClearAll() {
   }
 }
 
-function fmt(v: number) {
+function fmt(v: number | undefined | null) {
+  if (typeof v !== 'number' || !isFinite(v)) return '--'
   return v.toFixed(4)
 }
 

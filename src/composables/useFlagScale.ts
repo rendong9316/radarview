@@ -8,7 +8,8 @@ const flagScale = ref(1.0)
 
 export function useFlagScale() {
   function setFlagScale(v: number) {
-    flagScale.value = Math.round(v * 10) / 10
+    if (isNaN(v)) return
+    flagScale.value = Math.max(0.1, Math.min(10, Math.round(v * 10) / 10))
   }
 
   // Persist

@@ -12,6 +12,7 @@ const dotScale = reactive<Record<DataSource, number>>({
 
 export function useDotScale() {
   function setDotScale(source: DataSource, s: number) {
+    if (isNaN(s)) return
     dotScale[source] = Math.max(0.2, Math.min(3.0, s))
   }
 

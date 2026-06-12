@@ -77,6 +77,8 @@ export function useActivityBar() {
     }, { immediate: false })
 
     // Persist per-panel sidebar width
+    // flush: 'sync' is required — _restoringWidth flag must be checked synchronously
+    // before it's reset in the same activePanel watcher tick.
     watch(sidebarWidth, (v) => {
       if (_restoringWidth) return
       const panel = activePanel.value
@@ -88,7 +90,7 @@ export function useActivityBar() {
       import('./useSettingsPersistence').then(({ scheduleSave }) => {
         scheduleSave(`sidebar.width.${panel}`, JSON.stringify(v))
       })
-    }, { immediate: false })
+    }, { immediate: false, flush: 'sync' })
   }
 
   return {

@@ -20,6 +20,7 @@ const pointDotColors = reactive<Record<DataSource, string | null>>({
 
 export function useTrackPointDots() {
   function setTrackPointDotScale(v: number) {
+    if (isNaN(v)) return
     trackPointDotScale.value = Math.max(0.2, Math.min(5.0, Math.round(v * 10) / 10))
   }
 
