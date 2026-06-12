@@ -258,6 +258,7 @@ function onMenuAction(action: string) {
 onMounted(async () => {
   // ── Load persisted user settings FIRST ──
   await loadAllSettings()
+  invoke('push_splash_log', { message: '正在应用主题配置...' })
 
   // Restore persisted replay speed (must be after loadAllSettings because
   // getRawSetting reads from _raw which is empty at module level)
@@ -271,6 +272,8 @@ onMounted(async () => {
 
   // ── Initialize tile sources ──
   await fetchTileSources()
+  invoke('push_splash_log', { message: '发现 ' + tileSources.value.length + ' 个地图源' })
+  invoke('push_splash_log', { message: '正在同步默认地图源...' })
   onSourceChanged(() => {
     const info = tileSources.value.find(s => s.file_name === activeSource.value)
     mapRef.value?.switchTileLayer(info?.max_zoom)
@@ -301,20 +304,24 @@ onMounted(async () => {
 
   await nextTick()
   const initInfo = tileSources.value.find(s => s.file_name === activeSource.value)
+  invoke('push_splash_log', { message: '正在加载瓦片图层...' })
   mapRef.value?.switchTileLayer(initInfo?.max_zoom)
 
+  invoke('push_splash_log', { message: '正在连接航迹数据库...' })
   // Apply soft-deleted track keys (must be after loadAllSettings, before loading tracks)
   try {
     const { applyDeletedKeys, deletedTrackKeys } = await import('./composables/useTrackManagement')
     applyDeletedKeys()
     // Filter out soft-deleted tracks from persisted load
     const savedRaw = await invoke('load_persisted_tracks') as any[]
+    invoke('push_splash_log', { message: '读取到 ' + savedRaw.length + ' 条记录' })
     console.log('[App] load_persisted_tracks returned', savedRaw.length, 'tracks')
     const saved = savedRaw.filter(
       (t: any) => !deletedTrackKeys.value.has(`${t.icao_address}::${t.source}`)
     )
     console.log('[App] after soft-delete filter:', saved.length, 'tracks')
     // Save restored selectedId/isolatedTrackId before setAll() wipes them
+    invoke('push_splash_log', { message: '过滤后剩余 ' + saved.length + ' 条有效航迹' })
     const savedSelectedId = selectedId.value
     const savedIsolatedId = isolatedTrackId.value
 
@@ -333,15 +340,18 @@ onMounted(async () => {
     console.error('[App] load_persisted_tracks failed:', e)
   }
 
+  invoke('push_splash_log', { message: '正在恢复管理面板可见集...' })
   // Restore management panel visible track set (must be after tracks are loaded)
   try {
     const { restoreVisibleSet } = await import('./composables/useTrackManagement')
+    invoke("push_splash_log", { message: "正在恢复可见航迹..." })
     await restoreVisibleSet()
   } catch (e) {
     console.error('[App] restoreVisibleSet failed:', e)
   }
 
   await refreshBatches()
+  invoke("push_splash_log", { message: "已加载 " + batches.value.length + " 个批次" })
 
   // Background DB save completion → refresh batch list + clear persisting UI
   listen('batch-saved', () => {
@@ -364,6 +374,7 @@ onMounted(async () => {
   // Flush pending setting saves before the window closes
   window.addEventListener('beforeunload', flushSaves)
 
+  invoke('push_splash_log', { message: '正在注册快捷键...' })
   // ── Keyboard shortcuts ──
   window.addEventListener('keydown', (e: KeyboardEvent) => {
     const ctrl = e.ctrlKey || e.metaKey
@@ -382,6 +393,10 @@ onMounted(async () => {
     else if (!ctrl && !shift && e.key === 'Escape') { clearIsolation() }
     else if (!ctrl && !shift && e.key === 'F12') { e.preventDefault(); /* Dev tools handled by Tauri natively */ }
   })
+
+  invoke('push_splash_log', { message: '启动完成' })
+  // Notify Rust that Vue is ready → show main window, close splash
+  invoke('app_ready').catch(e => console.error('[App] app_ready failed:', e))
 })
 
 async function refreshBatches() {

@@ -9,6 +9,7 @@ mod track;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::Instant;
+use std::time::Duration;
 
 use rayon::prelude::*;
 use tauri::Manager;
@@ -18,6 +19,7 @@ use track::Track;
 use track::TrackDto;
 
 struct DbPath(Mutex<PathBuf>);
+struct SplashHandle(Mutex<Option<tauri::WebviewWindow>>);
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -350,26 +352,102 @@ fn load_all_settings(
     settings::load_all_settings(&path)
 }
 
+#[tauri::command]
+fn push_splash_log(app: tauri::AppHandle, message: String) -> Result<(), String> {
+    let state = app.state::<SplashHandle>();
+    let guard = state.0.lock().map_err(|e| e.to_string())?;
+    if let Some(ref splash) = *guard {
+        let escaped = message.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
+        splash.eval(&format!("addLog('{}')", escaped))
+            .map_err(|e| format!("eval failed: {}", e))?;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn app_ready(app: tauri::AppHandle) -> Result<(), String> {
+    // Show the main window
+    let main = app
+        .get_webview_window("main")
+        .ok_or("Main window not found".to_string())?;
+    main.show().map_err(|e| e.to_string())?;
+    main.set_focus().map_err(|e| e.to_string())?;
+
+    // Close the splash window (take ownership from managed state)
+    let handle = app.state::<SplashHandle>();
+    if let Ok(mut guard) = handle.0.lock() {
+        if let Some(splash) = guard.take() {
+            splash.close().map_err(|e| e.to_string())?;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // Create splash window first — shows immediately while we initialize
+            let handle = app.handle().clone();
+            let splash = tauri::WebviewWindowBuilder::new(
+                &handle,
+                "splash",
+                tauri::WebviewUrl::App("splash.html".into()),
+            )
+            .inner_size(380.0, 360.0)
+            .decorations(false)
+            .resizable(false)
+            .center()
+            .build()
+            .expect("Failed to create splash window");
+
+            app.manage(SplashHandle(Mutex::new(Some(splash))));
+
+            // Helper: eval log message into splash window (with delay so each is visible)
+            fn splash_log(app: &tauri::App, msg: &str) {
+                let state = app.state::<SplashHandle>();
+                let guard = state.0.lock().unwrap();
+                if let Some(ref splash) = *guard {
+                    let escaped = msg.replace('\\', "\\\\").replace('\'', "\\'").replace('\n', "\\n");
+                    let _ = splash.eval(&format!("addLog('{}')", escaped));
+                    std::thread::sleep(Duration::from_millis(60));
+                }
+            }
+
+            splash_log(app, "正在解析资源目录...");
+
             let resource_dir = app
                 .path()
                 .resource_dir()
                 .expect("Failed to resolve resource directory");
+
+            splash_log(app, &format!("资源目录: {}", resource_dir.display()));
+            splash_log(app, "正在扫描 .mbtiles 瓦片文件...");
+
             init_and_start_tile_server(&resource_dir)
                 .expect("Failed to initialize tile server");
+
+            splash_log(app, &format!("瓦片服务已启动 (端口 {})", get_tile_server_port()));
+            splash_log(app, "正在解析数据目录...");
 
             let data_dir = app
                 .path()
                 .app_data_dir()
                 .expect("Failed to resolve app data directory");
+
+            splash_log(app, &format!("数据目录: {}", data_dir.display()));
+
             let db_file = db::db_path(&data_dir);
+            splash_log(app, &format!("打开数据库: {}", db_file.file_name().unwrap_or_default().to_string_lossy()));
+            splash_log(app, "正在创建 / 检查数据表...");
+
             db::init_db(&db_file).expect("Failed to initialize SQLite database");
             app.manage(DbPath(Mutex::new(db_file)));
+
+            splash_log(app, "数据库初始化完成");
 
             Ok(())
         })
@@ -396,6 +474,8 @@ pub fn run() {
             save_text_file,
             save_setting,
             load_all_settings,
+            push_splash_log,
+            app_ready,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
