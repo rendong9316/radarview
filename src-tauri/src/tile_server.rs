@@ -64,14 +64,12 @@ fn xyz_to_tms(z: u32, y: u32) -> u32 {
 /// Map an .mbtiles file name to a human-friendly display name.
 fn tile_display_name(file_name: &str) -> String {
     let lower = file_name.to_lowercase();
-    if lower.contains("natural_earth") {
+    if lower.contains("natural_earth4") {
         "分层设色地貌".to_string()
     } else if lower.contains("gray_hr") || lower.contains("grey_hr") {
         "灰色地貌".to_string()
     } else {
-        file_name
-            .trim_end_matches(".mbtiles")
-            .replace('_', " ")
+        "原始高分辨地貌".to_string()
     }
 }
 
