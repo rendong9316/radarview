@@ -6,9 +6,10 @@
       class="activitybar-btn"
       :class="{ active: isActive(item.id) }"
       :title="item.tooltip"
+      :aria-label="item.tooltip"
       @click="activate(item.id)"
     >
-      <span class="activitybar-icon">{{ item.icon }}</span>
+      <component :is="item.icon" :size="20" class="activitybar-icon-svg" />
       <span class="activitybar-label">{{ item.label }}</span>
     </button>
 
@@ -20,9 +21,10 @@
       class="activitybar-btn"
       :class="{ active: isActive('settings') }"
       title="设置"
+      aria-label="设置 (Ctrl+,)"
       @click="activate('settings')"
     >
-      <span class="activitybar-icon">⚙</span>
+      <Settings :size="20" class="activitybar-icon-svg" />
       <span class="activitybar-label">设置</span>
     </button>
   </aside>
@@ -30,22 +32,24 @@
 
 <script setup lang="ts">
 import { useActivityBar, type PanelId } from '../../composables/useActivityBar'
+import { List, BarChart3, Layers, Flag, Filter, Settings } from '@lucide/vue'
+import type { Component } from 'vue'
 
 const { activate, isActive } = useActivityBar()
 
 interface ActivityItem {
   id: PanelId
-  icon: string
+  icon: Component
   label: string
   tooltip: string
 }
 
 const items: ActivityItem[] = [
-  { id: 'tracks', icon: '📋', label: '航迹', tooltip: '轨迹面板 (Ctrl+Shift+T)' },
-  { id: 'manage', icon: '📊', label: '管理', tooltip: '航迹管理系统 (Ctrl+Shift+M)' },
-  { id: 'layers', icon: '🗺', label: '图层', tooltip: '图层控制 (Ctrl+Shift+L)' },
-  { id: 'flags', icon: '🏴', label: '旗标', tooltip: '旗标面板 (Ctrl+Shift+F)' },
-  { id: 'timeFilter', icon: '⏱', label: '筛选', tooltip: '筛选 (Ctrl+Shift+E)' },
+  { id: 'tracks', icon: List, label: '航迹', tooltip: '轨迹面板 (Ctrl+Shift+T)' },
+  { id: 'manage', icon: BarChart3, label: '管理', tooltip: '航迹管理系统 (Ctrl+Shift+M)' },
+  { id: 'layers', icon: Layers, label: '图层', tooltip: '图层控制 (Ctrl+Shift+L)' },
+  { id: 'flags', icon: Flag, label: '旗标', tooltip: '旗标面板 (Ctrl+Shift+F)' },
+  { id: 'timeFilter', icon: Filter, label: '筛选', tooltip: '时间筛选 (Ctrl+Shift+E)' },
 ]
 </script>
 
@@ -69,13 +73,13 @@ const items: ActivityItem[] = [
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 1px;
+  gap: 2px;
   background: transparent;
   border: none;
   border-left: 2px solid transparent;
   color: var(--activitybar-fg);
   cursor: pointer;
-  transition: color 0.1s;
+  transition: color 0.2s ease, border-color 0.2s ease;
   position: relative;
   margin-bottom: 2px;
   border-radius: 0;
@@ -88,9 +92,8 @@ const items: ActivityItem[] = [
   border-left-color: var(--activitybar-active-border);
 }
 
-.activitybar-icon {
-  font-size: 1.429rem;
-  line-height: 1;
+.activitybar-icon-svg {
+  flex-shrink: 0;
 }
 
 .activitybar-label {

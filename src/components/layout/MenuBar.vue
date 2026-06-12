@@ -32,7 +32,7 @@
             class="menu-item submenu-item"
             @click="onThemeClick(th.id)"
           >
-            <span class="menu-check">{{ activeTheme === th.id ? '✓' : '' }}</span>
+            <span class="menu-check"><Check v-if="activeTheme === th.id" :size="13" /></span>
             <span class="menu-label">{{ th.labelZh }} ({{ th.label }})</span>
           </button>
         </template>
@@ -73,6 +73,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import type { MenuName } from '../../composables/useMenu'
 import { useMenu } from '../../composables/useMenu'
 import { useTheme } from '../../composables/useTheme'
+import { Check } from '@lucide/vue'
 
 type MenuItemType = 'item' | 'separator' | 'submenu'
 

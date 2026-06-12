@@ -2,7 +2,7 @@
   <Teleport to="body">
     <Transition name="toast-slide">
       <div v-if="count > 0" class="undo-toast">
-        <span class="toast-icon">🗑</span>
+        <span class="toast-icon"><Trash2 :size="14" /></span>
         <span class="toast-text">
           已删除 <strong>{{ top?.label }}</strong>
           <template v-if="count > 1"> 等 {{ count }} 组</template>
@@ -15,6 +15,7 @@
 
 <script setup lang="ts">
 import type { UndoEntry } from '../../../composables/useUndoStack'
+import { Trash2 } from '@lucide/vue'
 
 defineProps<{
   top: UndoEntry | null

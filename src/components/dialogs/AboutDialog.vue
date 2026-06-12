@@ -2,7 +2,9 @@
   <Teleport to="body">
     <div class="dialog-overlay" @click.self="$emit('close')" @keydown.esc="$emit('close')">
       <div class="dialog-box">
-        <div class="dialog-icon">🗺</div>
+        <div class="dialog-icon">
+          <Globe :size="48" />
+        </div>
         <h2 class="dialog-title">RadarView</h2>
         <p class="dialog-subtitle">雷达航迹可视化系统</p>
         <p class="dialog-version">版本 v0.1.0</p>
@@ -22,6 +24,8 @@
 </template>
 
 <script setup lang="ts">
+import { Globe } from '@lucide/vue'
+
 defineEmits<{ close: [] }>()
 </script>
 
@@ -47,8 +51,8 @@ defineEmits<{ close: [] }>()
 }
 
 .dialog-icon {
-  font-size: 3.429rem;
   margin-bottom: 12px;
+  color: var(--accent-primary);
 }
 
 .dialog-title {

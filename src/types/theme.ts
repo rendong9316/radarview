@@ -88,6 +88,5 @@ export interface Theme {
   id: ThemeId
   label: string
   labelZh: string
-  icon: string
   colors: ThemeColors
 }

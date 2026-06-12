@@ -8,32 +8,32 @@
       @click.stop
     >
       <template v-if="contextMenu.type === 'flag'">
-        <div class="context-menu-item" @click="handleContextRename">✎ 重命名</div>
-        <div class="context-menu-item context-menu-danger" @click="handleContextDelete">🗑 删除</div>
+        <div class="context-menu-item" @click="handleContextRename"><Pencil :size="13" /> 重命名</div>
+        <div class="context-menu-item context-menu-danger" @click="handleContextDelete"><Trash2 :size="13" /> 删除</div>
       </template>
       <template v-else-if="contextMenu.type === 'track'">
         <div
           v-if="!isTrackShowingDots(contextMenu.trackId)"
           class="context-menu-item"
           @click="handleContextShowPointDots"
-        >◉ 显示所有对应点迹</div>
+        ><Dot :size="13" /> 显示所有对应点迹</div>
         <div
           v-else
           class="context-menu-item"
           @click="handleContextHidePointDots"
-        >◌ 隐藏所有对应点迹</div>
+        ><Circle :size="13" /> 隐藏所有对应点迹</div>
         <div
           class="context-menu-item"
           @click="handleContextShowDetail"
-        >📋 详细信息</div>
+        ><FileText :size="13" /> 详细信息</div>
         <div
           class="context-menu-item"
           @click="handleContextViewPoints"
-        >📋 查看点迹数据</div>
+        ><ClipboardList :size="13" /> 查看点迹数据</div>
         <div
           class="context-menu-item context-menu-danger"
           @click="handleContextDeleteTrack"
-        >🗑 删除该航迹</div>
+        ><Trash2 :size="13" /> 删除该航迹</div>
       </template>
     </div>
   </div>
@@ -55,6 +55,7 @@ import { useTheme } from '../composables/useTheme'
 import { useBoundaryLayers, type BoundaryLayerKey } from '../composables/useBoundaryLayers'
 import { trackKey } from '../composables/useTracks'
 import { scheduleSave, getRawSetting, whenSettingsLoaded } from '../composables/useSettingsPersistence'
+import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
 
 const props = defineProps<{

@@ -11,7 +11,7 @@
         <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''">×</span>
       </div>
       <div v-if="isolatedId" class="isolate-banner">
-        <span>🔍 单独查看: {{ isolatedLabel }}</span>
+        <span>单独查看: {{ isolatedLabel }}</span>
         <button class="isolate-back-btn" @click="$emit('clearIsolation')">返回全部</button>
       </div>
       <template v-if="filteredList.length === 0">

@@ -4,7 +4,6 @@ export const lightTheme: Theme = {
   id: 'light',
   label: 'Light+',
   labelZh: '浅色主题',
-  icon: '☀️',
   colors: {
     '--titlebar-bg': '#dddddd',
     '--titlebar-fg': '#333333',

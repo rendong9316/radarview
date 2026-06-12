@@ -12,8 +12,8 @@
             <span class="tpd-count">{{ track.positions.length.toLocaleString() }} 个点迹</span>
           </div>
           <div class="tpd-header-actions">
-            <button class="tpd-btn-export" @click="exportCSV">📥 导出 CSV</button>
-            <button class="tpd-btn-close" @click="emit('close')">✕</button>
+            <button class="tpd-btn-export" @click="exportCSV"><Download :size="14" /> 导出 CSV</button>
+            <button class="tpd-btn-close" @click="emit('close')"><X :size="16" /></button>
           </div>
         </div>
 
@@ -82,6 +82,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import type { Track, TrackPoint } from '../../types/track'
+import { Download, X } from '@lucide/vue'
 
 const props = defineProps<{
   track: Track

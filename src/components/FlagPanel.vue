@@ -31,7 +31,7 @@
 
       <div v-if="flags.length === 0" class="empty-text">暂无旗标，双击地图放置</div>
       <div v-else class="flag-list">
-        <button v-if="flags.length" class="clear-all-btn" @click="onClearAll">🗑️ 清除全部旗标</button>
+        <button v-if="flags.length" class="clear-all-btn" @click="onClearAll"><Trash2 :size="13" /> 清除全部旗标</button>
         <div v-for="flag in flags" :key="flag.id" class="flag-row">
           <input
             type="checkbox"
@@ -53,7 +53,7 @@
               />
             </template>
             <template v-else>
-              <span class="flag-label" @click="startRename(flag)" title="点击重命名">✎ {{ flag.label }}</span>
+              <span class="flag-label" @click="startRename(flag)" title="点击重命名"><Pencil :size="11" class="flag-label-icon" /> {{ flag.label }}</span>
             </template>
             <span class="flag-coords">{{ fmt(flag.latitude) }}, {{ fmt(flag.longitude) }}</span>
           </div>
@@ -68,6 +68,7 @@
 import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
+import { Trash2, Pencil } from '@lucide/vue'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
 const inputLat = ref<number | null>(null)

@@ -2,7 +2,10 @@
   <Teleport to="body">
     <div v-if="visible" class="dialog-overlay" @click.self="onCancel" @keydown.esc="onCancel">
       <div class="dialog-box" :class="{ 'dialog-danger': variant === 'danger' }">
-        <div class="dialog-icon">{{ variant === 'danger' ? '⚠️' : 'ℹ️' }}</div>
+        <div class="dialog-icon">
+          <AlertTriangle v-if="variant === 'danger'" :size="32" />
+          <Info v-else :size="32" />
+        </div>
         <h3 class="dialog-title">{{ title }}</h3>
         <p class="dialog-message">{{ message }}</p>
         <div class="dialog-actions">
@@ -22,6 +25,7 @@
 
 <script setup lang="ts">
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
+import { AlertTriangle, Info } from '@lucide/vue'
 
 const { visible, title, message, confirmText, cancelText, variant, onConfirm, onCancel } =
   useConfirmDialog()
@@ -54,8 +58,15 @@ const { visible, title, message, confirmText, cancelText, variant, onConfirm, on
 }
 
 .dialog-icon {
-  font-size: 2.286rem;
   margin-bottom: 8px;
+}
+
+.dialog-icon :deep(svg) {
+  color: var(--error);
+}
+
+.dialog-box:not(.dialog-danger) .dialog-icon :deep(svg) {
+  color: var(--accent-primary);
 }
 
 .dialog-title {

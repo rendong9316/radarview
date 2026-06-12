@@ -4,7 +4,6 @@ export const darkTheme: Theme = {
   id: 'dark',
   label: 'Dark+',
   labelZh: '深色主题',
-  icon: '🌙',
   colors: {
     '--titlebar-bg': '#2d2d2d',
     '--titlebar-fg': '#cccccc',

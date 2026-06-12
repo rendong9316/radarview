@@ -43,15 +43,15 @@
             <h3 class="section-title">三、侧边面板（活动栏切换）</h3>
             <table class="doc-table">
               <thead>
-                <tr><th>面板</th><th>图标</th><th>快捷键</th><th>功能</th></tr>
+                <tr><th>面板</th><th>活动栏图标</th><th>快捷键</th><th>功能</th></tr>
               </thead>
               <tbody>
-                <tr><td>轨迹面板</td><td>📋</td><td><kbd>Ctrl+Shift+T</kbd></td><td>搜索 / 查看轨迹、隔离单独显示</td></tr>
-                <tr><td>航迹管理</td><td>📊</td><td><kbd>Ctrl+Shift+M</kbd></td><td>数据库统计、筛选、分页、批量显隐 / 删除 / 导出</td></tr>
-                <tr><td>图层控制</td><td>🗺</td><td><kbd>Ctrl+Shift+L</kbd></td><td>按数据源（ADS-B / Radar / Raw）开关可见性</td></tr>
-                <tr><td>旗标面板</td><td>🏴</td><td><kbd>Ctrl+Shift+F</kbd></td><td>手动输入坐标放置、测距、重命名、删除</td></tr>
-                <tr><td>时间筛选</td><td>⏱</td><td><kbd>Ctrl+Shift+E</kbd></td><td>时间范围过滤 + 航迹点数量筛选</td></tr>
-                <tr><td>设置</td><td>⚙</td><td><kbd>Ctrl+,</kbd></td><td>线条颜色 / 线宽 / 圆球 / 旗标 / 字号调节 + 工具快捷入口</td></tr>
+                <tr><td>轨迹面板</td><td>列表</td><td><kbd>Ctrl+Shift+T</kbd></td><td>搜索 / 查看轨迹、隔离单独显示</td></tr>
+                <tr><td>航迹管理</td><td>图表</td><td><kbd>Ctrl+Shift+M</kbd></td><td>数据库统计、筛选、分页、批量显隐 / 删除 / 导出</td></tr>
+                <tr><td>图层控制</td><td>图层</td><td><kbd>Ctrl+Shift+L</kbd></td><td>按数据源（ADS-B / Radar / Raw）开关可见性</td></tr>
+                <tr><td>旗标面板</td><td>旗帜</td><td><kbd>Ctrl+Shift+F</kbd></td><td>手动输入坐标放置、测距、重命名、删除</td></tr>
+                <tr><td>时间筛选</td><td>筛选</td><td><kbd>Ctrl+Shift+E</kbd></td><td>时间范围过滤 + 航迹点数量筛选</td></tr>
+                <tr><td>设置</td><td>齿轮</td><td><kbd>Ctrl+,</kbd></td><td>线条颜色 / 线宽 / 圆球 / 旗标 / 字号调节 + 工具快捷入口</td></tr>
               </tbody>
             </table>
           </div>
@@ -83,7 +83,7 @@
                 <tr><th>控件</th><th>操作</th></tr>
               </thead>
               <tbody>
-                <tr><td>▶ / ⏸ 按钮</td><td>播放 / 暂停</td></tr>
+                <tr><td>播放 / 暂停 按钮</td><td>播放 / 暂停</td></tr>
                 <tr><td>进度条</td><td>点击跳转、拖拽滑块定位</td></tr>
                 <tr><td>倍速按钮</td><td>1x / 2x / 4x / 8x / 16x</td></tr>
                 <tr><td>自定义倍速输入框</td><td>输入数值后回车生效</td></tr>
@@ -100,9 +100,9 @@
               </thead>
               <tbody>
                 <tr><td>菜单 → 工具 → 批量数据管理</td><td>地图右上角弹出批次列表</td></tr>
-                <tr><td>设置面板 → 💾 数据管理</td><td>同上</td></tr>
+                <tr><td>设置面板 → 数据管理</td><td>同上</td></tr>
                 <tr><td>点击批次行</td><td>加载该批次数据到地图</td></tr>
-                <tr><td>点击 × 按钮</td><td>从数据库删除该批次（不可撤销）</td></tr>
+                <tr><td>点击关闭按钮</td><td>从数据库删除该批次（不可撤销）</td></tr>
               </tbody>
             </table>
           </div>
@@ -133,13 +133,13 @@
                 <tr><td>状态栏最右侧主题按钮</td><td>循环切换三种主题</td></tr>
               </tbody>
             </table>
-            <p class="doc-para">以下视觉参数可在 <b>设置面板</b>（⚙）中调节，所有修改自动记忆：</p>
+            <p class="doc-para">以下视觉参数可在 <b>设置面板</b> 中调节，所有修改自动记忆：</p>
             <table class="doc-table">
               <thead>
                 <tr><th>参数</th><th>说明</th></tr>
               </thead>
               <tbody>
-                <tr><td>线条颜色</td><td>按 ADS-B / Radar / Raw 分别自定义轨迹线条和圆点颜色，点 ↺ 可恢复主题默认色</td></tr>
+                <tr><td>线条颜色</td><td>按 ADS-B / Radar / Raw 分别自定义轨迹线条和圆点颜色，点恢复按钮可恢复主题默认色</td></tr>
                 <tr><td>线宽</td><td>按数据源调节轨迹线粗细（0.5–8 px）</td></tr>
                 <tr><td>圆球直径</td><td>按数据源调节航迹点图标大小（0.2–3.0 倍）</td></tr>
                 <tr><td>旗标大小</td><td>调节地图上旗标图标和文字的缩放比例</td></tr>

@@ -7,9 +7,11 @@
         class="status-btn"
         :disabled="!hasData"
         :title="isPlaying ? '暂停' : '播放'"
+        :aria-label="isPlaying ? '暂停' : '播放'"
         @click="$emit('togglePlayback')"
       >
-        {{ isPlaying ? '⏸' : '▶' }}
+        <Pause v-if="isPlaying" :size="14" />
+        <Play v-else :size="14" />
       </button>
 
       <!-- Progress bar with draggable thumb -->
@@ -64,7 +66,10 @@
       </span>
 
       <!-- Error indicator -->
-      <span v-if="errorMsg" class="status-error" :title="errorMsg">⚠ {{ errorMsg }}</span>
+      <span v-if="errorMsg" class="status-error" :title="errorMsg" role="alert">
+        <AlertTriangle :size="12" class="error-icon" />
+        {{ errorMsg }}
+      </span>
 
       <!-- Source indicators -->
       <button
@@ -72,6 +77,7 @@
         :key="s.key"
         class="status-source"
         :title="`点击切换 ${s.label} 可见性`"
+        :aria-label="`切换 ${s.label} 可见性`"
         @click="$emit('toggleSource', s.key)"
       >
         <span class="source-dot" :style="{ background: `var(--source-${s.key})` }" :class="{ off: !s.visible }" />
@@ -82,17 +88,20 @@
       <span class="status-count">航迹: {{ trackCount }}</span>
 
       <!-- Theme cycle -->
-      <button class="status-btn status-theme" title="切换主题" @click="$emit('cycleTheme')">
-        {{ themeIcon }}
+      <button class="status-btn status-theme" title="切换主题" aria-label="切换主题" @click="$emit('cycleTheme')">
+        <Moon v-if="activeTheme === 'dark'" :size="14" />
+        <Sun v-else-if="activeTheme === 'light'" :size="14" />
+        <Contrast v-else :size="14" />
       </button>
     </div>
   </footer>
 </template>
 
 <script setup lang="ts">
-import { computed, ref, onUnmounted } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { useTheme } from '../../composables/useTheme'
 import type { DataSource } from '../../types/track'
+import { Play, Pause, AlertTriangle, Moon, Sun, Contrast } from '@lucide/vue'
 
 const props = defineProps<{
   isPlaying: boolean
@@ -118,8 +127,7 @@ const emit = defineEmits<{
   cycleTheme: []
 }>()
 
-const { activeTheme, themes } = useTheme()
-const themeIcon = computed(() => themes[activeTheme.value]?.icon ?? '🌙')
+const { activeTheme } = useTheme()
 
 const progressRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
@@ -172,7 +180,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px;
+  padding: 0 8px;
   flex-shrink: 0;
   font-size: 0.857rem;
   border-top: 1px solid var(--statusbar-border);
@@ -197,12 +205,11 @@ onUnmounted(() => {
 }
 
 .status-btn {
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.857rem;
   background: transparent;
   border: none;
   color: inherit;
@@ -358,12 +365,18 @@ onUnmounted(() => {
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.error-icon {
+  flex-shrink: 0;
 }
 
 .status-theme {
   width: auto;
   padding: 0 4px;
-  font-size: 1rem;
 }
 
 /* Import loading indicator */

@@ -2,7 +2,7 @@
   <header class="titlebar">
     <!-- App icon + name -->
     <div class="titlebar-brand">
-      <span class="titlebar-icon">🗺</span>
+      <Globe :size="16" class="titlebar-icon-svg" />
       <span class="titlebar-title">RadarView</span>
     </div>
 
@@ -40,6 +40,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import MenuBar from './MenuBar.vue'
+import { Globe } from '@lucide/vue'
 
 defineEmits<{
   menuAction: [id: string]
@@ -111,9 +112,9 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 
-.titlebar-icon {
-  font-size: 1.143rem;
-  line-height: 1;
+.titlebar-icon-svg {
+  color: var(--accent-primary);
+  flex-shrink: 0;
 }
 
 .titlebar-title {

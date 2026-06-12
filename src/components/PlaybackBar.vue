@@ -1,7 +1,8 @@
 <template>
   <div class="playback-bar">
     <button class="ctrl-btn play-btn" @click="$emit('toggle')" :disabled="!hasData">
-      {{ isPlaying ? '⏸' : '▶' }}
+      <Pause v-if="isPlaying" :size="16" />
+      <Play v-else :size="16" />
     </button>
 
     <span class="time-display">{{ currentTimeFormatted }}</span>
@@ -38,6 +39,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { Play, Pause } from '@lucide/vue'
 
 defineProps<{
   isPlaying: boolean

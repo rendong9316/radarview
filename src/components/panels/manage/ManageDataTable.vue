@@ -12,7 +12,7 @@
     <table v-else class="data-table">
       <thead>
         <tr>
-          <th class="col-eye">👁</th>
+          <th class="col-eye"><Eye :size="12" /></th>
           <th class="col-src">来源</th>
           <th class="col-icao sortable" @click="$emit('setSort', 'icao_address')">ICAO {{ sortIndicator('icao_address') }}</th>
           <th class="col-flt sortable" @click="$emit('setSort', 'flight_no')">航班号 {{ sortIndicator('flight_no') }}</th>
@@ -36,7 +36,8 @@
         >
           <td class="col-eye" @click.stop="$emit('toggleVisible', row)">
             <span class="eye-icon" :class="{ on: isVisible(row.icao_address, row.batch_id) }">
-              {{ isVisible(row.icao_address, row.batch_id) ? '👁' : '◌' }}
+              <Eye v-if="isVisible(row.icao_address, row.batch_id)" :size="13" />
+              <Circle v-else :size="13" />
             </span>
           </td>
           <td class="col-src"><span class="src-dot" :class="srcClass(row.source)"></span>{{ srcLabel(row.source) }}</td>
@@ -52,7 +53,7 @@
           <td class="col-pts">{{ row.point_count.toLocaleString() }}</td>
           <td class="col-time">{{ fmtTime(row) }}</td>
           <td class="col-act">
-            <button class="act-btn" title="删除" @click.stop="$emit('deleteTrack', row)">🗑</button>
+            <button class="act-btn" title="删除" @click.stop="$emit('deleteTrack', row)"><Trash2 :size="12" /></button>
           </td>
         </tr>
       </tbody>
@@ -60,8 +61,8 @@
 
     <Teleport to="body">
       <div v-if="ctx.visible" class="context-menu" :style="{ position: 'fixed', top: ctx.y + 'px', left: ctx.x + 'px', zIndex: 100 }" @click.stop>
-        <button class="ctx-item" @click="ctxAct('view-points')">📋 查看点迹数据</button>
-        <button class="ctx-item danger" @click="ctxAct('delete')">🗑 删除该航迹</button>
+        <button class="ctx-item" @click="ctxAct('view-points')"><ClipboardList :size="13" /> 查看点迹数据</button>
+        <button class="ctx-item danger" @click="ctxAct('delete')"><Trash2 :size="13" /> 删除该航迹</button>
       </div>
     </Teleport>
   </div>
@@ -71,6 +72,7 @@
 import { reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { TrackMetaInfo } from '../../../types/manage'
 import { useTrackHighlight } from '../../../composables/useTrackHighlight'
+import { Eye, Circle, Trash2, ClipboardList } from '@lucide/vue'
 
 const { isHighlighted, highlightedIcaos } = useTrackHighlight()
 
@@ -129,7 +131,6 @@ watch(highlightedIcaos, async (newVal, oldVal) => {
   if (highlightedRow) {
     highlightedRow.scrollIntoView({ behavior: 'smooth', block: 'center' })
   }
-  // Flash animation: briefly add just-highlighted class to newly added rows
   const prev = oldVal ?? new Set<string>()
   const added = [...newVal].filter(icao => !prev.has(icao))
   if (added.length > 0) {
@@ -165,8 +166,7 @@ onUnmounted(() => window.removeEventListener('click', closeCtx))
 .data-table th.sortable { cursor: pointer; }
 .data-table th.sortable:hover { color: var(--text-primary); }
 
-/* Min widths — columns expand with available space */
-.col-eye { width: 24px; min-width: 24px; text-align: center; }
+.col-eye { width: 28px; min-width: 28px; text-align: center; color: var(--text-tertiary); }
 .col-src { width: 52px; min-width: 52px; }
 .col-icao { width: 74px; min-width: 74px; }
 .col-flt { min-width: 68px; }
@@ -203,23 +203,23 @@ onUnmounted(() => window.removeEventListener('click', closeCtx))
 .dot-radar { background: #00ff88; }
 .dot-raw { background: #ff8800; }
 
-.eye-icon { font-size: 0.857rem; cursor: pointer; opacity: 0.4; transition: opacity 0.15s; }
-.eye-icon.on { opacity: 1; }
+.eye-icon { cursor: pointer; opacity: 0.4; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); }
+.eye-icon.on { opacity: 1; color: var(--accent-primary); }
 .eye-icon:hover { opacity: 1; }
 
 .act-btn {
-  padding: 0 2px; font-size: 0.714rem; background: transparent;
+  padding: 0 2px; background: transparent;
   border: none; color: var(--text-tertiary); cursor: pointer; opacity: 0;
 }
 .data-row:hover .act-btn { opacity: 1; }
-.act-btn:hover { color: var(--semantic-error, #f44); }
+.act-btn:hover { color: var(--error); }
 
 .context-menu {
   background: var(--bg-primary); border: 1px solid var(--border-secondary);
   border-radius: 4px; padding: 2px 0; min-width: 130px;
   box-shadow: 0 4px 12px rgba(0,0,0,0.35);
 }
-.ctx-item { display: block; width: 100%; padding: 4px 10px; font-size: 0.714rem; text-align: left; background: transparent; border: none; color: var(--text-primary); cursor: pointer; }
+.ctx-item { display: flex; align-items: center; gap: 6px; width: 100%; padding: 4px 10px; font-size: 0.714rem; text-align: left; background: transparent; border: none; color: var(--text-primary); cursor: pointer; }
 .ctx-item:hover { background: var(--button-hover); }
-.ctx-item.danger { color: var(--semantic-error, #f44); }
+.ctx-item.danger { color: var(--error); }
 </style>

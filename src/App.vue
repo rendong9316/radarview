@@ -61,7 +61,7 @@
         <div v-if="batchPanelOpen" class="batch-overlay">
           <div class="batch-overlay-header">
             <span>批量数据管理</span>
-            <button class="batch-overlay-close" @click="batchPanelOpen = false">✕</button>
+            <button class="batch-overlay-close" @click="batchPanelOpen = false"><X :size="14" /></button>
           </div>
           <div v-if="batches.length === 0" class="batch-empty">暂无已保存的数据</div>
           <div v-for="b in batches" :key="b.id" class="batch-row" @click="handleLoadBatch(b.id)" title="点击加载">
@@ -122,6 +122,7 @@ import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import CesiumMap from './components/CesiumMap.vue'
 import TitleBar from './components/layout/TitleBar.vue'
+import { X } from '@lucide/vue'
 import ActivityBar from './components/layout/ActivityBar.vue'
 import SideBar from './components/layout/SideBar.vue'
 import StatusBar from './components/layout/StatusBar.vue'

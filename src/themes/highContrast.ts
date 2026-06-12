@@ -4,7 +4,6 @@ export const hcTheme: Theme = {
   id: 'hc',
   label: 'High Contrast',
   labelZh: '高对比度主题',
-  icon: '◐',
   colors: {
     '--titlebar-bg': '#000000',
     '--titlebar-fg': '#ffffff',

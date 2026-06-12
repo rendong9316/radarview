@@ -3,7 +3,7 @@
     <!-- Header -->
     <div class="sidebar-header">
       <span class="sidebar-title">{{ panelTitle }}</span>
-      <button class="sidebar-close" @click="close" title="关闭侧边栏">✕</button>
+      <button class="sidebar-close" @click="close" title="关闭侧边栏"><X :size="14" /></button>
     </div>
 
     <!-- Panel content -->
@@ -60,6 +60,7 @@ import SettingsPanel from '../panels/SettingsPanel.vue'
 import ManagePanel from '../panels/ManagePanel.vue'
 import type { Track, DataSource } from '../../types/track'
 import type { TileSourceInfo } from '../../composables/useTileSource'
+import { X } from '@lucide/vue'
 
 defineProps<{
   tracks: Track[]
