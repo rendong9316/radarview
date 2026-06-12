@@ -200,7 +200,7 @@ function exportCSV() {
   width: 92vw; max-width: 1400px; height: 88vh;
   background: var(--bg-primary, #1e1e1e);
   border: 1px solid var(--border-secondary, #333);
-  border-radius: 8px;
+  border-radius: 4px;
   display: flex; flex-direction: column;
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
   overflow: hidden;
@@ -226,9 +226,9 @@ function exportCSV() {
 .tpd-src-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;
 }
-.dot-adsb { background: #00d4ff; }
-.dot-radar { background: #00ff88; }
-.dot-raw { background: #ff8800; }
+.dot-adsb { background: var(--source-adsb); }
+.dot-radar { background: var(--source-radar); }
+.dot-raw { background: var(--source-radar_raw); }
 .tpd-src-label {
   font-size: 0.786rem; color: var(--text-secondary);
 }

@@ -128,10 +128,10 @@ const filteredList = computed(() => {
 })
 
 const sourceColors: Record<DataSource, string> = {
-  adsb: '#00d4ff',
-  radar: '#00ff88',
-  radar_raw: '#ff8800',
-  simulation: '#aa88ff',
+  adsb: 'var(--source-adsb)',
+  radar: 'var(--source-radar)',
+  radar_raw: 'var(--source-radar_raw)',
+  simulation: 'var(--source-simulation)',
 }
 
 function sourceLabel(source: DataSource): string {

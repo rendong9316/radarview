@@ -199,9 +199,9 @@ onUnmounted(() => window.removeEventListener('click', closeCtx))
 .col-time { white-space: nowrap; }
 
 .src-dot { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
-.dot-adsb { background: #00d4ff; }
-.dot-radar { background: #00ff88; }
-.dot-raw { background: #ff8800; }
+.dot-adsb { background: var(--source-adsb); }
+.dot-radar { background: var(--source-radar); }
+.dot-raw { background: var(--source-radar_raw); }
 
 .eye-icon { cursor: pointer; opacity: 0.4; transition: opacity 0.15s; display: flex; align-items: center; justify-content: center; color: var(--text-tertiary); }
 .eye-icon.on { opacity: 1; color: var(--accent-primary); }

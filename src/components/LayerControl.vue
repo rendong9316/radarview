@@ -33,9 +33,9 @@ const { visibility, toggle } = useLayerVisibility()
 const { tracksBySource } = useTracks()
 
 const layerItems = computed(() => [
-  { source: 'adsb' as DataSource, label: 'ADS-B', color: '#00d4ff', count: tracksBySource.value.adsb?.length ?? 0 },
-  { source: 'radar' as DataSource, label: '雷达 Radar', color: '#00ff88', count: tracksBySource.value.radar?.length ?? 0 },
-  { source: 'radar_raw' as DataSource, label: '雷达原始', color: '#ff8800', count: tracksBySource.value.radar_raw?.length ?? 0 },
+  { source: 'adsb' as DataSource, label: 'ADS-B', color: 'var(--source-adsb)', count: tracksBySource.value.adsb?.length ?? 0 },
+  { source: 'radar' as DataSource, label: '雷达 Radar', color: 'var(--source-radar)', count: tracksBySource.value.radar?.length ?? 0 },
+  { source: 'radar_raw' as DataSource, label: '雷达原始', color: 'var(--source-radar_raw)', count: tracksBySource.value.radar_raw?.length ?? 0 },
 ])
 </script>
 
@@ -83,7 +83,7 @@ const layerItems = computed(() => [
 }
 
 .toggle-switch {
-  width: 28px;
+  width: 30px;
   height: 16px;
   border-radius: 8px;
   background: var(--bg-tertiary);
@@ -100,14 +100,14 @@ const layerItems = computed(() => [
   position: absolute;
   top: 1px;
   left: 1px;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #fff;
   transition: left 0.15s;
 }
 
 .toggle-switch.on .toggle-knob {
-  left: 13px;
+  left: 15px;
 }
 </style>

@@ -88,8 +88,8 @@ function onCustomSpeed(e: Event) {
 <style scoped>
 .playback-bar {
   height: 48px;
-  background: var(--color-surface);
-  border-top: 1px solid var(--color-border);
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-primary);
   display: flex;
   align-items: center;
   padding: 0 12px;
@@ -102,9 +102,9 @@ function onCustomSpeed(e: Event) {
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--color-text);
+  border-radius: 2px;
+  background: var(--button-bg);
+  color: var(--button-fg);
   font-size: 1rem;
   cursor: pointer;
   display: flex;
@@ -114,8 +114,7 @@ function onCustomSpeed(e: Event) {
 }
 
 .ctrl-btn:hover:not(:disabled) {
-  background: var(--color-accent);
-  color: var(--color-bg);
+  background: var(--button-hover);
 }
 
 .ctrl-btn:disabled {
@@ -126,7 +125,7 @@ function onCustomSpeed(e: Event) {
 .time-display {
   font-size: 0.786rem;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-  color: var(--color-text-dim);
+  color: var(--text-secondary);
   min-width: 64px;
   text-align: center;
   flex-shrink: 0;
@@ -134,9 +133,9 @@ function onCustomSpeed(e: Event) {
 
 .progress-track {
   flex: 1;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
   position: relative;
   cursor: pointer;
   min-width: 80px;
@@ -144,20 +143,24 @@ function onCustomSpeed(e: Event) {
 
 .progress-fill {
   height: 100%;
-  background: var(--color-accent);
-  border-radius: 3px;
+  background: var(--accent-primary);
+  border-radius: 2px;
   transition: width 0.05s linear;
 }
 
 .progress-thumb {
   position: absolute;
   top: -4px;
-  width: 14px;
-  height: 14px;
-  background: var(--color-accent);
+  width: 12px;
+  height: 12px;
+  background: var(--accent-primary);
   border-radius: 50%;
   transform: translateX(-50%);
-  box-shadow: 0 0 6px rgba(0, 212, 255, 0.5);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.progress-track:hover .progress-thumb {
+  opacity: 1;
 }
 
 .speed-group {
@@ -167,35 +170,35 @@ function onCustomSpeed(e: Event) {
 }
 
 .speed-btn {
-  padding: 3px 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
+  padding: 2px 6px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 2px;
   background: transparent;
-  color: var(--color-text-dim);
-  font-size: 0.786rem;
+  color: var(--text-secondary);
+  font-size: 0.714rem;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .speed-btn:hover {
-  border-color: var(--color-accent);
-  color: var(--color-text);
+  border-color: var(--accent-primary);
+  color: var(--text-primary);
 }
 
 .speed-btn.active {
-  background: var(--color-accent);
-  color: var(--color-bg);
-  border-color: var(--color-accent);
+  background: var(--accent-primary);
+  color: #fff;
+  border-color: var(--accent-primary);
 }
 
 .custom-speed-input {
-  width: 52px;
-  padding: 3px 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--color-text);
-  font-size: 0.786rem;
+  width: 48px;
+  padding: 2px 4px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 2px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 0.714rem;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
   text-align: center;
   outline: none;
@@ -209,6 +212,6 @@ function onCustomSpeed(e: Event) {
 }
 
 .custom-speed-input:focus {
-  border-color: var(--color-accent);
+  border-color: var(--accent-primary);
 }
 </style>

@@ -207,7 +207,7 @@ async function loadBoundaryLayers() {
         clampToGround: true,
       })
       await viewer?.dataSources.add(dataSource)
-      dataSource.show = boundaryVisible.value
+      dataSource.show = boundaryVisible[layer.key]
       boundaryDataSources.set(layer.key, dataSource)
 
       // Pre-cache polyline entities for fast width updates — avoids
@@ -245,12 +245,12 @@ function clearBoundaryLayers() {
   boundaryPolylines.clear()
 }
 
-/** Toggle boundary visibility — only flips dataSource.show, does NOT iterate entities */
+/** Toggle boundary visibility — only flips dataSource.show per layer, does NOT iterate entities */
 function applyBoundaryVisibility() {
   for (const layer of BOUNDARY_LAYERS) {
     const dataSource = boundaryDataSources.get(layer.key)
     if (!dataSource) continue
-    dataSource.show = boundaryVisible.value
+    dataSource.show = boundaryVisible[layer.key]
   }
 }
 

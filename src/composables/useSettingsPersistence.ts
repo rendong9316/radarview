@@ -127,8 +127,23 @@ async function applySettings(raw: Record<string, string>) {
   if (raw['display.show_labels'] !== undefined) {
     try { lbl.showLabels.value = JSON.parse(raw['display.show_labels']) } catch { /* keep default */ }
   }
+  // Per-layer boundary visibility (migrated from single boolean in v1)
   if (raw['display.boundary_visible'] !== undefined) {
-    try { bl.boundaryVisible.value = JSON.parse(raw['display.boundary_visible']) } catch { /* keep default */ }
+    // Old single-boolean format — apply to all three layers as migration
+    try {
+      const v = JSON.parse(raw['display.boundary_visible'])
+      if (typeof v === 'boolean') {
+        bl.boundaryVisible.coastline = v
+        bl.boundaryVisible.admin0 = v
+        bl.boundaryVisible.admin1 = v
+      }
+    } catch { /* keep default */ }
+  }
+  for (const layer of ['coastline', 'admin0', 'admin1'] as const) {
+    const key = `display.boundary_visible.${layer}`
+    if (raw[key] !== undefined) {
+      try { bl.boundaryVisible[layer] = JSON.parse(raw[key]) } catch { /* keep default */ }
+    }
   }
   for (const layer of ['coastline', 'admin0', 'admin1'] as const) {
     const key = `display.boundary_width.${layer}`

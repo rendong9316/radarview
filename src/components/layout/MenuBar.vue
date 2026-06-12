@@ -274,7 +274,7 @@ onUnmounted(() => {
   color: var(--titlebar-fg);
   background: transparent;
   border: none;
-  border-radius: 4px;
+  border-radius: 0;
   cursor: pointer;
   white-space: nowrap;
   transition: background 0.1s;
@@ -289,7 +289,7 @@ onUnmounted(() => {
   min-width: 220px;
   background: var(--menu-bg);
   border: 1px solid var(--border-primary);
-  border-radius: 4px;
+  border-radius: 3px;
   padding: 4px 0;
   box-shadow: 0 4px 16px rgba(0,0,0,0.3);
   display: flex;

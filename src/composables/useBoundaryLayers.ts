@@ -1,8 +1,12 @@
-import { reactive, ref, watch } from 'vue'
+import { reactive, watch } from 'vue'
 
 export type BoundaryLayerKey = 'coastline' | 'admin0' | 'admin1'
 
-const boundaryVisible = ref(true)
+const boundaryVisible = reactive<Record<BoundaryLayerKey, boolean>>({
+  coastline: true,
+  admin0: true,
+  admin1: true,
+})
 const boundaryWidths = reactive<Record<BoundaryLayerKey, number>>({
   coastline: 1.0,
   admin0: 1.4,
@@ -20,11 +24,13 @@ export function useBoundaryLayers() {
   if (!persistenceWatchersStarted) {
     persistenceWatchersStarted = true
 
-    watch(boundaryVisible, () => {
+    watch(boundaryVisible, (val) => {
       import('./useSettingsPersistence').then(({ scheduleSave }) => {
-        scheduleSave('display.boundary_visible', JSON.stringify(boundaryVisible.value))
+        for (const [layer, visible] of Object.entries(val)) {
+          scheduleSave(`display.boundary_visible.${layer}`, JSON.stringify(visible))
+        }
       })
-    }, { immediate: false })
+    }, { deep: true, immediate: false })
 
     watch(boundaryWidths, (val) => {
       import('./useSettingsPersistence').then(({ scheduleSave }) => {
@@ -43,8 +49,8 @@ export function useBoundaryLayers() {
     }, { deep: true, immediate: false })
   }
 
-  function setBoundaryVisible(visible: boolean) {
-    boundaryVisible.value = visible
+  function setBoundaryVisible(layer: BoundaryLayerKey, visible: boolean) {
+    boundaryVisible[layer] = visible
   }
 
   function setBoundaryWidth(layer: BoundaryLayerKey, width: number) {

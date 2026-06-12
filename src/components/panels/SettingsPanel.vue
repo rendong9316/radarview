@@ -2,11 +2,12 @@
   <div class="settings-panel">
     <!-- ═══ 线条颜色 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('lineColor')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('lineColor') }" />
         <Palette :size="13" class="group-icon" />
         <span>线条颜色</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('lineColor')">
         <div v-for="src in dataSources" :key="'lc-'+src" class="setting-row">
           <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
           <div class="color-control">
@@ -32,11 +33,12 @@
 
     <!-- ═══ 线宽调节 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('lineWidth')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('lineWidth') }" />
         <GripHorizontal :size="13" class="group-icon" />
         <span>线宽调节</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('lineWidth')">
         <div v-for="src in dataSources" :key="'lw-'+src" class="setting-row">
           <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
           <input
@@ -53,19 +55,36 @@
 
     <!-- ═══ 行政边界 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('boundary')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('boundary') }" />
         <Map :size="13" class="group-icon" />
         <span>行政边界</span>
       </div>
-      <div class="group-body">
-        <!-- 边界线总开关 -->
+      <div class="group-body" v-show="!isCollapsed('boundary')">
+        <!-- 边界线独立显示/隐藏开关 -->
         <div class="setting-row">
-          <span class="row-label" style="color: var(--text-primary)">边界线</span>
-          <label class="toggle-switch" title="切换行政边界显示">
-            <input type="checkbox" :checked="boundaryVisible" @change="setBoundaryVisible(($event.target as HTMLInputElement).checked)" />
+          <span class="row-label boundary-label" data-type="admin0">国界</span>
+          <label class="toggle-switch" title="切换国界线显示">
+            <input type="checkbox" :checked="boundaryVisible.admin0" @change="setBoundaryVisible('admin0', ($event.target as HTMLInputElement).checked)" />
             <span class="toggle-slider"></span>
           </label>
-          <span class="switch-label">{{ boundaryVisible ? '开' : '关' }}</span>
+          <span class="switch-label">{{ boundaryVisible.admin0 ? '开' : '关' }}</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label boundary-label" data-type="coastline">海岸</span>
+          <label class="toggle-switch" title="切换海岸线显示">
+            <input type="checkbox" :checked="boundaryVisible.coastline" @change="setBoundaryVisible('coastline', ($event.target as HTMLInputElement).checked)" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="switch-label">{{ boundaryVisible.coastline ? '开' : '关' }}</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label boundary-label" data-type="admin1">省界</span>
+          <label class="toggle-switch" title="切换省界线显示">
+            <input type="checkbox" :checked="boundaryVisible.admin1" @change="setBoundaryVisible('admin1', ($event.target as HTMLInputElement).checked)" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="switch-label">{{ boundaryVisible.admin1 ? '开' : '关' }}</span>
         </div>
         <!-- 边界线宽 -->
         <div class="setting-row">
@@ -122,11 +141,12 @@
 
     <!-- ═══ 瓦片来源 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('tiles')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('tiles') }" />
         <Globe :size="13" class="group-icon" />
         <span>瓦片来源</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('tiles')">
         <div class="setting-row">
           <select class="tile-select" :value="activeSource"
             @change="$emit('switchTileSource', ($event.target as HTMLSelectElement).value)">
@@ -138,11 +158,12 @@
 
     <!-- ═══ 圆球直径 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('dotScale')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('dotScale') }" />
         <CircleDot :size="13" class="group-icon" />
         <span>圆球直径</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('dotScale')">
         <div v-for="src in dataSources" :key="'ds-'+src" class="setting-row">
           <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
           <input type="range" class="row-slider" min="0.2" max="3.0" step="0.1"
@@ -155,11 +176,12 @@
 
     <!-- ═══ 旗标大小 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('flagScale')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('flagScale') }" />
         <Flag :size="13" class="group-icon" />
         <span>旗标大小</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('flagScale')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">图标&amp;文字</span>
           <input type="range" class="row-slider" min="0.5" max="3.0" step="0.1"
@@ -172,11 +194,12 @@
 
     <!-- ═══ 字号大小 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('fontSize')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('fontSize') }" />
         <Type :size="13" class="group-icon" />
         <span>字号大小</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('fontSize')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--text-primary)">应用字号</span>
           <input type="range" class="row-slider" min="10" max="20" step="1"
@@ -189,11 +212,12 @@
 
     <!-- ═══ 点迹显示 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('pointDots')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('pointDots') }" />
         <Dot :size="13" class="group-icon" />
         <span>点迹显示</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('pointDots')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">全局显示</span>
           <label class="toggle-switch" title="切换航迹点显示">
@@ -218,11 +242,12 @@
 
     <!-- ═══ 点迹颜色 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('pointDotColors')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('pointDotColors') }" />
         <PaintBucket :size="13" class="group-icon" />
         <span>点迹颜色</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('pointDotColors')">
         <div v-for="src in dataSources" :key="'pdc-'+src" class="setting-row">
           <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
           <div class="color-control">
@@ -245,11 +270,12 @@
 
     <!-- ═══ 工具 ═══ -->
     <div class="settings-group">
-      <div class="group-header">
+      <div class="group-header" @click="toggleSection('tools')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('tools') }" />
         <Wrench :size="13" class="group-icon" />
         <span>工具</span>
       </div>
-      <div class="group-body">
+      <div class="group-body" v-show="!isCollapsed('tools')">
         <div class="tools-grid">
           <button class="action-btn" @click="$emit('toggleBatchPanel')">
             <Database :size="13" />
@@ -275,7 +301,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch, onMounted } from 'vue'
 import type { DataSource } from '../../types/track'
 import type { TileSourceInfo } from '../../composables/useTileSource'
 import { useFlagScale } from '../../composables/useFlagScale'
@@ -283,10 +309,11 @@ import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
 import { useTrackPointDots } from '../../composables/useTrackPointDots'
 import { useBoundaryLayers } from '../../composables/useBoundaryLayers'
+import { getRawSetting, scheduleSave } from '../../composables/useSettingsPersistence'
 import {
   Palette, GripHorizontal, Map, Globe, CircleDot, Flag,
   Type, Eraser, PaintBucket, Wrench, Database, Eye,
-  Maximize2, Trash2, RotateCcw, Dot,
+  Maximize2, Trash2, RotateCcw, Dot, ChevronDown,
 } from '@lucide/vue'
 
 defineProps<{
@@ -319,6 +346,44 @@ const { boundaryVisible, boundaryWidths, boundaryColors, setBoundaryVisible, set
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
 const trackPointDotScaleVal = computed(() => trackPointDotScale.value)
+
+// ── Collapsible sections (persisted) ──
+const SETTINGS_COLLAPSE_KEY = 'settings.collapsed_sections'
+const collapsedSections = ref<Set<string>>(new Set())
+
+function loadCollapsedState() {
+  const raw = getRawSetting(SETTINGS_COLLAPSE_KEY)
+  if (raw) {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        collapsedSections.value = new Set(arr)
+      }
+    } catch { /* keep default (all expanded) */ }
+  }
+}
+
+function toggleSection(id: string) {
+  if (collapsedSections.value.has(id)) {
+    collapsedSections.value.delete(id)
+  } else {
+    collapsedSections.value.add(id)
+  }
+  collapsedSections.value = new Set(collapsedSections.value)
+}
+
+function isCollapsed(id: string): boolean {
+  return collapsedSections.value.has(id)
+}
+
+// Persist on change
+watch(collapsedSections, (val) => {
+  scheduleSave(SETTINGS_COLLAPSE_KEY, JSON.stringify([...val]))
+}, { deep: true })
+
+onMounted(() => {
+  loadCollapsedState()
+})
 
 function effectiveColor(src: DataSource): string {
   return getEffectiveHex(src)
@@ -353,16 +418,20 @@ function onResetPointDotColor(src: DataSource) {
 .settings-panel {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 6px;
+  gap: 0;
+  padding: 0;
 }
 
-/* ── Settings group (card) ── */
+/* ── Settings group (VS Code flat section) ── */
 .settings-group {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-secondary);
-  border-radius: 5px;
-  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border-secondary);
+  border-radius: 0;
+  overflow: visible;
+}
+.settings-group:last-child {
+  border-bottom: none;
 }
 
 /* ── Group header ── */
@@ -370,13 +439,27 @@ function onResetPointDotColor(src: DataSource) {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 8px 12px 6px;
   font-size: 0.786rem;
   font-weight: 600;
   color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border-secondary);
+  background: transparent;
+  border-bottom: none;
   user-select: none;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.group-header:hover {
+  color: var(--text-primary);
+}
+
+.group-chevron {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform 0.15s ease;
+}
+.group-chevron.collapsed {
+  transform: rotate(-90deg);
 }
 
 .group-icon {
@@ -386,7 +469,7 @@ function onResetPointDotColor(src: DataSource) {
 
 /* ── Group body ── */
 .group-body {
-  padding: 4px 8px 6px 8px;
+  padding: 2px 12px 8px 12px;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -397,15 +480,16 @@ function onResetPointDotColor(src: DataSource) {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 24px;
+  min-height: 26px;
 }
 
 .row-label {
   font-size: 0.786rem;
-  font-weight: 600;
+  font-weight: 400;
   width: 52px;
   flex-shrink: 0;
   white-space: nowrap;
+  color: var(--text-primary);
 }
 
 .row-value {
@@ -425,15 +509,6 @@ function onResetPointDotColor(src: DataSource) {
   flex-shrink: 0;
 }
 
-/* ── Boundary label (dynamic color via CSS vars) ── */
-.boundary-label[data-type="admin0"] { color: #a8b8d0; }
-.boundary-label[data-type="coastline"] { color: #8ba888; }
-.boundary-label[data-type="admin1"] { color: #8899aa; }
-
-:root[style*="--titlebar-bg:#dddddd"] .boundary-label[data-type="admin0"],
-:root[style*="--titlebar-bg:#dddddd"] .boundary-label[data-type="coastline"],
-:root[style*="--titlebar-bg:#dddddd"] .boundary-label[data-type="admin1"] { color: inherit; }
-
 /* ── Slider ── */
 .row-slider {
   flex: 1;
@@ -449,8 +524,8 @@ function onResetPointDotColor(src: DataSource) {
 }
 .row-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: var(--accent-primary);
   cursor: pointer;
@@ -459,7 +534,6 @@ function onResetPointDotColor(src: DataSource) {
 }
 .row-slider:hover::-webkit-slider-thumb {
   filter: brightness(1.2);
-  transform: scale(1.1);
 }
 
 /* ── Color picker ── */
@@ -471,17 +545,17 @@ function onResetPointDotColor(src: DataSource) {
 }
 
 .color-input {
-  width: 28px;
-  height: 22px;
+  width: 26px;
+  height: 20px;
   padding: 0;
   border: 1px solid var(--border-primary);
-  border-radius: 3px;
+  border-radius: 2px;
   cursor: pointer;
   background: transparent;
   flex-shrink: 0;
 }
-.color-input::-webkit-color-swatch-wrapper { padding: 2px; }
-.color-input::-webkit-color-swatch { border: none; border-radius: 2px; }
+.color-input::-webkit-color-swatch-wrapper { padding: 1px; }
+.color-input::-webkit-color-swatch { border: none; border-radius: 1px; }
 
 .color-hex {
   font-family: 'Cascadia Code', 'Fira Code', monospace;
@@ -492,13 +566,13 @@ function onResetPointDotColor(src: DataSource) {
 
 /* ── Reset button ── */
 .reset-btn {
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   padding: 0;
   color: var(--text-tertiary);
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 2px;
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -519,7 +593,7 @@ function onResetPointDotColor(src: DataSource) {
 
 /* Spacer for rows without reset button */
 .reset-slot {
-  width: 22px;
+  width: 20px;
   flex-shrink: 0;
 }
 
@@ -527,8 +601,8 @@ function onResetPointDotColor(src: DataSource) {
 .toggle-switch {
   position: relative;
   display: inline-block;
-  width: 32px;
-  height: 18px;
+  width: 30px;
+  height: 16px;
   flex-shrink: 0;
 }
 .toggle-switch input {
@@ -540,21 +614,21 @@ function onResetPointDotColor(src: DataSource) {
   position: absolute;
   inset: 0;
   background: var(--bg-tertiary);
-  border-radius: 9px;
+  border-radius: 8px;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background 0.15s ease;
   border: 1px solid var(--border-secondary);
 }
 .toggle-slider::before {
   content: '';
   position: absolute;
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   left: 1px;
   top: 1px;
   background: var(--text-primary);
   border-radius: 50%;
-  transition: transform 0.2s ease, background 0.2s ease;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
 .toggle-switch input:checked + .toggle-slider {
   background: var(--accent-primary);
@@ -568,11 +642,11 @@ function onResetPointDotColor(src: DataSource) {
 /* ── Tile source select ── */
 .tile-select {
   flex: 1;
-  padding: 4px 8px;
+  padding: 3px 6px;
   background: var(--bg-tertiary);
   color: var(--text-primary);
   border: 1px solid var(--border-secondary);
-  border-radius: 3px;
+  border-radius: 2px;
   font-size: 0.786rem;
   cursor: pointer;
   outline: none;
@@ -580,32 +654,31 @@ function onResetPointDotColor(src: DataSource) {
   transition: border-color 0.15s;
 }
 .tile-select:hover { border-color: var(--accent-primary); }
-.tile-select:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2); }
+.tile-select:focus { border-color: var(--accent-primary); }
 .tile-select option { background: var(--bg-secondary); color: var(--text-primary); }
 
 /* ── Action button ── */
 .action-btn {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
+  gap: 5px;
+  padding: 4px 10px;
   background: var(--button-bg);
   color: var(--button-fg);
-  border: 1px solid var(--border-secondary);
-  border-radius: 4px;
+  border: 1px solid transparent;
+  border-radius: 2px;
   font-size: 0.786rem;
   font-family: inherit;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background 0.15s;
   white-space: nowrap;
 }
 .action-btn:hover {
   background: var(--button-hover);
-  border-color: var(--accent-primary);
 }
 .action-btn.danger {
   color: var(--error);
-  border-color: var(--error);
+  border-color: transparent;
   background: transparent;
 }
 .action-btn.danger:hover {

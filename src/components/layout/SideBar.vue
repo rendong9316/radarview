@@ -156,8 +156,8 @@ function onResizeEnd() {
   font-size: 0.786rem;
   font-weight: 600;
   color: var(--sidebar-header);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .sidebar-close {

@@ -189,7 +189,7 @@ defineEmits<{ close: [] }>()
 .dialog-box {
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 24px 32px;
   width: 600px;
   max-width: 90vw;

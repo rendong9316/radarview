@@ -45,7 +45,7 @@ const { visible, title, message, confirmText, cancelText, variant, onConfirm, on
 .dialog-box {
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 24px 32px;
   text-align: center;
   min-width: 320px;

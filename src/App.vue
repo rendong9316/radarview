@@ -582,12 +582,12 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   bottom: 8px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 6px 16px;
+  padding: 4px 14px;
   background: var(--error-bg);
   color: var(--error);
   border: 1px solid var(--error);
-  border-radius: 4px;
-  font-size: 0.857rem;
+  border-radius: 2px;
+  font-size: 0.786rem;
   z-index: 20;
   pointer-events: none;
 }
@@ -598,12 +598,12 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  padding: 5px 14px;
+  padding: 4px 12px;
   background: var(--accent-primary);
   color: #fff;
   border: none;
-  border-radius: 4px;
-  font-size: 0.857rem;
+  border-radius: 2px;
+  font-size: 0.786rem;
   font-weight: 600;
   cursor: pointer;
   z-index: 10;
@@ -623,7 +623,7 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   overflow-y: auto;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: 4px;
+  border-radius: 3px;
   z-index: 10;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }

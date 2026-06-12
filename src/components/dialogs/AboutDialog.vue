@@ -43,7 +43,7 @@ defineEmits<{ close: [] }>()
 .dialog-box {
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: 6px;
+  border-radius: 4px;
   padding: 32px 40px;
   text-align: center;
   min-width: 320px;
@@ -87,7 +87,7 @@ defineEmits<{ close: [] }>()
   padding: 2px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
-  border-radius: 12px;
+  border-radius: 3px;
   font-size: 0.786rem;
   color: var(--text-secondary);
 }

@@ -174,7 +174,7 @@ onUnmounted(() => {
 
 <style scoped>
 .statusbar {
-  height: 24px;
+  height: 22px;
   background: var(--statusbar-bg);
   color: var(--statusbar-fg);
   display: flex;
@@ -182,7 +182,7 @@ onUnmounted(() => {
   justify-content: space-between;
   padding: 0 8px;
   flex-shrink: 0;
-  font-size: 0.857rem;
+  font-size: 0.786rem;
   border-top: 1px solid var(--statusbar-border);
   user-select: none;
   z-index: 5;

@@ -96,9 +96,9 @@ const hasPointCountFilter = computed(() =>
 )
 
 const layerItems = [
-  { source: 'adsb' as DataSource, label: 'ADS-B', color: '#00d4ff' },
-  { source: 'radar' as DataSource, label: 'Radar', color: '#00ff88' },
-  { source: 'radar_raw' as DataSource, label: 'Raw', color: '#ff8800' },
+  { source: 'adsb' as DataSource, label: 'ADS-B', color: 'var(--source-adsb)' },
+  { source: 'radar' as DataSource, label: 'Radar', color: 'var(--source-radar)' },
+  { source: 'radar_raw' as DataSource, label: 'Raw', color: 'var(--source-radar_raw)' },
 ]
 
 const dtMin = computed(() => {

@@ -1,9 +1,8 @@
 <template>
   <header class="titlebar">
-    <!-- App icon + name -->
-    <div class="titlebar-brand">
-      <Globe :size="16" class="titlebar-icon-svg" />
-      <span class="titlebar-title">RadarView</span>
+    <!-- App logo (VS Code style: app icon top-left) -->
+    <div class="titlebar-logo">
+      <img :src="appIcon" class="titlebar-logo-img" alt="RadarView" />
     </div>
 
     <!-- Menu bar -->
@@ -40,7 +39,8 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { getCurrentWindow } from '@tauri-apps/api/window'
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import MenuBar from './MenuBar.vue'
-import { Globe } from '@lucide/vue'
+
+const appIcon = '/icon.png'
 
 defineEmits<{
   menuAction: [id: string]
@@ -103,25 +103,20 @@ onUnmounted(() => {
   -webkit-user-select: none;
 }
 
-.titlebar-brand {
+.titlebar-logo {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 10px;
+  justify-content: center;
+  width: 30px;
   height: 100%;
   flex-shrink: 0;
+  margin-left: 4px;
 }
 
-.titlebar-icon-svg {
-  color: var(--accent-primary);
+.titlebar-logo-img {
+  width: 18px;
+  height: 18px;
   flex-shrink: 0;
-}
-
-.titlebar-title {
-  font-size: 0.929rem;
-  font-weight: 500;
-  color: var(--titlebar-fg);
-  letter-spacing: 0.3px;
 }
 
 .titlebar-menu {

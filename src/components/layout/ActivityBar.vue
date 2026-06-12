@@ -9,8 +9,7 @@
       :aria-label="item.tooltip"
       @click="activate(item.id)"
     >
-      <component :is="item.icon" :size="20" class="activitybar-icon-svg" />
-      <span class="activitybar-label">{{ item.label }}</span>
+      <component :is="item.icon" :size="24" class="activitybar-icon-svg" />
     </button>
 
     <!-- Spacer (push settings to bottom) -->
@@ -24,8 +23,7 @@
       aria-label="设置 (Ctrl+,)"
       @click="activate('settings')"
     >
-      <Settings :size="20" class="activitybar-icon-svg" />
-      <span class="activitybar-label">设置</span>
+      <Settings :size="24" class="activitybar-icon-svg" />
     </button>
   </aside>
 </template>
@@ -61,27 +59,23 @@ const items: ActivityItem[] = [
   flex-direction: column;
   align-items: center;
   flex-shrink: 0;
-  padding-top: 4px;
   border-right: 1px solid var(--border-secondary);
   z-index: 20;
 }
 
 .activitybar-btn {
-  width: 40px;
-  height: 40px;
+  width: 48px;
+  height: 48px;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
   background: transparent;
   border: none;
   border-left: 2px solid transparent;
   color: var(--activitybar-fg);
   cursor: pointer;
-  transition: color 0.2s ease, border-color 0.2s ease;
+  transition: color 0.15s ease;
   position: relative;
-  margin-bottom: 2px;
   border-radius: 0;
 }
 .activitybar-btn:hover {
@@ -94,11 +88,6 @@ const items: ActivityItem[] = [
 
 .activitybar-icon-svg {
   flex-shrink: 0;
-}
-
-.activitybar-label {
-  font-size: 0.643rem;
-  line-height: 1;
 }
 
 .activitybar-spacer {
