@@ -421,6 +421,7 @@ function syncFlagEntities() {
         entity.label.pixelOffset = new Cesium.ConstantProperty(new Cesium.Cartesian2(0, Math.round(8 * s)))
       }
       if (entity.billboard) {
+        entity.billboard.image = new Cesium.ConstantProperty(pinIconDataUrl)
         entity.billboard.scale = new Cesium.ConstantProperty(0.8 * s)
       }
     }
@@ -1523,6 +1524,10 @@ onMounted(async () => {
   )
   await loadBoundaryLayers()
 
+  // Must create pin icon before awaiting settings — flag restoration during
+  // applySettings() can trigger syncFlagEntities(), which needs pinIconDataUrl.
+  pinIconDataUrl = createPinIcon()
+
   // Restore saved camera state, or use default view
   await whenSettingsLoaded()
   if (!restoreCameraState()) {
@@ -1596,7 +1601,6 @@ onMounted(async () => {
   })
 
   syncEntities(props.tracks)
-  pinIconDataUrl = createPinIcon()
   syncFlagEntities()
 
   // LEFT_CLICK handler for track picking (skip flags)
