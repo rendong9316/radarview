@@ -102,12 +102,14 @@ async function applySettings(raw: Record<string, string>) {
   const { useLayerVisibility } = await import('./useLayerVisibility')
   const { useLabelVisibility } = await import('./useLabelVisibility')
   const { useBoundaryLayers } = await import('./useBoundaryLayers')
+  const { useCityLayer } = await import('./useCityLayer')
 
   const lw = useLineWidth()
   const ds = useDotScale()
   const lv = useLayerVisibility()
   const lbl = useLabelVisibility()
   const bl = useBoundaryLayers()
+  const cl = useCityLayer()
 
   for (const src of ['adsb', 'radar', 'radar_raw', 'simulation'] as DataSource[]) {
     const lwKey = `display.line_width.${src}`
@@ -156,6 +158,20 @@ async function applySettings(raw: Record<string, string>) {
     if (raw[key] !== undefined) {
       try { bl.boundaryColors[layer] = JSON.parse(raw[key]) } catch { /* keep default */ }
     }
+  }
+
+  // ── City layer ──
+  if (raw['display.city_layer'] !== undefined) {
+    try {
+      const parsed = JSON.parse(raw['display.city_layer'])
+      if (parsed && typeof parsed === 'object') {
+        const { levels, ...rest } = parsed
+        Object.assign(cl.cityLayer, rest)
+        if (levels && typeof levels === 'object') {
+          Object.assign(cl.cityLayer.levels, levels)
+        }
+      }
+    } catch { /* keep default */ }
   }
 
   // ── Flag scale ──

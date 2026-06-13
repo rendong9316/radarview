@@ -1,6 +1,6 @@
 <template>
   <div class="filter-panel">
-    <div v-if="props.hasActiveFilter || hasPointCountFilter" class="active-indicator">⬤ 筛选器已激活</div>
+    <div v-if="props.hasActiveFilter || hasPointCountFilter" class="active-indicator"><Circle :size="10" class="ai-dot" /> 筛选器已激活</div>
     <div class="panel-body">
       <!-- 时间范围过滤 -->
       <div v-if="props.timeRange" class="range-info">
@@ -37,14 +37,15 @@
       <div class="point-filter-list">
         <div v-for="item in layerItems" :key="'pf-'+item.source" class="point-filter-row">
           <span class="layer-dot" :style="{ background: item.color }"></span>
-          <label class="pf-check-label">
+          <label class="pf-check-wrap" @click.stop>
             <input
               type="checkbox"
               :checked="pointCountFilters[item.source].enabled"
               @change="onPfToggle(item.source, ($event.target as HTMLInputElement).checked)"
             />
-            {{ item.label }}
+            <span class="pf-check-box"></span>
           </label>
+          <span class="pf-check-label">{{ item.label }}</span>
           <input
             type="number"
             class="pf-input"
@@ -74,6 +75,7 @@
 import { ref, computed } from 'vue'
 import type { DataSource } from '../types/track'
 import { useTrackFilter } from '../composables/useTrackFilter'
+import { Circle } from '@lucide/vue'
 
 const props = defineProps<{
   timeRange: { min: number; max: number } | null
@@ -178,6 +180,15 @@ function onPfMax(source: DataSource, val: string) {
   background: var(--bg-tertiary);
   border-radius: 2px;
   text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.ai-dot {
+  flex-shrink: 0;
+  fill: var(--accent-primary);
 }
 
 .panel-body {
@@ -300,15 +311,61 @@ function onPfMax(source: DataSource, val: string) {
   flex-shrink: 0;
 }
 
-.pf-check-label {
+.pf-check-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.pf-check-wrap input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.pf-check-box {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: 2px;
+  background: var(--input-bg);
+  transition: background 0.15s, border-color 0.15s;
   display: flex;
   align-items: center;
-  gap: 2px;
+  justify-content: center;
+}
+.pf-check-box::after {
+  content: '';
+  display: none;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -1px;
+}
+.pf-check-wrap input:checked + .pf-check-box {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+.pf-check-wrap input:checked + .pf-check-box::after {
+  display: block;
+}
+.pf-check-wrap input:focus-visible + .pf-check-box {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: 1px;
+}
+
+.pf-check-label {
   color: var(--text-secondary);
-  cursor: pointer;
   white-space: nowrap;
-  min-width: 52px;
   font-size: 0.786rem;
+  min-width: 52px;
 }
 
 .pf-input {

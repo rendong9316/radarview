@@ -8,7 +8,7 @@
           class="search-input"
           placeholder="搜索 ICAO / 航班号 / 注册号 / 机型…"
         />
-        <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''">×</span>
+        <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''"><X :size="14" /></span>
       </div>
       <div v-if="isolatedId" class="isolate-banner">
         <span>单独查看: {{ isolatedLabel }}</span>
@@ -87,6 +87,7 @@
 import { ref, computed } from 'vue'
 import type { Track, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
+import { X } from '@lucide/vue'
 
 const props = defineProps<{
   tracks: Track[]
@@ -256,7 +257,11 @@ function lastSpeed(track: Track): string {
 }
 
 .track-item {
-  border-bottom: 1px solid var(--border-secondary);
+  border-bottom: none;
+}
+
+.track-item:nth-child(even) {
+  background: var(--bg-tertiary);
 }
 
 .track-item.selected {

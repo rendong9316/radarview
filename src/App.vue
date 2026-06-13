@@ -78,7 +78,7 @@
               title="从数据库中删除"
             >
               <span v-if="deletingBatchId === b.id" class="del-spinner"></span>
-              <span v-else>×</span>
+              <X v-else :size="14" />
             </button>
           </div>
         </div>

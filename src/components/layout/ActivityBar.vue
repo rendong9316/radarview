@@ -10,6 +10,7 @@
       @click="activate(item.id)"
     >
       <component :is="item.icon" :size="24" class="activitybar-icon-svg" />
+      <span v-if="item.badge != null" class="activitybar-badge">{{ item.badge }}</span>
     </button>
 
     <!-- Spacer (push settings to bottom) -->
@@ -40,6 +41,7 @@ interface ActivityItem {
   icon: Component
   label: string
   tooltip: string
+  badge?: number | string
 }
 
 const items: ActivityItem[] = [
@@ -88,6 +90,23 @@ const items: ActivityItem[] = [
 
 .activitybar-icon-svg {
   flex-shrink: 0;
+}
+
+.activitybar-badge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  font-size: 0.643rem;
+  font-weight: 700;
+  line-height: 16px;
+  text-align: center;
+  color: #fff;
+  background: var(--accent-primary);
+  border-radius: 8px;
+  pointer-events: none;
 }
 
 .activitybar-spacer {

@@ -181,7 +181,7 @@ function onResizeEnd() {
 .sidebar-body {
   flex: 1;
   overflow-y: auto;
-  padding: 4px;
+  padding: 8px;
 }
 
 .sidebar-resize {

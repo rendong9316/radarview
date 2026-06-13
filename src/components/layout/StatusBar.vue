@@ -229,7 +229,7 @@ onUnmounted(() => {
 .status-progress {
   flex: 1;
   height: 4px;
-  background: rgba(255,255,255,0.2);
+  background: var(--bg-tertiary);
   border-radius: 2px;
   cursor: pointer;
   min-width: 60px;
@@ -295,12 +295,12 @@ onUnmounted(() => {
 }
 .status-speed-btn {
   padding: 0 4px;
-  height: 18px;
+  height: 16px;
   font-size: 0.714rem;
   color: inherit;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 3px;
+  border-radius: 2px;
   cursor: pointer;
   opacity: 0.7;
 }
@@ -310,18 +310,18 @@ onUnmounted(() => {
 }
 .status-speed-btn.active {
   opacity: 1;
-  border-color: rgba(255,255,255,0.4);
+  border-color: rgba(255,255,255,0.3);
   background: rgba(255,255,255,0.1);
 }
 .status-speed-input {
-  width: 40px;
-  height: 18px;
+  width: 36px;
+  height: 16px;
   font-size: 0.714rem;
   padding: 0 4px;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
   color: inherit;
-  border-radius: 3px;
+  border-radius: 2px;
 }
 
 /* Source indicators */

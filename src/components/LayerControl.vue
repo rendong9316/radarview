@@ -1,7 +1,7 @@
 <template>
   <div class="layer-section">
     <div class="section-body">
-      <label
+      <div
         v-for="item in layerItems"
         :key="item.source"
         class="layer-row"
@@ -9,16 +9,30 @@
         <span class="layer-dot" :style="{ background: item.color }"></span>
         <span class="layer-label">{{ item.label }}</span>
         <span class="layer-count">{{ item.count }}</span>
-        <input
-          type="checkbox"
-          class="toggle-input"
-          :checked="visibility[item.source]"
-          @change="toggle(item.source)"
-        />
-        <span class="toggle-switch" :class="{ on: visibility[item.source] }">
-          <span class="toggle-knob"></span>
-        </span>
-      </label>
+        <label class="toggle-switch" @click.stop>
+          <input
+            type="checkbox"
+            :checked="visibility[item.source]"
+            @change="toggle(item.source)"
+          />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+    </div>
+    <div class="section-body overlay-body">
+      <div class="layer-row">
+        <span class="layer-dot city-dot"></span>
+        <span class="layer-label">城市标注</span>
+        <span class="layer-count">{{ cityLayer.visible ? '开' : '关' }}</span>
+        <label class="toggle-switch" @click.stop>
+          <input
+            type="checkbox"
+            :checked="cityLayer.visible"
+            @change="setCityVisible(($event.target as HTMLInputElement).checked)"
+          />
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
     </div>
   </div>
 </template>
@@ -28,9 +42,11 @@ import { computed } from 'vue'
 import type { DataSource } from '../types/track'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useTracks } from '../composables/useTracks'
+import { useCityLayer } from '../composables/useCityLayer'
 
 const { visibility, toggle } = useLayerVisibility()
 const { tracksBySource } = useTracks()
+const { cityLayer, setCityVisible } = useCityLayer()
 
 const layerItems = computed(() => [
   { source: 'adsb' as DataSource, label: 'ADS-B', color: 'var(--source-adsb)', count: tracksBySource.value.adsb?.length ?? 0 },
@@ -51,6 +67,12 @@ const layerItems = computed(() => [
   gap: 6px;
 }
 
+.overlay-body {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-secondary);
+}
+
 .layer-row {
   display: flex;
   align-items: center;
@@ -66,6 +88,11 @@ const layerItems = computed(() => [
   flex-shrink: 0;
 }
 
+.city-dot {
+  background: #f5c542;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+}
+
 .layer-label {
   flex: 1;
   color: var(--text-primary);
@@ -78,36 +105,45 @@ const layerItems = computed(() => [
   text-align: right;
 }
 
-.toggle-input {
-  display: none;
-}
-
 .toggle-switch {
+  position: relative;
+  display: inline-block;
   width: 30px;
   height: 16px;
-  border-radius: 8px;
-  background: var(--bg-tertiary);
-  position: relative;
-  transition: background 0.15s;
   flex-shrink: 0;
+  cursor: pointer;
 }
-
-.toggle-switch.on {
-  background: var(--accent-primary);
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
 }
-
-.toggle-knob {
+.toggle-slider {
   position: absolute;
-  top: 1px;
-  left: 1px;
+  inset: 0;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  border: 1px solid var(--border-secondary);
+}
+.toggle-slider::before {
+  content: '';
+  position: absolute;
   width: 12px;
   height: 12px;
+  left: 1px;
+  top: 1px;
+  background: var(--text-primary);
   border-radius: 50%;
-  background: #fff;
-  transition: left 0.15s;
+  transition: transform 0.15s ease, background 0.15s ease;
 }
-
-.toggle-switch.on .toggle-knob {
-  left: 15px;
+.toggle-switch input:checked + .toggle-slider {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+.toggle-switch input:checked + .toggle-slider::before {
+  transform: translateX(14px);
+  background: #fff;
 }
 </style>

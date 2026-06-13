@@ -53,6 +53,7 @@ import { useTrackHighlight } from '../composables/useTrackHighlight'
 import { useTrackPointDots } from '../composables/useTrackPointDots'
 import { useTheme } from '../composables/useTheme'
 import { useBoundaryLayers, type BoundaryLayerKey } from '../composables/useBoundaryLayers'
+import { useCityLayer, type CityLevel } from '../composables/useCityLayer'
 import { trackKey } from '../composables/useTracks'
 import { scheduleSave, getRawSetting, whenSettingsLoaded } from '../composables/useSettingsPersistence'
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList } from '@lucide/vue'
@@ -88,6 +89,12 @@ let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
 let boundaryDataSources = new Map<BoundaryLayerKey, Cesium.GeoJsonDataSource>()
 /** Cached flat arrays of polyline entities — avoids iterating dataSource.entities.values each time */
 let boundaryPolylines = new Map<BoundaryLayerKey, Cesium.Entity[]>()
+let cityPointCollection: Cesium.PointPrimitiveCollection | undefined
+let cityLabelCollection: Cesium.LabelCollection | undefined
+let cityFeatures: CityFeature[] = []
+let cityPickMap = new Map<string, CityFeature>()
+let cityHoverEntity: Cesium.Entity | undefined
+let removeCityCameraChanged: (() => void) | null = null
 
 // 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
 let ctxMenuFn: ((e: MouseEvent) => void) | null = null
@@ -131,6 +138,7 @@ const { addHighlight } = useTrackHighlight()
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
 const { activeTheme, getThemeVar } = useTheme()
 const { boundaryVisible, boundaryWidths, boundaryColors } = useBoundaryLayers()
+const { cityLayer } = useCityLayer()
 
 // ── Track point dots state ──
 /** TrackKeys the user has manually chosen to show (multiple tracks supported) */
@@ -193,6 +201,20 @@ interface TrackEntities {
 
 const entityMap = new Map<string, TrackEntities>()
 const flagEntityMap = new Map<string, Cesium.Entity>()
+
+interface CityFeature {
+  id: string
+  nameZh: string
+  nameEn: string
+  country: string
+  population: number
+  rank: number
+  level: CityLevel
+  featureCode: string
+  capital: boolean
+  longitude: number
+  latitude: number
+}
 
 async function loadBoundaryLayers() {
   if (!viewer) return
@@ -294,6 +316,303 @@ function applyAllBoundaryColors() {
   for (const layer of BOUNDARY_LAYERS) {
     applyBoundaryColor(layer.key)
   }
+}
+
+async function loadCityLayer() {
+  if (!viewer) return
+  try {
+    const response = await fetch('/cities/cities.geojson')
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const geojson = await response.json()
+    const features = Array.isArray(geojson.features) ? geojson.features : []
+    cityFeatures = features
+      .map((feature: any): CityFeature | null => {
+        const coords = feature?.geometry?.coordinates
+        const props = feature?.properties ?? {}
+        if (!Array.isArray(coords) || coords.length < 2) return null
+        const longitude = Number(coords[0])
+        const latitude = Number(coords[1])
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null
+        return {
+          id: String(props.id || props.geoname_id || `${longitude},${latitude},${props.name_en || props.name_zh || ''}`),
+          nameZh: String(props.name_zh || props.name_en || ''),
+          nameEn: String(props.name_en || props.name_zh || ''),
+          country: String(props.country || ''),
+          population: Number(props.population || 0),
+          rank: Number(props.rank || 99),
+          level: normalizeCityLevel(props.level, props.feature_code, Boolean(props.capital)),
+          featureCode: String(props.feature_code || ''),
+          capital: Boolean(props.capital),
+          longitude,
+          latitude,
+        }
+      })
+      .filter((city: CityFeature | null): city is CityFeature => city !== null && city.nameZh.length > 0)
+
+    renderCityLayer()
+  } catch (e) {
+    console.warn('[cities] failed to load city layer:', e)
+  }
+}
+
+function normalizeCityLevel(level: unknown, featureCode: unknown, capital: boolean): CityLevel {
+  if (level === 'capital' || level === 'regional' || level === 'prefecture' || level === 'major') {
+    return level
+  }
+  if (capital || featureCode === 'PPLC') return 'capital'
+  if (featureCode === 'PPLA') return 'regional'
+  if (featureCode === 'PPLA2') return 'prefecture'
+  return 'major'
+}
+
+function clearCityLayer() {
+  if (!viewer) {
+    cityPointCollection = undefined
+    cityLabelCollection = undefined
+    cityPickMap.clear()
+    return
+  }
+  if (cityPointCollection) {
+    viewer.scene.primitives.remove(cityPointCollection)
+    cityPointCollection = undefined
+  }
+  if (cityLabelCollection) {
+    viewer.scene.primitives.remove(cityLabelCollection)
+    cityLabelCollection = undefined
+  }
+  cityPickMap.clear()
+}
+
+function enabledCities() {
+  return cityFeatures.filter(city => {
+    if (!cityLayer.levels[city.level]) return false
+    return city.level !== 'major' || city.population >= cityLayer.minPopulation
+  })
+}
+
+function cityLevelRank(level: CityLevel) {
+  switch (level) {
+    case 'capital': return 0
+    case 'regional': return 1
+    case 'prefecture': return 2
+    case 'major': return 3
+    default: return 9
+  }
+}
+
+function currentCameraHeight() {
+  if (!viewer) return Number.POSITIVE_INFINITY
+  return viewer.camera.positionCartographic.height
+}
+
+function cityPointMaxHeight(level: CityLevel) {
+  switch (level) {
+    case 'capital': return Number.POSITIVE_INFINITY
+    case 'regional': return 25_000_000
+    case 'prefecture': return 7_000_000
+    case 'major': return 2_000_000
+  }
+}
+
+function cityLabelMaxHeight(level: CityLevel) {
+  switch (level) {
+    case 'capital': return Number.POSITIVE_INFINITY
+    case 'regional': return 12_000_000
+    case 'prefecture': return 3_200_000
+    case 'major': return 1_200_000
+  }
+}
+
+function maxCityLabelsForHeight(height: number) {
+  if (height > 12_000_000) return 80
+  if (height > 6_000_000) return 140
+  if (height > 2_000_000) return 220
+  if (height > 800_000) return 340
+  return 520
+}
+
+function cityLabelGridSize(height: number) {
+  if (height > 12_000_000) return { width: 120, height: 54 }
+  if (height > 6_000_000) return { width: 104, height: 48 }
+  if (height > 2_000_000) return { width: 92, height: 42 }
+  if (height > 800_000) return { width: 82, height: 36 }
+  return { width: 72, height: 32 }
+}
+
+function isFrontSidePosition(position: Cesium.Cartesian3) {
+  if (!viewer) return true
+  const pointNormal = Cesium.Cartesian3.normalize(position, new Cesium.Cartesian3())
+  const cameraNormal = Cesium.Cartesian3.normalize(viewer.camera.positionWC, new Cesium.Cartesian3())
+  return Cesium.Cartesian3.dot(pointNormal, cameraNormal) > -0.04
+}
+
+function cityPickId(city: CityFeature) {
+  return `city::${city.id}`
+}
+
+function cityPointSize(city: CityFeature) {
+  return city.level === 'capital'
+    ? cityLayer.pointSize + 2
+    : city.level === 'regional'
+      ? cityLayer.pointSize + 1
+      : cityLayer.pointSize
+}
+
+function isAdministrativeCity(city: CityFeature) {
+  return city.level === 'capital' || city.level === 'regional' || city.level === 'prefecture'
+}
+
+function showCityHover(city: CityFeature) {
+  if (!viewer || !cityLayer.visible) return
+  const position = Cesium.Cartesian3.fromDegrees(city.longitude, city.latitude, 1800)
+  if (!cityHoverEntity) {
+    cityHoverEntity = viewer.entities.add({
+      id: 'city-hover-label',
+      position,
+      label: {
+        text: city.nameZh,
+        font: `${cityLayer.fontSize + 2}px sans-serif`,
+        fillColor: Cesium.Color.fromCssColorString(cityLayer.labelColor).withAlpha(1),
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.9),
+        outlineWidth: 2,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        pixelOffset: new Cesium.Cartesian2(cityLayer.pointSize + 10, 0),
+        showBackground: true,
+        backgroundColor: Cesium.Color.BLACK.withAlpha(0.58),
+        backgroundPadding: new Cesium.Cartesian2(6, 4),
+      },
+    })
+  } else {
+    cityHoverEntity.show = true
+    cityHoverEntity.position = position as any
+    if (cityHoverEntity.label) {
+      cityHoverEntity.label.text = new Cesium.ConstantProperty(city.nameZh)
+      cityHoverEntity.label.font = new Cesium.ConstantProperty(`${cityLayer.fontSize + 2}px sans-serif`)
+      cityHoverEntity.label.fillColor = new Cesium.ConstantProperty(Cesium.Color.fromCssColorString(cityLayer.labelColor).withAlpha(1))
+      cityHoverEntity.label.pixelOffset = new Cesium.ConstantProperty(new Cesium.Cartesian2(cityLayer.pointSize + 10, 0))
+    }
+  }
+}
+
+function hideCityHover() {
+  if (cityHoverEntity) cityHoverEntity.show = false
+}
+
+function removeCityHover() {
+  if (viewer && cityHoverEntity) {
+    viewer.entities.remove(cityHoverEntity)
+  }
+  cityHoverEntity = undefined
+}
+
+function pickedCity(picked: any): CityFeature | null {
+  const id = typeof picked?.id === 'string'
+    ? picked.id
+    : picked?.id instanceof Cesium.Entity
+      ? picked.id.id
+      : undefined
+  if (typeof id !== 'string' || !id.startsWith('city::')) return null
+  return cityPickMap.get(id) ?? null
+}
+
+function scheduleCityLayerRender(delay = 120) {
+  if (cityLayerDebounce) clearTimeout(cityLayerDebounce)
+  cityLayerDebounce = setTimeout(() => {
+    cityLayerDebounce = null
+    renderCityLayer()
+  }, delay)
+}
+
+function renderCityLayer() {
+  if (!viewer) return
+  clearCityLayer()
+  if (!cityLayer.visible || cityFeatures.length === 0) {
+    hideCityHover()
+    viewer.scene.requestRender()
+    return
+  }
+
+  const pointColor = Cesium.Color.fromCssColorString(cityLayer.color).withAlpha(0.95)
+  const labelColor = Cesium.Color.fromCssColorString(cityLayer.labelColor).withAlpha(0.95)
+  const height = currentCameraHeight()
+  const cities = enabledCities()
+
+  const points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
+  const labels = viewer.scene.primitives.add(new Cesium.LabelCollection())
+  cityPointCollection = points
+  cityLabelCollection = labels
+
+  const labelCandidates: Array<{
+    city: CityFeature
+    position: Cesium.Cartesian3
+    window: Cesium.Cartesian2
+    pointSize: number
+  }> = []
+
+  for (const city of cities) {
+    if (height > cityPointMaxHeight(city.level)) continue
+    const position = Cesium.Cartesian3.fromDegrees(city.longitude, city.latitude, 1200)
+    if (!isFrontSidePosition(position)) continue
+
+    const pointSize = cityPointSize(city)
+    const id = cityPickId(city)
+    cityPickMap.set(id, city)
+
+    points.add({
+      id,
+      position,
+      pixelSize: pointSize,
+      color: pointColor,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.75),
+      outlineWidth: 1,
+    })
+
+    if (cityLayer.labels && height <= cityLabelMaxHeight(city.level)) {
+      const window = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position)
+      if (window) {
+        labelCandidates.push({ city, position, window, pointSize })
+      }
+    }
+  }
+
+  labelCandidates.sort((a, b) =>
+    cityLevelRank(a.city.level) - cityLevelRank(b.city.level) ||
+    b.city.population - a.city.population ||
+    a.city.nameEn.localeCompare(b.city.nameEn),
+  )
+
+  const grid = cityLabelGridSize(height)
+  const occupied = new Set<string>()
+  const maxLabels = maxCityLabelsForHeight(height)
+  let labelCount = 0
+
+  for (const item of labelCandidates) {
+    if (labelCount >= maxLabels) break
+    const key = `${Math.floor(item.window.x / grid.width)}:${Math.floor(item.window.y / grid.height)}`
+    if (occupied.has(key)) continue
+    occupied.add(key)
+    labelCount++
+
+    const id = cityPickId(item.city)
+    cityPickMap.set(id, item.city)
+    labels.add({
+      id,
+      position: item.position,
+      text: item.city.nameZh,
+      font: `${isAdministrativeCity(item.city) ? cityLayer.fontSize + 1 : cityLayer.fontSize}px sans-serif`,
+      fillColor: labelColor,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.85),
+      outlineWidth: 2,
+      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+      horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+      verticalOrigin: Cesium.VerticalOrigin.CENTER,
+      pixelOffset: new Cesium.Cartesian2(item.pointSize + 4, 0),
+    })
+  }
+
+  viewer.scene.requestRender()
 }
 
 // Generate pin icon via canvas
@@ -543,7 +862,6 @@ function createTrackEntities(track: Track) {
       position: lastPos,
       color: color,
       pixelSize: pointPrimSize(base, track.source),
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
     })
   }
 
@@ -856,6 +1174,11 @@ watch(boundaryColors, () => {
   }, 60)
 }, { deep: true })
 
+let cityLayerDebounce: ReturnType<typeof setTimeout> | null = null
+watch(cityLayer, () => {
+  scheduleCityLayerRender(80)
+}, { deep: true })
+
 // Reactive line width: update existing polylines when slider changes
 watch(
   () => props.lineWidths,
@@ -984,9 +1307,8 @@ function applyHoverHighlight(trackId: string) {
   if (previousSelectedId === trackId) return
 
   if (entry.polyline) {
-    const p = entry.polyline
-    ;(p.polyline as any).material = HOVER_COLOR
-    ;(p.polyline as any).width = HOVER_WIDTH
+    ;(entry.polyline.polyline as any).material = HOVER_COLOR
+    ;(entry.polyline.polyline as any).width = HOVER_WIDTH
   }
   if (entry.pointPrimitive) {
     entry.pointPrimitive.pixelSize = pointPrimSize(DOT_HOVER, entry.source)
@@ -1001,9 +1323,8 @@ function removeHoverHighlight() {
     const originalColor = getLineColor(entry.source as DataSource)
     const isSelected = hoveredTrackId === previousSelectedId
     if (entry.polyline) {
-      const p = entry.polyline
-      ;(p.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : baseAlpha(entry.source))
-      ;(p.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source as DataSource)
+      ;(entry.polyline.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : baseAlpha(entry.source))
+      ;(entry.polyline.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source as DataSource)
     }
     if (entry.pointPrimitive) {
       entry.pointPrimitive.pixelSize = pointPrimSize(
@@ -1019,10 +1340,20 @@ function removeHoverHighlight() {
 function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent) {
   const picked = viewer!.scene.pick(movement.endPosition)
   if (!Cesium.defined(picked) || !picked.id) {
+    hideCityHover()
     removeHoverHighlight()
     viewer!.scene.requestRender()
     return
   }
+
+  const city = pickedCity(picked)
+  if (city) {
+    removeHoverHighlight()
+    showCityHover(city)
+    viewer!.scene.requestRender()
+    return
+  }
+  hideCityHover()
 
   let trackId: string | null = null
 
@@ -1279,7 +1610,6 @@ function createPointDotsForTrack(track: Track): Cesium.Entity[] {
       billboard: {
         image: icon,
         scale,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY,
       },
     }))
   }
@@ -1558,6 +1888,13 @@ onMounted(async () => {
     skyAtmosphere: false,
     baseLayer: false,
   })
+  // Keep globe-facing occlusion correct: back-side tracks, points, and labels
+  // must not draw through the earth when the camera moves.
+  viewer.scene.globe.depthTestAgainstTerrain = true
+  viewer.camera.percentageChanged = 0.03
+  removeCityCameraChanged = viewer.camera.changed.addEventListener(() => {
+    scheduleCityLayerRender(120)
+  })
 
   currentImageryLayer = viewer.imageryLayers.addImageryProvider(
     new Cesium.UrlTemplateImageryProvider({
@@ -1571,6 +1908,7 @@ onMounted(async () => {
   // P1: PointPrimitiveCollection for fast endpoint dots (one draw call for all tracks)
   pointPrimitives = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection()) as Cesium.PointPrimitiveCollection
   await loadBoundaryLayers()
+  await loadCityLayer()
 
   // Must create pin icon before awaiting settings — flag restoration during
   // applySettings() can trigger syncFlagEntities(), which needs pinIconDataUrl.
@@ -1806,6 +2144,16 @@ onUnmounted(() => {
   clearAllEntities()
   clearAllFlagEntities()
   clearBoundaryLayers()
+  clearCityLayer()
+  removeCityHover()
+  if (cityLayerDebounce) {
+    clearTimeout(cityLayerDebounce)
+    cityLayerDebounce = null
+  }
+  if (removeCityCameraChanged) {
+    removeCityCameraChanged()
+    removeCityCameraChanged = null
+  }
   if (arcEntity && viewer) {
     viewer.entities.remove(arcEntity)
     arcEntity = undefined

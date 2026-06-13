@@ -141,6 +141,83 @@
 
     <!-- ═══ 瓦片来源 ═══ -->
     <div class="settings-group">
+      <div class="group-header" @click="toggleSection('cities')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('cities') }" />
+        <MapPin :size="13" class="group-icon" />
+        <span>城市标注</span>
+      </div>
+      <div class="group-body" v-show="!isCollapsed('cities')">
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">城市图层</span>
+          <label class="toggle-switch" title="切换城市点和标签显示">
+            <input type="checkbox" :checked="cityLayer.visible" @change="setCityVisible(($event.target as HTMLInputElement).checked)" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="switch-label">{{ cityLayer.visible ? '开' : '关' }}</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">中文标签</span>
+          <label class="toggle-switch" title="切换城市中文标签显示">
+            <input type="checkbox" :checked="cityLayer.labels" @change="setCityLabels(($event.target as HTMLInputElement).checked)" />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="switch-label">{{ cityLayer.labels ? '开' : '关' }}</span>
+        </div>
+        <div v-for="level in cityLevelRows" :key="level.key" class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">{{ level.label }}</span>
+          <label class="toggle-switch" :title="`切换${level.label}显示`">
+            <input
+              type="checkbox"
+              :checked="cityLayer.levels[level.key]"
+              @change="setCityLevelVisible(level.key, ($event.target as HTMLInputElement).checked)"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="switch-label">{{ cityLayer.levels[level.key] ? '开' : '关' }}</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">主要人口</span>
+          <input type="range" class="row-slider" min="0" max="10000000" step="100000"
+            :value="cityLayer.minPopulation"
+            @input="setCityMinPopulation(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ cityPopulationLabel }}</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">圆点大小</span>
+          <input type="range" class="row-slider" min="2" max="12" step="1"
+            :value="cityLayer.pointSize"
+            @input="setCityPointSize(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ cityLayer.pointSize }}px</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">标签字号</span>
+          <input type="range" class="row-slider" min="9" max="24" step="1"
+            :value="cityLayer.fontSize"
+            @input="setCityFontSize(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ cityLayer.fontSize }}px</span>
+        </div>
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">圆点颜色</span>
+          <div class="color-control">
+            <input type="color" class="color-input" :value="cityLayer.color"
+              @input="setCityColor(($event.target as HTMLInputElement).value)" />
+            <span class="color-hex">{{ cityLayer.color }}</span>
+          </div>
+          <div class="reset-slot"></div>
+        </div>
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">标签颜色</span>
+          <div class="color-control">
+            <input type="color" class="color-input" :value="cityLayer.labelColor"
+              @input="setCityLabelColor(($event.target as HTMLInputElement).value)" />
+            <span class="color-hex">{{ cityLayer.labelColor }}</span>
+          </div>
+          <div class="reset-slot"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="settings-group">
       <div class="group-header" @click="toggleSection('tiles')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('tiles') }" />
         <Globe :size="13" class="group-icon" />
@@ -309,11 +386,12 @@ import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
 import { useTrackPointDots } from '../../composables/useTrackPointDots'
 import { useBoundaryLayers } from '../../composables/useBoundaryLayers'
+import { useCityLayer, type CityLevel } from '../../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../../composables/useSettingsPersistence'
 import {
   Palette, GripHorizontal, Map, Globe, CircleDot, Flag,
   Type, Eraser, PaintBucket, Wrench, Database, Eye,
-  Maximize2, Trash2, RotateCcw, Dot, ChevronDown,
+  Maximize2, Trash2, RotateCcw, Dot, ChevronDown, MapPin,
 } from '@lucide/vue'
 
 defineProps<{
@@ -342,10 +420,33 @@ const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
 const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
 const { boundaryVisible, boundaryWidths, boundaryColors, setBoundaryVisible, setBoundaryWidth, setBoundaryColor } = useBoundaryLayers()
+const {
+  cityLayer,
+  setCityVisible,
+  setCityLabels,
+  setCityMinPopulation,
+  setCityLevelVisible,
+  setCityPointSize,
+  setCityFontSize,
+  setCityColor,
+  setCityLabelColor,
+} = useCityLayer()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
 const trackPointDotScaleVal = computed(() => trackPointDotScale.value)
+const cityLevelRows: { key: CityLevel; label: string }[] = [
+  { key: 'capital', label: '首都' },
+  { key: 'regional', label: '省会/直辖' },
+  { key: 'prefecture', label: '地级市' },
+  { key: 'major', label: '主要城市' },
+]
+const cityPopulationLabel = computed(() => {
+  const value = cityLayer.minPopulation
+  if (value <= 0) return '全部'
+  if (value >= 10000) return `${Math.round(value / 10000)}万`
+  return String(value)
+})
 
 // ── Collapsible sections (persisted) ──
 const SETTINGS_COLLAPSE_KEY = 'settings.collapsed_sections'

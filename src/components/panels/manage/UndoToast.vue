@@ -40,7 +40,7 @@ defineEmits<{
   padding: 8px 16px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-primary);
-  border-radius: 6px;
+  border-radius: 4px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   font-size: 0.857rem;
   color: var(--text-primary);
@@ -51,7 +51,7 @@ defineEmits<{
 }
 
 .toast-text strong {
-  color: var(--semantic-error, #e88);
+  color: var(--error);
 }
 
 .toast-undo-btn {

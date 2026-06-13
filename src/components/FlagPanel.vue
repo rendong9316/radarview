@@ -33,13 +33,15 @@
       <div v-else class="flag-list">
         <button v-if="flags.length" class="clear-all-btn" @click="onClearAll"><Trash2 :size="13" /> 清除全部旗标</button>
         <div v-for="flag in flags" :key="flag.id" class="flag-row">
-          <input
-            type="checkbox"
-            class="flag-check"
-            :checked="selectedFlagIds.includes(flag.id)"
-            @change="toggleSelectFlag(flag.id)"
-            title="选择用于测距"
-          />
+          <label class="flag-check-wrap" @click.stop>
+            <input
+              type="checkbox"
+              class="flag-check"
+              :checked="selectedFlagIds.includes(flag.id)"
+              @change="toggleSelectFlag(flag.id)"
+            />
+            <span class="flag-check-box"></span>
+          </label>
           <div class="flag-info">
             <template v-if="editingFlagId === flag.id">
               <input
@@ -57,7 +59,7 @@
             </template>
             <span class="flag-coords">{{ fmt(flag.latitude) }}, {{ fmt(flag.longitude) }}</span>
           </div>
-          <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标">×</button>
+          <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标"><X :size="13" /></button>
         </div>
       </div>
     </div>
@@ -68,7 +70,7 @@
 import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
-import { Trash2, Pencil } from '@lucide/vue'
+import { Trash2, Pencil, X } from '@lucide/vue'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
 const inputLat = ref<number | null>(null)
@@ -210,7 +212,7 @@ const geoResult = computed(() => {
 
 .geo-result {
   padding: 6px 8px;
-  background: var(--error-bg);
+  background: var(--bg-tertiary);
   border: 1px solid var(--border-primary);
   border-radius: 2px;
 }
@@ -245,10 +247,59 @@ const geoResult = computed(() => {
   border-bottom: 1px solid var(--border-secondary);
 }
 
-.flag-check {
+.flag-check-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  accent-color: var(--accent-primary);
   cursor: pointer;
+}
+
+.flag-check {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.flag-check-box {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--border-primary);
+  border-radius: 2px;
+  background: var(--input-bg);
+  transition: background 0.15s, border-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flag-check-box::after {
+  content: '';
+  display: none;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+  margin-top: -1px;
+}
+
+.flag-check:checked + .flag-check-box {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.flag-check:checked + .flag-check-box::after {
+  display: block;
+}
+
+.flag-check:focus-visible + .flag-check-box {
+  outline: 1px solid var(--accent-primary);
+  outline-offset: 1px;
 }
 
 .flag-info {

@@ -282,10 +282,11 @@ function exportCSV() {
 
 .tpd-table td {
   padding: 3px 8px; font-size: 0.786rem; color: var(--text-primary);
-  border-bottom: 1px solid var(--border-tertiary, #2a2a2a);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-bottom: none;
 }
-.tpd-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+.tpd-table tbody tr:nth-child(even) { background: var(--bg-tertiary); }
+.tpd-table tbody tr:hover { background: var(--button-hover); }
 
 .col-seq { text-align: center; color: var(--text-tertiary); width: 48px; }
 .col-ts { text-align: left; font-family: 'Consolas', monospace; }

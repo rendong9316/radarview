@@ -178,9 +178,11 @@ onUnmounted(() => window.removeEventListener('click', closeCtx))
 .col-time { min-width: 150px; }
 .col-act { width: 28px; min-width: 28px; text-align: center; }
 
-.data-row { cursor: default; border-bottom: 1px solid var(--border-tertiary); }
-.data-row:hover { background: rgba(255,255,255,0.03); }
-.data-row.visible { background: rgba(0,122,204,0.08); }
+.data-row { cursor: default; }
+.data-row:nth-child(even) { background: var(--bg-tertiary); }
+.data-row:hover { background: var(--button-hover); }
+.data-row.visible { background: rgba(0,122,204,0.12); }
+.data-row.visible:nth-child(even) { background: rgba(0,122,204,0.16); }
 .data-row.highlighted { background: rgba(255,200,0,0.15); outline: 1px solid rgba(255,200,0,0.4); }
 .data-row.just-highlighted {
   animation: highlight-flash 0.8s ease-out;
@@ -192,6 +194,7 @@ onUnmounted(() => window.removeEventListener('click', closeCtx))
 .data-row td {
   padding: 2px 4px; font-size: 0.714rem; color: var(--text-primary);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-bottom: none;
 }
 .col-icao { font-family: 'Consolas', monospace; }
 .col-flt { font-weight: 600; }
