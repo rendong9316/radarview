@@ -165,10 +165,18 @@ async function applySettings(raw: Record<string, string>) {
     try {
       const parsed = JSON.parse(raw['display.city_layer'])
       if (parsed && typeof parsed === 'object') {
-        const { levels, ...rest } = parsed
+        const { levels, lod, ...rest } = parsed
         Object.assign(cl.cityLayer, rest)
         if (levels && typeof levels === 'object') {
           Object.assign(cl.cityLayer.levels, levels)
+        }
+        if (lod && typeof lod === 'object') {
+          if (lod.pointMaxHeight && typeof lod.pointMaxHeight === 'object') {
+            Object.assign(cl.cityLayer.lod.pointMaxHeight, lod.pointMaxHeight)
+          }
+          if (lod.labelMaxHeight && typeof lod.labelMaxHeight === 'object') {
+            Object.assign(cl.cityLayer.lod.labelMaxHeight, lod.labelMaxHeight)
+          }
         }
       }
     } catch { /* keep default */ }

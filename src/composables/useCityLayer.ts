@@ -2,6 +2,20 @@ import { reactive, watch } from 'vue'
 
 export type CityLayerKey = 'cities'
 export type CityLevel = 'capital' | 'regional' | 'prefecture' | 'major'
+export type CityLodLevel = Exclude<CityLevel, 'capital'>
+
+export const DEFAULT_CITY_LOD = {
+  pointMaxHeight: {
+    regional: 25_000_000,
+    prefecture: 7_000_000,
+    major: 2_000_000,
+  } as Record<CityLodLevel, number>,
+  labelMaxHeight: {
+    regional: 12_000_000,
+    prefecture: 3_200_000,
+    major: 1_200_000,
+  } as Record<CityLodLevel, number>,
+}
 
 const cityLayer = reactive({
   visible: true,
@@ -17,6 +31,10 @@ const cityLayer = reactive({
   fontSize: 13,
   color: '#f5c542',
   labelColor: '#ffffff',
+  lod: {
+    pointMaxHeight: { ...DEFAULT_CITY_LOD.pointMaxHeight },
+    labelMaxHeight: { ...DEFAULT_CITY_LOD.labelMaxHeight },
+  },
 })
 
 let persistenceWatchersStarted = false
@@ -48,6 +66,19 @@ export function useCityLayer() {
     cityLayer.levels[level] = visible
   }
 
+  function setCityPointMaxHeight(level: CityLodLevel, value: number) {
+    cityLayer.lod.pointMaxHeight[level] = clampHeight(value)
+  }
+
+  function setCityLabelMaxHeight(level: CityLodLevel, value: number) {
+    cityLayer.lod.labelMaxHeight[level] = clampHeight(value)
+  }
+
+  function resetCityLod() {
+    Object.assign(cityLayer.lod.pointMaxHeight, DEFAULT_CITY_LOD.pointMaxHeight)
+    Object.assign(cityLayer.lod.labelMaxHeight, DEFAULT_CITY_LOD.labelMaxHeight)
+  }
+
   function setCityPointSize(value: number) {
     cityLayer.pointSize = Math.max(2, Math.min(12, Math.round(value)))
   }
@@ -70,9 +101,16 @@ export function useCityLayer() {
     setCityLabels,
     setCityMinPopulation,
     setCityLevelVisible,
+    setCityPointMaxHeight,
+    setCityLabelMaxHeight,
+    resetCityLod,
     setCityPointSize,
     setCityFontSize,
     setCityColor,
     setCityLabelColor,
   }
+}
+
+function clampHeight(value: number) {
+  return Math.max(100_000, Math.min(40_000_000, Math.round(value)))
 }

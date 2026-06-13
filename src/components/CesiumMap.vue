@@ -408,18 +408,18 @@ function currentCameraHeight() {
 function cityPointMaxHeight(level: CityLevel) {
   switch (level) {
     case 'capital': return Number.POSITIVE_INFINITY
-    case 'regional': return 25_000_000
-    case 'prefecture': return 7_000_000
-    case 'major': return 2_000_000
+    case 'regional': return cityLayer.lod.pointMaxHeight.regional
+    case 'prefecture': return cityLayer.lod.pointMaxHeight.prefecture
+    case 'major': return cityLayer.lod.pointMaxHeight.major
   }
 }
 
 function cityLabelMaxHeight(level: CityLevel) {
   switch (level) {
     case 'capital': return Number.POSITIVE_INFINITY
-    case 'regional': return 12_000_000
-    case 'prefecture': return 3_200_000
-    case 'major': return 1_200_000
+    case 'regional': return cityLayer.lod.labelMaxHeight.regional
+    case 'prefecture': return cityLayer.lod.labelMaxHeight.prefecture
+    case 'major': return cityLayer.lod.labelMaxHeight.major
   }
 }
 
@@ -1272,8 +1272,10 @@ function applyHighlight(trackId: string | null) {
 
 // Hover highlight — bright red + thick, unmistakable
 let hoveredTrackId: string | null = null
+// rAF batched pick：避免每个 MOUSE_MOVE 都做 scene.pick()，每帧只 pick 一次
+let pendingPickPos: Cesium.Cartesian2 | null = null
+let pickScheduled = false
 const HOVER_COLOR = Cesium.Color.fromCssColorString('#ff3333')
-const HOVER_WIDTH = 5.0
 const NORMAL_ALPHA = 0.88
 const RAW_ALPHA = 0.75
 const SELECTED_WIDTH = 4.0
@@ -1308,7 +1310,8 @@ function applyHoverHighlight(trackId: string) {
 
   if (entry.polyline) {
     ;(entry.polyline.polyline as any).material = HOVER_COLOR
-    ;(entry.polyline.polyline as any).width = HOVER_WIDTH
+    // 不修改 width：width 变更会触发 PolylineGeometryUpdater 重建几何体，
+    // 导致 polyline 高亮比 PointPrimitive 慢一帧（不同频）。
   }
   if (entry.pointPrimitive) {
     entry.pointPrimitive.pixelSize = pointPrimSize(DOT_HOVER, entry.source)
@@ -1324,7 +1327,7 @@ function removeHoverHighlight() {
     const isSelected = hoveredTrackId === previousSelectedId
     if (entry.polyline) {
       ;(entry.polyline.polyline as any).material = originalColor.withAlpha(isSelected ? SELECTED_ALPHA : baseAlpha(entry.source))
-      ;(entry.polyline.polyline as any).width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source as DataSource)
+      // 不恢复 width：hover 时不再改 width，因此无需恢复
     }
     if (entry.pointPrimitive) {
       entry.pointPrimitive.pixelSize = pointPrimSize(
@@ -1338,7 +1341,22 @@ function removeHoverHighlight() {
 }
 
 function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent) {
-  const picked = viewer!.scene.pick(movement.endPosition)
+  // rAF 合并：只记录鼠标位置，每帧最多执行一次 pick
+  pendingPickPos = movement.endPosition.clone()
+  if (!pickScheduled) {
+    pickScheduled = true
+    requestAnimationFrame(() => {
+      pickScheduled = false
+      if (pendingPickPos && viewer && !viewer.isDestroyed()) {
+        doPick(pendingPickPos)
+        pendingPickPos = null
+      }
+    })
+  }
+}
+
+function doPick(endPosition: Cesium.Cartesian2) {
+  const picked = viewer!.scene.pick(endPosition)
   if (!Cesium.defined(picked) || !picked.id) {
     hideCityHover()
     removeHoverHighlight()
@@ -2174,6 +2192,9 @@ onUnmounted(() => {
     moveHandler.destroy()
     moveHandler = null
   }
+  // rAF 合并 pick 状态清理
+  pendingPickPos = null
+  pickScheduled = false
   // 清理右键上下文菜单事件监听
   if (ctxCanvasEl && ctxMenuFn) {
     ctxCanvasEl.removeEventListener('contextmenu', ctxMenuFn)

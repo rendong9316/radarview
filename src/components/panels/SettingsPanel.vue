@@ -214,6 +214,30 @@
           </div>
           <div class="reset-slot"></div>
         </div>
+        <div class="setting-row advanced-toggle" @click="toggleSection('cityAdvanced')">
+          <span class="row-label" style="color: var(--accent-primary)">高级</span>
+          <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('cityAdvanced') }" />
+          <span class="advanced-summary">显示阈值</span>
+          <button class="reset-btn show" title="恢复默认城市显示阈值" @click.stop="resetCityLod">
+            <RotateCcw :size="12" />
+          </button>
+        </div>
+        <div class="advanced-body" v-show="!isCollapsed('cityAdvanced')">
+          <div v-for="level in cityLodRows" :key="`city-point-${level.key}`" class="setting-row">
+            <span class="row-label" style="color: var(--accent-primary)">{{ level.short }}点高</span>
+            <input type="range" class="row-slider" min="100000" max="40000000" step="100000"
+              :value="cityLayer.lod.pointMaxHeight[level.key]"
+              @input="setCityPointMaxHeight(level.key, Number(($event.target as HTMLInputElement).value))" />
+            <span class="row-value lod-value">{{ formatCityHeight(cityLayer.lod.pointMaxHeight[level.key]) }}</span>
+          </div>
+          <div v-for="level in cityLodRows" :key="`city-label-${level.key}`" class="setting-row">
+            <span class="row-label" style="color: var(--accent-primary)">{{ level.short }}标高</span>
+            <input type="range" class="row-slider" min="100000" max="40000000" step="100000"
+              :value="cityLayer.lod.labelMaxHeight[level.key]"
+              @input="setCityLabelMaxHeight(level.key, Number(($event.target as HTMLInputElement).value))" />
+            <span class="row-value lod-value">{{ formatCityHeight(cityLayer.lod.labelMaxHeight[level.key]) }}</span>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -386,7 +410,7 @@ import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
 import { useTrackPointDots } from '../../composables/useTrackPointDots'
 import { useBoundaryLayers } from '../../composables/useBoundaryLayers'
-import { useCityLayer, type CityLevel } from '../../composables/useCityLayer'
+import { useCityLayer, type CityLevel, type CityLodLevel } from '../../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../../composables/useSettingsPersistence'
 import {
   Palette, GripHorizontal, Map, Globe, CircleDot, Flag,
@@ -426,6 +450,9 @@ const {
   setCityLabels,
   setCityMinPopulation,
   setCityLevelVisible,
+  setCityPointMaxHeight,
+  setCityLabelMaxHeight,
+  resetCityLod,
   setCityPointSize,
   setCityFontSize,
   setCityColor,
@@ -441,6 +468,11 @@ const cityLevelRows: { key: CityLevel; label: string }[] = [
   { key: 'prefecture', label: '地级市' },
   { key: 'major', label: '主要城市' },
 ]
+const cityLodRows: { key: CityLodLevel; short: string }[] = [
+  { key: 'regional', short: '省会' },
+  { key: 'prefecture', short: '地级' },
+  { key: 'major', short: '主要' },
+]
 const cityPopulationLabel = computed(() => {
   const value = cityLayer.minPopulation
   if (value <= 0) return '全部'
@@ -449,8 +481,12 @@ const cityPopulationLabel = computed(() => {
 })
 
 // ── Collapsible sections (persisted) ──
+function formatCityHeight(value: number) {
+  return `${Math.round(value / 1000)}km`
+}
+
 const SETTINGS_COLLAPSE_KEY = 'settings.collapsed_sections'
-const collapsedSections = ref<Set<string>>(new Set())
+const collapsedSections = ref<Set<string>>(new Set(['cityAdvanced']))
 
 function loadCollapsedState() {
   const raw = getRawSetting(SETTINGS_COLLAPSE_KEY)
@@ -611,6 +647,29 @@ function onResetPointDotColor(src: DataSource) {
 }
 
 /* ── Slider ── */
+.advanced-toggle {
+  margin-top: 4px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.advanced-summary {
+  flex: 1;
+  font-size: 0.714rem;
+  color: var(--text-tertiary);
+}
+
+.advanced-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 2px 0 4px 0;
+}
+
+.lod-value {
+  min-width: 46px;
+}
+
 .row-slider {
   flex: 1;
   height: 4px;
