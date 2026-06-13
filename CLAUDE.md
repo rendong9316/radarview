@@ -69,6 +69,8 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 - **航迹数据二次导入时正确合并**：前端 `addTracks()` 按 `icao_address::source` 组合键去重，同键航迹只合并新时间点的 position，不覆盖已有数据。
 - **时间显示差 8 小时**：数据源（MAT/CSV）时间戳均为北京时间 (UTC+8) 的 naive 字符串。`track.rs:ts_to_ms` 必须用 `FixedOffset::east_opt(8*3600)` 解析，`db.rs:ms_to_ts` 必须用 `with_timezone(&china_tz)` 格式化，禁止 `and_utc()` / 纯 UTC 格式化，否则全链路时区不一致。
 - **行政区划线宽调节性能**：`admin1.geojson` 被 Cesium 拆为 ~45K 个 Entity，任何全量遍历都极重。**禁止**用 `CallbackProperty` 替代静态 width（`clampToGround: true` 时 GPU shader 崩溃，`false` 时 45K×60fps 回调拖垮帧率）；**禁止**用 `PolylineCollection`（`@private` API，`_createVertexArray` 导致全局卡顿）。当前方案：GeoJsonDataSource 加载 + 实体缓存 + 防抖遍历，切换可见性 O(1)（`dataSource.show`），线宽更新在 `@change` 松手时执行一次 ~200-1500ms。`src/components/CesiumMap.vue:loadBoundaryLayers`、`applyBoundaryVisibility`、`applyAllBoundaryWidths`。
+- **Hover overlay 独立 PolylineCollection 导致点击/右键不稳定**：悬停高亮使用独立 `hoverOverlayLines` 集合（叠加在 `trackLines` 上方），其 id 为 `hover::trackKey`。`scene.pick()` 返回最上层物体，因此会优先捡到 hover overlay。`doPick()`、LEFT_CLICK handler、RIGHT_CLICK handler 都必须识别 `hover::` 前缀并剥离出真实 trackKey，否则 hover overlay 被误判为未知物体 → `removeHoverHighlight()` 删除 → 下一帧又添加 → 无限闪烁，且点击穿透失效。`src/components/CesiumMap.vue:doPick`、LEFT_CLICK `setInputAction`、RIGHT_CLICK `setInputAction`。
+- **WebGL 上下文获取禁止用 canvas.getContext() 与 Cesium 抢**：Cesium 1.140.0 持有 `webgl2` 上下文，同一个 `<canvas>` 只能返回同类型上下文。**禁止**用 `canvas.getContext('webgl')`（类型不匹配，永远返回 null），**禁止**用 `canvas.getContext('webgl2')`（二次调用会干扰 Cesium 对上下文的所有权，导致 3D 场景崩溃只剩底图）。正确做法：直接取 Cesium 内部引用 `(viewer.scene as any).context._gl`，且 postRender 钩子中绘制前保存、绘制后恢复 `CURRENT_PROGRAM` / `ARRAY_BUFFER_BINDING`，`disableVertexAttribArray` 解绑，避免污染 Cesium 的 WebGL 状态机。`src/components/CesiumMap.vue:initDotCloudRenderer`。
 
 ## 用户设置持久化
 
