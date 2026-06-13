@@ -86,6 +86,20 @@ let trackLines: Cesium.PolylineCollection | null = null
 let hoverOverlayLines: Cesium.PolylineCollection | null = null
 /** Currently active overlay polyline (hover or select) */
 let activeOverlayLine: Cesium.Polyline | null = null
+/** P1: LabelCollection for track labels — one draw call, replaces Entity.label */
+let trackLabels: Cesium.LabelCollection | null = null
+/** P3: Custom WebGL point cloud renderer for track point dots — GPU shader with outlined circles */
+let dotCloudGl: WebGLRenderingContext | null = null
+let dotCloudProgram: WebGLProgram | null = null
+/** Cached WebGL locations for performance */
+let dotCloud_uMVP: WebGLUniformLocation | null = null
+let dotCloud_uPSize: WebGLUniformLocation | null = null
+let dotCloud_aPos = -1
+let dotCloud_aCol = -1
+let dotCloudPosBuf: WebGLBuffer | null = null
+let dotCloudColorBuf: WebGLBuffer | null = null
+let dotCloudVertexCount = 0
+let dotCloudRemovePostRender: (() => void) | null = null
 let currentImageryLayer: Cesium.ImageryLayer | null = null
 let tileServerPort = 0
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
@@ -153,14 +167,230 @@ const { cityLayer } = useCityLayer()
 const manualPointDotsTrackIds = ref(new Set<string>())
 /** TrackKeys the user has explicitly hidden in global mode */
 const globalHiddenTrackKeys = ref(new Set<string>())
-/** Rendered point dot entities, grouped by trackKey */
-const pointDotEntityMap = new Map<string, Cesium.Entity[]>()
+/** Rendered point dot metadata, grouped by trackKey: [startIndex, count] in GPU buffers */
+const pointDotEntityMap = new Map<string, { startIdx: number; count: number; ids: string[] }>()
+/** Flat typed arrays for GPU buffers */
+let dotCloudPositions = new Float32Array(0)
+let dotCloudColors = new Float32Array(0)
 /** Last visible point dot index during replay, per trackKey. Used to avoid redundant updates. */
 const pointDotLastLo = new Map<string, number>()
 
 /** Check whether point dots are currently rendered for a given trackKey */
 function isTrackShowingDots(trackKey: string): boolean {
   return pointDotEntityMap.has(trackKey)
+}
+
+// ═══════════════════════════════════════════
+// P3: Custom WebGL Point Cloud Renderer
+// Renders outlined circles via GL_POINTS + custom GLSL shaders
+// ═══════════════════════════════════════════
+
+const DOT_CLOUD_VS = /* glsl */`
+attribute vec3 a_position;
+attribute vec3 a_color;
+varying vec3 v_color;
+uniform mat4 u_mvp;
+uniform float u_pointSize;
+void main() {
+  gl_Position = u_mvp * vec4(a_position, 1.0);
+  gl_PointSize = u_pointSize;
+  v_color = a_color;
+}`
+
+const DOT_CLOUD_FS = /* glsl */`
+precision mediump float;
+varying vec3 v_color;
+void main() {
+  float dist = distance(gl_PointCoord, vec2(0.5));
+  float radius = 0.5;
+  float outlineWidth = 0.08;
+  if (dist > radius) discard;
+  if (dist > radius - outlineWidth) {
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.85);
+  } else {
+    gl_FragColor = vec4(v_color, 0.9);
+  }
+}`
+
+function initDotCloudRenderer(scene: Cesium.Scene) {
+  const canvas = scene.canvas
+  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
+  if (!gl) { console.error('[dotcloud] WebGL context unavailable'); return }
+  dotCloudGl = gl as WebGLRenderingContext
+
+  // Compile vertex shader
+  const vs = dotCloudGl.createShader(dotCloudGl.VERTEX_SHADER)!
+  dotCloudGl.shaderSource(vs, DOT_CLOUD_VS)
+  dotCloudGl.compileShader(vs)
+  if (!dotCloudGl.getShaderParameter(vs, dotCloudGl.COMPILE_STATUS)) {
+    console.error('[dotcloud] VS error:', dotCloudGl.getShaderInfoLog(vs))
+  }
+
+  // Compile fragment shader
+  const fs = dotCloudGl.createShader(dotCloudGl.FRAGMENT_SHADER)!
+  dotCloudGl.shaderSource(fs, DOT_CLOUD_FS)
+  dotCloudGl.compileShader(fs)
+  if (!dotCloudGl.getShaderParameter(fs, dotCloudGl.COMPILE_STATUS)) {
+    console.error('[dotcloud] FS error:', dotCloudGl.getShaderInfoLog(fs))
+  }
+
+  // Link program
+  dotCloudProgram = dotCloudGl.createProgram()!
+  dotCloudGl.attachShader(dotCloudProgram, vs)
+  dotCloudGl.attachShader(dotCloudProgram, fs)
+  dotCloudGl.linkProgram(dotCloudProgram)
+  if (!dotCloudGl.getShaderParameter(dotCloudProgram, dotCloudGl.LINK_STATUS as number)) {
+    console.error('[dotcloud] Link error:', dotCloudGl.getProgramInfoLog(dotCloudProgram))
+  }
+
+  // Create buffers
+  dotCloudPosBuf = dotCloudGl.createBuffer()
+  dotCloudColorBuf = dotCloudGl.createBuffer()
+
+  // Cache attribute/uniform locations (unchanging after program link)
+  dotCloud_uMVP = dotCloudGl.getUniformLocation(dotCloudProgram, 'u_mvp')
+  dotCloud_uPSize = dotCloudGl.getUniformLocation(dotCloudProgram, 'u_pointSize')
+  dotCloud_aPos = dotCloudGl.getAttribLocation(dotCloudProgram, 'a_position')
+  dotCloud_aCol = dotCloudGl.getAttribLocation(dotCloudProgram, 'a_color')
+
+  // Register postRender hook — draws after Cesium for correct depth occlusion
+  dotCloudRemovePostRender = scene.postRender.addEventListener(() => {
+    if (!dotCloudGl || !dotCloudProgram || !dotCloudPosBuf || !dotCloudColorBuf || dotCloudVertexCount === 0) return
+
+    const gl = dotCloudGl
+    gl.useProgram(dotCloudProgram)
+
+    // MVP: Cesium camera matrices
+    const camera = scene.camera
+    const mvp = new Cesium.Matrix4()
+    Cesium.Matrix4.multiply(camera.frustum.projectionMatrix, camera.viewMatrix, mvp)
+    gl.uniformMatrix4fv(dotCloud_uMVP, false, new Float32Array([
+      mvp[0], mvp[1], mvp[2], mvp[3],
+      mvp[4], mvp[5], mvp[6], mvp[7],
+      mvp[8], mvp[9], mvp[10], mvp[11],
+      mvp[12], mvp[13], mvp[14], mvp[15],
+    ]))
+    gl.uniform1f(dotCloud_uPSize, dotCloudPointSize)
+
+    // Bind position
+    gl.bindBuffer(gl.ARRAY_BUFFER, dotCloudPosBuf)
+    gl.enableVertexAttribArray(dotCloud_aPos)
+    gl.vertexAttribPointer(dotCloud_aPos, 3, gl.FLOAT, false, 0, 0)
+
+    // Bind color
+    gl.bindBuffer(gl.ARRAY_BUFFER, dotCloudColorBuf)
+    gl.enableVertexAttribArray(dotCloud_aCol)
+    gl.vertexAttribPointer(dotCloud_aCol, 3, gl.FLOAT, false, 0, 0)
+
+    // State
+    gl.enable(gl.DEPTH_TEST)
+    gl.enable(gl.BLEND)
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+
+    // Draw
+    gl.drawArrays(gl.POINTS, 0, dotCloudVertexCount)
+  })
+}
+
+function rebuildDotCloudBuffers() {
+  const gl = dotCloudGl
+  if (!gl || !dotCloudPosBuf || !dotCloudColorBuf) return
+
+  dotCloudVertexCount = dotCloudPositions.length / 3
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, dotCloudPosBuf)
+  gl.bufferData(gl.ARRAY_BUFFER, dotCloudPositions, gl.STATIC_DRAW)
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, dotCloudColorBuf)
+  gl.bufferData(gl.ARRAY_BUFFER, dotCloudColors, gl.STATIC_DRAW)
+
+  viewer?.scene.requestRender()
+}
+
+function destroyDotCloudRenderer() {
+  if (dotCloudRemovePostRender) {
+    dotCloudRemovePostRender()
+    dotCloudRemovePostRender = null
+  }
+  const gl = dotCloudGl
+  if (gl && dotCloudProgram) {
+    gl.deleteProgram(dotCloudProgram)
+    dotCloudProgram = null
+    dotCloud_uMVP = null
+    dotCloud_uPSize = null
+    dotCloud_aPos = -1
+    dotCloud_aCol = -1
+  }
+  if (gl && dotCloudPosBuf) {
+    gl.deleteBuffer(dotCloudPosBuf)
+    dotCloudPosBuf = null
+  }
+  if (gl && dotCloudColorBuf) {
+    gl.deleteBuffer(dotCloudColorBuf)
+    dotCloudColorBuf = null
+  }
+  dotCloudGl = null
+  dotCloudVertexCount = 0
+  dotCloudPositions = new Float32Array(0)
+  dotCloudColors = new Float32Array(0)
+}
+
+/** Rebuild all GPU position/color arrays from track position data */
+function packageDotCloudBuffers(tracks: Track[]) {
+  const entries: { tKey: string; ids: string[] }[] = []
+  for (const track of tracks) {
+    const tKey = trackKey(track.id, track.source)
+    const manual = manualPointDotsTrackIds.value.has(tKey)
+    const global = showAllPointDots.value && !globalHiddenTrackKeys.value.has(tKey)
+    if (!manual && !global) continue
+    const ids = track.positions.map((_, i) => `pointdot::${tKey}::${i}`)
+    entries.push({ tKey, ids })
+  }
+
+  const totalCount = entries.reduce((sum, e) => sum + e.ids.length, 0)
+  const positions = new Float32Array(totalCount * 3)
+  const colorsArr = new Float32Array(totalCount * 3)
+
+  let offset = 0
+  for (const { tKey, ids } of entries) {
+    const track = tracks.find(t => trackKey(t.id, t.source) === tKey)
+    if (!track) continue
+    const color = getPointDotColor(track.source)
+    const cr = parseInt(color.slice(1, 3), 16) / 255
+    const cg = parseInt(color.slice(3, 5), 16) / 255
+    const cb = parseInt(color.slice(5, 7), 16) / 255
+
+    for (let i = 0; i < ids.length; i++) {
+      const p = track.positions[i]
+      const lon = Number(p.longitude)
+      const lat = Number(p.latitude)
+      const alt = Number(p.altitude)
+      if (Number.isFinite(lon) && Number.isFinite(lat)) {
+        const cart = Cesium.Cartesian3.fromDegrees(lon, lat, Number.isFinite(alt) ? alt : 0)
+        const pi = (offset + i) * 3
+        positions[pi] = cart.x
+        positions[pi + 1] = cart.y
+        positions[pi + 2] = cart.z
+        colorsArr[pi] = cr
+        colorsArr[pi + 1] = cg
+        colorsArr[pi + 2] = cb
+      }
+    }
+
+    pointDotEntityMap.set(tKey, { startIdx: offset, count: ids.length, ids })
+    offset += ids.length
+  }
+
+  // Clean up pointDotEntityMap for tracks no longer showing dots
+  for (const [tKey] of pointDotEntityMap) {
+    if (!entries.find(e => e.tKey === tKey)) {
+      pointDotEntityMap.delete(tKey)
+    }
+  }
+
+  dotCloudPositions = positions
+  dotCloudColors = colorsArr
+  rebuildDotCloudBuffers()
 }
 
 let arcEntity: Cesium.Entity | undefined
@@ -196,7 +426,8 @@ const BOUNDARY_LAYERS = [
 interface TrackEntities {
   /** P2: Polyline in PolylineCollection — fast GPU-instanced rendering */
   line: Cesium.Polyline | undefined
-  billboard: Cesium.Entity
+  /** P1: Label in LabelCollection — GPU-instanced, one draw call for all labels */
+  label: Cesium.Label | undefined
   /** P1: PointPrimitive for endpoint dot — replaces billboard image */
   pointPrimitive: Cesium.PointPrimitive | undefined
   source: string
@@ -907,12 +1138,13 @@ function createTrackEntities(track: Track) {
     })
   }
 
-  // Label-only entity (P1: billboard image replaced by PointPrimitive above)
-  const billboard = viewer.entities.add({
-    id: `${tKey}::dot`,
-    show: visibility.value[track.source as keyof typeof visibility.value] !== false,
-    position: lastPos,
-    label: {
+  // Label-only label in LabelCollection (P1: GPU-instanced, replaced Entity.label)
+  let lbl: Cesium.Label | undefined
+  if (trackLabels) {
+    lbl = trackLabels.add({
+      id: `${tKey}::dot`,
+      show: visibility.value[track.source as keyof typeof visibility.value] !== false,
+      position: lastPos,
       text: showLabels.value ? (label || track.id) : '',
       font: showLabels.value ? LABEL_FONT_LARGE : LABEL_FONT_BASE,
       fillColor: color,
@@ -921,17 +1153,17 @@ function createTrackEntities(track: Track) {
       style: Cesium.LabelStyle.FILL_AND_OUTLINE,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       pixelOffset: new Cesium.Cartesian2(0, -20),
-    },
-  })
+    })
+  }
 
-  entityMap.set(tKey, { line, billboard, pointPrimitive, source: track.source, labelText: label || track.id, trailRef, lastTrailLo: track.positions.length - 1 })
+  entityMap.set(tKey, { line, label: lbl, pointPrimitive, source: track.source, labelText: label || track.id, trailRef, lastTrailLo: track.positions.length - 1 })
 }
 
 function removeTrackEntities(id: string) {
   const entry = entityMap.get(id)
   if (entry && viewer) {
     if (entry.line && trackLines) trackLines.remove(entry.line)
-    viewer.entities.remove(entry.billboard)
+    if (entry.label) trackLabels?.remove(entry.label)
     if (entry.pointPrimitive) pointPrimitives?.remove(entry.pointPrimitive)
     entityMap.delete(id)
   }
@@ -951,7 +1183,7 @@ function reapplyVisibility() {
   for (const [, entities] of entityMap) {
     const vis = visibility.value[entities.source as keyof typeof visibility.value]
     if (entities.line) entities.line.show = vis
-    entities.billboard.show = vis
+    if (entities.label) entities.label.show = vis
     if (entities.pointPrimitive) entities.pointPrimitive.show = vis
   }
 }
@@ -1023,10 +1255,10 @@ function syncEntities(newTracks: Track[]) {
         })
       }
 
-      // Update label entity & PointPrimitive to last position
+      // Update label & PointPrimitive to last position
       const last = track.positions[track.positions.length - 1]
       const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude)
-      existing.billboard.position = lastPos as any
+      if (existing.label) existing.label.position = lastPos
       if (existing.pointPrimitive) existing.pointPrimitive.position = lastPos
     }
   } finally {
@@ -1056,13 +1288,13 @@ function updateReplayPositions(time: number) {
     const trail = getTrailData(track.positions, time)
     if (!trail) continue
 
-    // --- Billboard/Label & PointPrimitive: always update (cheap, just one position) ---
+    // --- Label & PointPrimitive: always update (cheap, just one position) ---
     const cpPos = Cesium.Cartesian3.fromDegrees(
       trail.currentPoint.longitude,
       trail.currentPoint.latitude,
       trail.currentPoint.altitude,
     )
-    entities.billboard.position = cpPos as any
+    if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
 
     // --- P2: Polyline — directly update positions on PolylineCollection item ---
@@ -1102,18 +1334,7 @@ function updateReplayPositions(time: number) {
       }
     }
 
-    // --- Point dots: sync visibility with replay progress (runs every frame, guards on pointDotLastLo) ---
-    const tKey = trackKey(track.id, track.source)
-    const dotEntities = pointDotEntityMap.get(tKey)
-    if (dotEntities && dotEntities.length > 0) {
-      const prevLo = pointDotLastLo.get(tKey) ?? -1
-      if (trail.lo !== prevLo) {
-        pointDotLastLo.set(tKey, trail.lo)
-        for (let i = 0; i < dotEntities.length; i++) {
-          dotEntities[i].show = i <= trail.lo
-        }
-      }
-    }
+    // --- Point dots: during replay, hide all — trail polylines already show the path ---
   }
   viewer.scene.requestRender()
 }
@@ -1128,6 +1349,11 @@ watch(
         for (const [, entities] of entityMap) {
           entities.trailRef.positions = []
           if (entities.line) entities.line.show = false
+        }
+        // P3: Clear dot cloud during replay — trail polylines show the path
+        if (dotCloudVertexCount > 0) {
+          dotCloudVertexCount = 0
+          rebuildDotCloudBuffers()
         }
       }
       updateReplayPositions(time)
@@ -1147,16 +1373,14 @@ watch(
           entities.line.positions = staticPositions
           entities.line.show = track.positions.length >= 2 && visibility.value[entities.source as keyof typeof visibility.value] !== false
         }
-        // Restore label entity & PointPrimitive to last position
+        // Restore label & PointPrimitive to last position
         const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude)
-        entities.billboard.position = lastPos as any
+        if (entities.label) entities.label.position = lastPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
       }
-      // Restore all point dots to visible
-      for (const [, dotEntities] of pointDotEntityMap) {
-        for (const e of dotEntities) {
-          e.show = true
-        }
+      // P3: Restore point dot cloud
+      if (pointDotEntityMap.size > 0) {
+        packageDotCloudBuffers(props.tracks)
       }
       pointDotLastLo.clear()
       reapplyVisibility()
@@ -1171,8 +1395,8 @@ watch(
     for (const [, entities] of entityMap) {
       const vis = visibility.value[entities.source as keyof typeof visibility.value]
       if (entities.line) entities.line.show = vis
-      entities.billboard.show = vis
-    if (entities.pointPrimitive) entities.pointPrimitive.show = vis
+      if (entities.label) entities.label.show = vis
+      if (entities.pointPrimitive) entities.pointPrimitive.show = vis
     }
     viewer?.scene.requestRender()
   },
@@ -1438,9 +1662,16 @@ function doPick(endPosition: Cesium.Cartesian2) {
 
   let trackId: string | null = null
 
-  // P1: handle PointPrimitive pick (endpoint dot)
-  if (typeof picked.id === 'string' && entityMap.has(picked.id)) {
-    trackId = picked.id
+  // P1: handle PointPrimitive pick (endpoint dot) or Polyline pick
+  if (typeof picked.id === 'string') {
+    if (entityMap.has(picked.id)) {
+      // Direct trackKey match (PointPrimitive or Polyline)
+      trackId = picked.id
+    } else if (picked.id.endsWith('::dot')) {
+      // Label pick → strip ::dot suffix
+      const baseId = picked.id.slice(0, picked.id.lastIndexOf('::'))
+      if (entityMap.has(baseId)) trackId = baseId
+    }
   } else if (picked.id instanceof Cesium.Entity) {
     const entityId = (picked.id as Cesium.Entity).id
     if (!entityId || typeof entityId !== 'string' || entityId.startsWith('flag-') || entityId.startsWith('pointdot::')) {
@@ -1514,10 +1745,9 @@ watch(selectedPair, (pair) => {
 
 watch(showLabels, (val) => {
   for (const [, entities] of entityMap) {
-    if (entities.billboard.label) {
-      const lbl = entities.billboard.label as any
-      lbl.text = val ? entities.labelText : ''
-      lbl.font = val ? LABEL_FONT_LARGE : LABEL_FONT_BASE
+    if (entities.label) {
+      entities.label.text = val ? entities.labelText : ''
+      entities.label.font = val ? LABEL_FONT_LARGE : LABEL_FONT_BASE
     }
   }
   viewer?.scene.requestRender()
@@ -1525,33 +1755,18 @@ watch(showLabels, (val) => {
 
 // ── Track point dots watchers ──
 
-// Update all point dot billboard scales when slider changes
+// Update point dot size uniform when slider changes
+let dotCloudPointSize = 7.0
 watch(trackPointDotScale, (newScale) => {
-  for (const [, dots] of pointDotEntityMap) {
-    for (const entity of dots) {
-      if (entity.billboard) {
-        ;(entity.billboard as any).scale = newScale
-      }
-    }
-  }
+  dotCloudPointSize = Math.max(2.0, 7.0 * newScale)
   viewer?.scene.requestRender()
 })
 
-// Update point dot billboard images when custom color or line color changes
+// Rebuild point dot GPU buffers when custom color or line color changes
 watch([pointDotColors, lineColors], () => {
-  for (const [tKey, dots] of pointDotEntityMap) {
-    // Resolve the source from entityMap
-    const entry = entityMap.get(tKey)
-    if (!entry) continue
-    const color = getPointDotColor(entry.source as DataSource)
-    const icon = getPointDotIcon(color)
-    for (const entity of dots) {
-      if (entity.billboard) {
-        ;(entity.billboard as any).image = icon
-      }
-    }
+  if (pointDotEntityMap.size > 0) {
+    packageDotCloudBuffers(props.tracks)
   }
-  viewer?.scene.requestRender()
 }, { deep: true })
 
 // Sync global point dots when toggle changes
@@ -1645,182 +1860,52 @@ function getPointDotColor(source: DataSource): string {
   return contrastColor(getEffectiveHex(source))
 }
 
-/** Icon cache keyed by fill color hex */
-const _pointDotIconCache = new Map<string, string>()
-
-/** Generate a small circle icon for track point dots (cached by color) */
-function getPointDotIcon(color: string): string {
-  let icon = _pointDotIconCache.get(color)
-  if (!icon) {
-    const size = 16
-    const canvas = document.createElement('canvas')
-    canvas.width = size
-    canvas.height = size
-    const ctx = canvas.getContext('2d')!
-    ctx.beginPath()
-    ctx.arc(size / 2, size / 2, size / 2 - 1.5, 0, Math.PI * 2)
-    ctx.fillStyle = color
-    ctx.fill()
-    ctx.strokeStyle = '#000'
-    ctx.lineWidth = 1
-    ctx.stroke()
-    icon = canvas.toDataURL('image/png')
-    _pointDotIconCache.set(color, icon)
-  }
-  return icon
-}
-
-/** Create point dot entities for a single track */
-function createPointDotsForTrack(track: Track): Cesium.Entity[] {
-  if (!viewer || track.positions.length === 0) return []
-  const color = getPointDotColor(track.source)
-  const icon = getPointDotIcon(color)
-  const scale = trackPointDotScale.value
-  const tKey = trackKey(track.id, track.source)
-  const dots: Cesium.Entity[] = []
-  for (let i = 0; i < track.positions.length; i++) {
-    const p = track.positions[i]
-    // Coerce to number — some data sources produce string coordinates
-    const lon = Number(p.longitude)
-    const lat = Number(p.latitude)
-    const alt = Number(p.altitude)
-    if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
-    dots.push(viewer.entities.add({
-      id: `pointdot::${tKey}::${i}`,
-      position: Cesium.Cartesian3.fromDegrees(lon, lat, Number.isFinite(alt) ? alt : 0),
-      billboard: {
-        image: icon,
-        scale,
-      },
-    }))
-  }
-  return dots
-}
-
-/** Remove point dot entities for a single track */
-function removePointDotsForTrack(tKey: string) {
-  if (!viewer) return
-  const dots = pointDotEntityMap.get(tKey)
-  if (!dots) return
-  for (const e of dots) viewer.entities.remove(e)
-  pointDotEntityMap.delete(tKey)
-}
-
-/** Show point dots for a single track (right-click manual operation).
- *  Supports multiple tracks simultaneously. */
+/** Show point dots for a single track (right-click manual operation) */
 function showManualPointDots(trackId: string) {
-  // Add to manual set
   const nextManual = new Set(manualPointDotsTrackIds.value)
   nextManual.add(trackId)
   manualPointDotsTrackIds.value = nextManual
 
-  // Remove from global-hidden so it's no longer suppressed
   const nextHidden = new Set(globalHiddenTrackKeys.value)
   nextHidden.delete(trackId)
   globalHiddenTrackKeys.value = nextHidden
 
-  // Create dots if not already rendered
-  if (!pointDotEntityMap.has(trackId)) {
-    const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
-    if (track) {
-      viewer!.entities.suspendEvents()
-      try {
-        pointDotEntityMap.set(trackId, createPointDotsForTrack(track))
-      } finally {
-        viewer!.entities.resumeEvents()
-      }
-    }
-  }
-  viewer?.scene.requestRender()
+  packageDotCloudBuffers(props.tracks)
 }
 
 /** Hide point dots for a specific track (right-click manual operation) */
 function hidePointDotsForTrack(trackId: string) {
-  // Remove from manual set
   const nextManual = new Set(manualPointDotsTrackIds.value)
   nextManual.delete(trackId)
   manualPointDotsTrackIds.value = nextManual
 
-  // In global mode, mark as explicitly hidden so sync won't recreate it
   if (showAllPointDots.value) {
     const nextHidden = new Set(globalHiddenTrackKeys.value)
     nextHidden.add(trackId)
     globalHiddenTrackKeys.value = nextHidden
   }
 
-  // Remove rendered dots
-  removePointDotsForTrack(trackId)
-  viewer?.scene.requestRender()
+  packageDotCloudBuffers(props.tracks)
 }
 
 /** Sync global point dots: apply showAllPointDots + manual overrides + hidden list */
 function syncGlobalPointDots() {
-  if (!viewer) return
-  viewer.entities.suspendEvents()
+  if (!viewer || !dotCloudGl) return
   try {
-    const activeTracks = new Map(props.tracks.map(track => [trackKey(track.id, track.source), track]))
-
-    for (const track of props.tracks) {
-      const tKey = trackKey(track.id, track.source)
-      const manual = manualPointDotsTrackIds.value.has(tKey)
-      const global = showAllPointDots.value && !globalHiddenTrackKeys.value.has(tKey)
-      const shouldShow = manual || global
-
-      if (shouldShow && !pointDotEntityMap.has(tKey)) {
-        pointDotEntityMap.set(tKey, createPointDotsForTrack(track))
-      } else if (shouldShow && pointDotEntityMap.has(tKey)) {
-        const dots = pointDotEntityMap.get(tKey)!
-        if (dots.length !== track.positions.length) {
-          removePointDotsForTrack(tKey)
-          pointDotEntityMap.set(tKey, createPointDotsForTrack(track))
-        } else {
-          for (let i = 0; i < track.positions.length; i++) {
-            const p = track.positions[i]
-            const lon = Number(p.longitude)
-            const lat = Number(p.latitude)
-            if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
-            const alt = Number(p.altitude)
-            dots[i].position = Cesium.Cartesian3.fromDegrees(lon, lat, Number.isFinite(alt) ? alt : 0) as any
-          }
-        }
-      } else if (!shouldShow && pointDotEntityMap.has(tKey)) {
-        removePointDotsForTrack(tKey)
-      }
-    }
-
-    // Clean up dots for tracks no longer in the display list
-    for (const [tKey] of pointDotEntityMap) {
-      if (!activeTracks.has(tKey)) {
-        removePointDotsForTrack(tKey)
-        const nm = new Set(manualPointDotsTrackIds.value)
-        nm.delete(tKey)
-        manualPointDotsTrackIds.value = nm
-        const nh = new Set(globalHiddenTrackKeys.value)
-        nh.delete(tKey)
-        globalHiddenTrackKeys.value = nh
-      }
-    }
+    packageDotCloudBuffers(props.tracks)
   } catch (e) {
     console.error('[syncGlobalPointDots] error:', e)
-  } finally {
-    viewer!.entities.resumeEvents()
-    viewer!.scene.requestRender()
   }
 }
 
-/** Clean up all point dot entities */
+/** Clean up all point dot data */
 function clearAllPointDots() {
-  if (!viewer) return
-  viewer.entities.suspendEvents()
-  try {
-    for (const [tKey] of pointDotEntityMap) {
-      removePointDotsForTrack(tKey)
-    }
-  } finally {
-    viewer!.entities.resumeEvents()
-  }
+  pointDotEntityMap.clear()
   manualPointDotsTrackIds.value = new Set()
   globalHiddenTrackKeys.value = new Set()
+  dotCloudPositions = new Float32Array(0)
+  dotCloudColors = new Float32Array(0)
+  rebuildDotCloudBuffers()
 }
 
 // ── 右键上下文菜单动作 ──
@@ -1996,6 +2081,10 @@ onMounted(async () => {
   // P2: Separate collection for hover/select overlay — added AFTER trackLines so renders on top.
   // Using a separate collection avoids MATERIAL_INDEX triggering full VBO rebuild on 3000+ tracks.
   hoverOverlayLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
+  // P1: LabelCollection for track labels — GPU-instanced, one draw call for all labels
+  trackLabels = viewer.scene.primitives.add(new Cesium.LabelCollection())
+  // P3: Init custom WebGL point cloud renderer (postRender injection)
+  initDotCloudRenderer(viewer.scene)
   await loadBoundaryLayers()
   await loadCityLayer()
 
@@ -2097,6 +2186,14 @@ onMounted(async () => {
       emit('track-pick', picked.id)
       return
     }
+    // P1: Label pick — label id is "{trackKey}::dot"
+    if (typeof picked.id === 'string' && picked.id.endsWith('::dot')) {
+      const trackId = picked.id.slice(0, picked.id.lastIndexOf('::'))
+      if (entityMap.has(trackId)) {
+        emit('track-pick', trackId)
+        return
+      }
+    }
 
     if (!(picked.id instanceof Cesium.Entity)) {
       if (pendingClearTimeout) clearTimeout(pendingClearTimeout)
@@ -2189,6 +2286,41 @@ onMounted(async () => {
           trackId: picked.id,
         }
         return
+      }
+      // P1: Label pick — label id is "{trackKey}::dot"
+      if (typeof picked.id === 'string' && picked.id.endsWith('::dot')) {
+        const trackId = picked.id.slice(0, picked.id.lastIndexOf('::'))
+        if (entityMap.has(trackId) && hoveredTrackId === trackId) {
+          contextMenu.value = {
+            visible: true,
+            x: movement.position.x,
+            y: movement.position.y,
+            type: 'track',
+            flagId: '',
+            flagLabel: '',
+            trackId,
+          }
+          return
+        }
+      }
+      // P0: point dot billboard pick — id is "pointdot::{trackKey}::{index}"
+      if (typeof picked.id === 'string' && picked.id.startsWith('pointdot::')) {
+        const lastSep = (picked.id as string).lastIndexOf('::')
+        if (lastSep > 'pointdot::'.length) {
+          const trackId = (picked.id as string).slice('pointdot::'.length, lastSep)
+          if (entityMap.has(trackId)) {
+            contextMenu.value = {
+              visible: true,
+              x: movement.position.x,
+              y: movement.position.y,
+              type: 'track',
+              flagId: '',
+              flagLabel: '',
+              trackId,
+            }
+            return
+          }
+        }
       }
 
       if (picked.id instanceof Cesium.Entity) {
@@ -2328,6 +2460,8 @@ onUnmounted(() => {
     trackLines = null
     hoverOverlayLines = null
     activeOverlayLine = null
+    trackLabels = null
+    destroyDotCloudRenderer()
     viewer.destroy()
     viewer = null
   }
