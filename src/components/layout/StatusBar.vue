@@ -71,6 +71,13 @@
         {{ errorMsg }}
       </span>
 
+      <span class="status-view" :title="`相机高度 ${formatHeightKm(cameraHeightKm)} km`">
+        高: {{ formatHeightKm(cameraHeightKm) }} km
+      </span>
+      <span class="status-view" :title="`鼠标经纬度 ${formatCoordinate(mouseLongitude)}, ${formatCoordinate(mouseLatitude)}`">
+        经纬: {{ formatCoordinate(mouseLongitude) }}, {{ formatCoordinate(mouseLatitude) }}
+      </span>
+
       <!-- Source indicators -->
       <button
         v-for="s in sources"
@@ -117,6 +124,9 @@ const props = defineProps<{
   loading: boolean
   loadingProgress: number
   persisting: boolean
+  cameraHeightKm: number
+  mouseLongitude: number
+  mouseLatitude: number
 }>()
 
 const emit = defineEmits<{
@@ -131,6 +141,17 @@ const { activeTheme } = useTheme()
 
 const progressRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+
+function formatHeightKm(value: number) {
+  if (!Number.isFinite(value)) return '0'
+  if (value >= 1000) return value.toFixed(0)
+  if (value >= 100) return value.toFixed(1)
+  return value.toFixed(2)
+}
+
+function formatCoordinate(value: number) {
+  return Number.isFinite(value) ? value.toFixed(4) : '0.0000'
+}
 
 function seekFromClientX(clientX: number) {
   if (!props.hasData || !progressRef.value) return
@@ -201,7 +222,10 @@ onUnmounted(() => {
 }
 
 .statusbar-right {
-  flex-shrink: 0;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  justify-content: flex-end;
 }
 
 .status-btn {
@@ -350,6 +374,14 @@ onUnmounted(() => {
 }
 .source-dot.off {
   opacity: 0.3;
+}
+
+.status-view {
+  font-size: 0.786rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  opacity: 0.85;
+  flex: 0 0 auto;
 }
 
 .status-count {

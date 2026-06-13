@@ -44,6 +44,7 @@
           @show-track-detail="onShowTrackDetail"
           @delete-track="onDeleteTrack"
           @view-track-points="onViewTrackPoints"
+          @view-status="onMapViewStatus"
         />
 
         <!-- Drop overlay -->
@@ -100,6 +101,9 @@
       :loading="loader.loading.value"
       :loading-progress="loader.progress.value"
       :persisting="loader.persisting.value"
+      :camera-height-km="cameraHeightKm"
+      :mouse-longitude="mouseLongitude"
+      :mouse-latitude="mouseLatitude"
       @toggle-playback="replay.isPlaying.value ? replay.pause() : replay.play()"
       @seek="replay.seek($event)"
       @set-speed="replay.setSpeed($event)"
@@ -228,6 +232,16 @@ const statusSources = computed(() => [
   { key: 'radar' as DataSource, label: 'Radar', count: tracksBySource.value.radar?.length ?? 0, visible: visibility.value.radar },
   { key: 'radar_raw' as DataSource, label: 'Raw', count: tracksBySource.value.radar_raw?.length ?? 0, visible: visibility.value.radar_raw },
 ])
+
+const cameraHeightKm = ref(0)
+const mouseLongitude = ref(0)
+const mouseLatitude = ref(0)
+
+function onMapViewStatus(payload: { cameraHeightKm: number; longitude: number; latitude: number }) {
+  cameraHeightKm.value = payload.cameraHeightKm
+  mouseLongitude.value = payload.longitude
+  mouseLatitude.value = payload.latitude
+}
 
 // ── Menu action handler ──
 function onMenuAction(action: string) {
@@ -548,11 +562,13 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
 .app-main {
   flex: 1;
   display: flex;
+  min-width: 0;
   overflow: hidden;
 }
 
 .editor-area {
   flex: 1;
+  min-width: 0;
   position: relative;
   overflow: hidden;
   background: var(--editor-bg);

@@ -72,6 +72,7 @@ const emit = defineEmits<{
   'show-track-detail': [payload: { icao: string; source: string }]
   'delete-track': [payload: { icao: string; source: string }]
   'view-track-points': [track: Track]
+  'view-status': [payload: { cameraHeightKm: number; longitude: number; latitude: number }]
 }>()
 
 const containerRef = ref<HTMLDivElement>()
@@ -81,6 +82,10 @@ let viewer: Cesium.Viewer | null = null
 let pointPrimitives: Cesium.PointPrimitiveCollection | null = null
 /** P2: PolylineCollection for fast track lines — one draw call for all track polylines */
 let trackLines: Cesium.PolylineCollection | null = null
+/** P2: Separate collection for hover/select overlays — avoids MATERIAL_INDEX triggering full VBO rebuild */
+let hoverOverlayLines: Cesium.PolylineCollection | null = null
+/** Currently active overlay polyline (hover or select) */
+let activeOverlayLine: Cesium.Polyline | null = null
 let currentImageryLayer: Cesium.ImageryLayer | null = null
 let tileServerPort = 0
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
@@ -103,6 +108,7 @@ let ctxMenuFn: ((e: MouseEvent) => void) | null = null
 let ctxClickOutsideFn: (() => void) | null = null
 let ctxKeyFn: ((e: KeyboardEvent) => void) | null = null
 let ctxCanvasEl: HTMLCanvasElement | null = null
+let statusMouseLeaveFn: (() => void) | null = null
 const { getEffectiveHex, lineColors } = useLineColor()
 
 // ── 右键上下文菜单状态 ──
@@ -407,6 +413,25 @@ function currentCameraHeight() {
   return viewer.camera.positionCartographic.height
 }
 
+function emitViewStatus(screenPosition?: Cesium.Cartesian2 | null) {
+  if (!viewer || viewer.isDestroyed()) return
+
+  const cameraHeightKm = Math.max(0, viewer.camera.positionCartographic.height / 1000)
+  let longitude = 0
+  let latitude = 0
+
+  if (screenPosition) {
+    const cartesian = viewer.camera.pickEllipsoid(screenPosition, viewer.scene.globe.ellipsoid)
+    if (Cesium.defined(cartesian)) {
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
+      longitude = Cesium.Math.toDegrees(cartographic.longitude)
+      latitude = Cesium.Math.toDegrees(cartographic.latitude)
+    }
+  }
+
+  emit('view-status', { cameraHeightKm, longitude, latitude })
+}
+
 function cityPointMaxHeight(level: CityLevel) {
   switch (level) {
     case 'capital': return Number.POSITIVE_INFINITY
@@ -439,6 +464,10 @@ function cityLabelGridSize(height: number) {
   if (height > 2_000_000) return { width: 92, height: 42 }
   if (height > 800_000) return { width: 82, height: 36 }
   return { width: 72, height: 32 }
+}
+
+function shouldAvoidCityLabels(height: number) {
+  return height > 800_000
 }
 
 function isFrontSidePosition(position: Cesium.Cartesian3) {
@@ -540,6 +569,7 @@ function renderCityLayer() {
   const labelColor = Cesium.Color.fromCssColorString(cityLayer.labelColor).withAlpha(0.95)
   const height = currentCameraHeight()
   const cities = enabledCities()
+  const canvas = viewer.scene.canvas
 
   const points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
   const labels = viewer.scene.primitives.add(new Cesium.LabelCollection())
@@ -554,7 +584,10 @@ function renderCityLayer() {
   }> = []
 
   for (const city of cities) {
-    if (height > cityPointMaxHeight(city.level)) continue
+    const showPoint = height <= cityPointMaxHeight(city.level)
+    const showLabel = cityLayer.labels && height <= cityLabelMaxHeight(city.level)
+    if (!showPoint && !showLabel) continue
+
     const position = Cesium.Cartesian3.fromDegrees(city.longitude, city.latitude, 1200)
     if (!isFrontSidePosition(position)) continue
 
@@ -562,18 +595,26 @@ function renderCityLayer() {
     const id = cityPickId(city)
     cityPickMap.set(id, city)
 
-    points.add({
-      id,
-      position,
-      pixelSize: pointSize,
-      color: pointColor,
-      outlineColor: Cesium.Color.BLACK.withAlpha(0.75),
-      outlineWidth: 1,
-    })
+    if (showPoint) {
+      points.add({
+        id,
+        position,
+        pixelSize: pointSize,
+        color: pointColor,
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.75),
+        outlineWidth: 1,
+      })
+    }
 
-    if (cityLayer.labels && height <= cityLabelMaxHeight(city.level)) {
+    if (showLabel) {
       const window = Cesium.SceneTransforms.worldToWindowCoordinates(viewer.scene, position)
-      if (window) {
+      if (
+        window &&
+        window.x >= -120 &&
+        window.y >= -80 &&
+        window.x <= canvas.clientWidth + 120 &&
+        window.y <= canvas.clientHeight + 80
+      ) {
         labelCandidates.push({ city, position, window, pointSize })
       }
     }
@@ -585,16 +626,19 @@ function renderCityLayer() {
     a.city.nameEn.localeCompare(b.city.nameEn),
   )
 
+  const avoidLabels = shouldAvoidCityLabels(height)
   const grid = cityLabelGridSize(height)
   const occupied = new Set<string>()
-  const maxLabels = maxCityLabelsForHeight(height)
+  const maxLabels = avoidLabels ? maxCityLabelsForHeight(height) : Number.POSITIVE_INFINITY
   let labelCount = 0
 
   for (const item of labelCandidates) {
     if (labelCount >= maxLabels) break
-    const key = `${Math.floor(item.window.x / grid.width)}:${Math.floor(item.window.y / grid.height)}`
-    if (occupied.has(key)) continue
-    occupied.add(key)
+    if (avoidLabels) {
+      const key = `${Math.floor(item.window.x / grid.width)}:${Math.floor(item.window.y / grid.height)}`
+      if (occupied.has(key)) continue
+      occupied.add(key)
+    }
     labelCount++
 
     const id = cityPickId(item.city)
@@ -1271,6 +1315,7 @@ function applyHighlight(trackId: string | null) {
 let hoveredTrackId: string | null = null
 // rAF batched pick：避免每个 MOUSE_MOVE 都做 scene.pick()，每帧只 pick 一次
 let pendingPickPos: Cesium.Cartesian2 | null = null
+let lastMousePosition: Cesium.Cartesian2 | null = null
 let pickScheduled = false
 const HOVER_COLOR = Cesium.Color.fromCssColorString('#ff3333')
 const HOVER_WIDTH = 5.0
@@ -1301,16 +1346,28 @@ function baseAlpha(source: string): number {
 
 function applyHoverHighlight(trackId: string) {
   const entry = entityMap.get(trackId)
-  if (!entry) return
+  if (!entry || !entry.line) return
 
   // If this track is already click-selected, don't override with red
   if (previousSelectedId === trackId) return
 
-  if (entry.line) {
-    // P2: PolylineCollection — width/material change are both bufferSubData/uniform updates,
-    // no geometry rebuild needed, stays in sync with PointPrimitive.
-    entry.line.material = Cesium.Material.fromType('Color', { color: HOVER_COLOR })
-    entry.line.width = HOVER_WIDTH
+  // P2: Add overlay polyline in a SEPARATE PolylineCollection instead of
+  // modifying entry.line.material. Changing material on any polyline in a
+  // PolylineCollection triggers MATERIAL_INDEX → createVertexArrays() which
+  // rebuilds ALL vertex buffers (O(3000) + 40MB alloc per hover event).
+  if (hoverOverlayLines) {
+    // Remove any previous overlay (hover or select)
+    if (activeOverlayLine) {
+      hoverOverlayLines.remove(activeOverlayLine)
+      activeOverlayLine = null
+    }
+    activeOverlayLine = hoverOverlayLines.add({
+      id: `hover::${trackId}`,
+      positions: entry.line.positions,
+      width: HOVER_WIDTH,
+      material: Cesium.Material.fromType('Color', { color: HOVER_COLOR }),
+      show: true,
+    })
   }
   if (entry.pointPrimitive) {
     entry.pointPrimitive.pixelSize = pointPrimSize(DOT_HOVER, entry.source)
@@ -1319,17 +1376,20 @@ function applyHoverHighlight(trackId: string) {
 }
 
 function removeHoverHighlight() {
+  // P2: Remove hover overlay from separate collection — no MATERIAL_INDEX on trackLines
+  if (activeOverlayLine && hoverOverlayLines) {
+    const overlayId = (activeOverlayLine as any).id
+    if (typeof overlayId === 'string' && overlayId.startsWith('hover::')) {
+      hoverOverlayLines.remove(activeOverlayLine)
+      activeOverlayLine = null
+    }
+  }
   if (!hoveredTrackId) return
   const entry = entityMap.get(hoveredTrackId)
   if (entry) {
     const originalColor = getLineColor(entry.source as DataSource)
     const isSelected = hoveredTrackId === previousSelectedId
-    if (entry.line) {
-      entry.line.material = Cesium.Material.fromType('Color', {
-        color: originalColor.withAlpha(isSelected ? SELECTED_ALPHA : baseAlpha(entry.source)),
-      })
-      entry.line.width = isSelected ? SELECTED_WIDTH : baseWidth(entry.source as DataSource)
-    }
+    // P2: trackLines material was NEVER modified by hover — don't touch it
     if (entry.pointPrimitive) {
       entry.pointPrimitive.pixelSize = pointPrimSize(
         isSelected ? DOT_SELECTED : entry.source === 'radar_raw' ? DOT_RAW : DOT_BASE,
@@ -1344,6 +1404,8 @@ function removeHoverHighlight() {
 function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent) {
   // rAF 合并：只记录鼠标位置，每帧最多执行一次 pick
   pendingPickPos = movement.endPosition.clone()
+  lastMousePosition = pendingPickPos.clone()
+  emitViewStatus(lastMousePosition)
   if (!pickScheduled) {
     pickScheduled = true
     requestAnimationFrame(() => {
@@ -1913,6 +1975,7 @@ onMounted(async () => {
   viewer.camera.percentageChanged = 0.03
   removeCityCameraChanged = viewer.camera.changed.addEventListener(() => {
     scheduleCityLayerRender(120)
+    emitViewStatus(lastMousePosition)
   })
 
   currentImageryLayer = viewer.imageryLayers.addImageryProvider(
@@ -1930,6 +1993,9 @@ onMounted(async () => {
   trackLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
   // Lower track lines to the bottom so Entity overlays (labels, billboards) render on top
   viewer.scene.primitives.lowerToBottom(trackLines as any)
+  // P2: Separate collection for hover/select overlay — added AFTER trackLines so renders on top.
+  // Using a separate collection avoids MATERIAL_INDEX triggering full VBO rebuild on 3000+ tracks.
+  hoverOverlayLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
   await loadBoundaryLayers()
   await loadCityLayer()
 
@@ -2100,6 +2166,11 @@ onMounted(async () => {
 
   // ── 右键旗标上下文菜单 ──
   ctxCanvasEl = viewer.scene.canvas
+  statusMouseLeaveFn = () => {
+    lastMousePosition = null
+    emitViewStatus(null)
+  }
+  ctxCanvasEl.addEventListener('mouseleave', statusMouseLeaveFn)
 
   // 方案：用 Cesium 自己的 ScreenSpaceEventHandler（RIGHT_CLICK 必定触发）
   rightClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
@@ -2184,6 +2255,8 @@ onMounted(async () => {
     if (e.key === 'Escape') closeContextMenu()
   }
   document.addEventListener('keydown', ctxKeyFn)
+
+  emitViewStatus(null)
 })
 
 onUnmounted(() => {
@@ -2230,10 +2303,14 @@ onUnmounted(() => {
   }
   // rAF 合并 pick 状态清理
   pendingPickPos = null
+  lastMousePosition = null
   pickScheduled = false
   // 清理右键上下文菜单事件监听
   if (ctxCanvasEl && ctxMenuFn) {
     ctxCanvasEl.removeEventListener('contextmenu', ctxMenuFn)
+  }
+  if (ctxCanvasEl && statusMouseLeaveFn) {
+    ctxCanvasEl.removeEventListener('mouseleave', statusMouseLeaveFn)
   }
   if (ctxClickOutsideFn) {
     document.removeEventListener('click', ctxClickOutsideFn)
@@ -2244,10 +2321,13 @@ onUnmounted(() => {
   ctxMenuFn = null
   ctxClickOutsideFn = null
   ctxKeyFn = null
+  statusMouseLeaveFn = null
   ctxCanvasEl = null
   if (viewer) {
     pointPrimitives = null
     trackLines = null
+    hoverOverlayLines = null
+    activeOverlayLine = null
     viewer.destroy()
     viewer = null
   }
