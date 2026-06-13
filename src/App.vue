@@ -34,6 +34,7 @@
       <!-- Editor area (CesiumMap) -->
       <div class="editor-area">
         <CesiumMap
+          v-if="mapMode === '3d'"
           ref="mapRef"
           :tracks="displayTracks"
           :replay-time="unifiedReplayTime"
@@ -46,6 +47,35 @@
           @view-track-points="onViewTrackPoints"
           @view-status="onMapViewStatus"
         />
+        <DeckMap
+          v-else
+          ref="mapRef"
+          :tracks="displayTracks"
+          :replay-time="unifiedReplayTime"
+          :selected-id="selectedId"
+          :line-widths="lineWidths"
+          :dot-scale="dotScale"
+          @track-pick="onTrackPick"
+          @show-track-detail="onShowTrackDetail"
+          @delete-track="onDeleteTrack"
+          @view-track-points="onViewTrackPoints"
+          @view-status="onMapViewStatus"
+        />
+
+        <div class="map-mode-switch" role="group" aria-label="地图模式切换">
+          <button
+            class="map-mode-btn"
+            :class="{ active: mapMode === '3d' }"
+            title="3D 地球模式"
+            @click="setMapMode('3d')"
+          >3D</button>
+          <button
+            class="map-mode-btn"
+            :class="{ active: mapMode === '2d' }"
+            title="2D 平面模式"
+            @click="setMapMode('2d')"
+          >2D</button>
+        </div>
 
         <!-- Drop overlay -->
         <div v-if="dragOver" class="drop-overlay" @drop.prevent="onDrop" @dragleave.prevent="onDragLeave">
@@ -120,7 +150,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, defineAsyncComponent, onMounted, nextTick } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
@@ -150,15 +180,21 @@ import { useFlags } from './composables/useFlags'
 import { useActivityBar } from './composables/useActivityBar'
 import { useTheme } from './composables/useTheme'
 import { useTileSource } from './composables/useTileSource'
-import { loadAllSettings, getRawSetting, flushSaves } from './composables/useSettingsPersistence'
+import { loadAllSettings, getRawSetting, scheduleSave, flushSaves } from './composables/useSettingsPersistence'
 import { useTracks as useTracksModule } from './composables/useTracks'
 import type { DataSource } from './types/track'
+
+const DeckMap = defineAsyncComponent(() => import('./components/DeckMap.vue'))
 
 interface Batch {
   id: number; file_name: string; source: string; track_count: number; imported_at: string
 }
 
-const mapRef = ref<InstanceType<typeof CesiumMap>>()
+type MapMode = '3d' | '2d'
+type MapExpose = Pick<InstanceType<typeof CesiumMap>, 'flyToTrack' | 'flyToFlag' | 'resetView' | 'switchTileLayer'>
+
+const mapRef = ref<MapExpose>()
+const mapMode = ref<MapMode>('3d')
 const loader = useTrackLoader()
 const { tracks, trackCount, selectedId, isolatedTrackId, visibleTrackIds, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
 const { tracksBySource } = useTracksModule()
@@ -243,6 +279,15 @@ function onMapViewStatus(payload: { cameraHeightKm: number; longitude: number; l
   mouseLatitude.value = payload.latitude
 }
 
+async function setMapMode(mode: MapMode) {
+  if (mapMode.value === mode) return
+  mapMode.value = mode
+  scheduleSave('map.mode', JSON.stringify(mode))
+  await nextTick()
+  const info = tileSources.value.find(s => s.file_name === activeSource.value)
+  mapRef.value?.switchTileLayer(info?.max_zoom)
+}
+
 // ── Menu action handler ──
 function onMenuAction(action: string) {
   switch (action) {
@@ -273,6 +318,13 @@ function onMenuAction(action: string) {
 onMounted(async () => {
   // ── Load persisted user settings FIRST ──
   await loadAllSettings()
+  const savedMapModeRaw = getRawSetting('map.mode')
+  if (savedMapModeRaw) {
+    try {
+      const savedMapMode = JSON.parse(savedMapModeRaw)
+      if (savedMapMode === '2d' || savedMapMode === '3d') mapMode.value = savedMapMode
+    } catch { /* keep default */ }
+  }
   invoke('push_splash_log', { message: '正在应用主题配置...' })
 
   // Restore persisted replay speed (must be after loadAllSettings because
@@ -572,6 +624,39 @@ async function onDrop(_e: DragEvent) { dragOver.value = false; dragCounter = 0 }
   position: relative;
   overflow: hidden;
   background: var(--editor-bg);
+}
+
+.map-mode-switch {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 12;
+  display: inline-flex;
+  padding: 2px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 4px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.28);
+}
+
+.map-mode-btn {
+  min-width: 34px;
+  height: 24px;
+  padding: 0 8px;
+  color: var(--text-secondary);
+  font-size: 0.786rem;
+  font-weight: 600;
+  border-radius: 3px;
+}
+
+.map-mode-btn:hover {
+  color: var(--text-primary);
+  background: var(--button-hover);
+}
+
+.map-mode-btn.active {
+  color: #fff;
+  background: var(--accent-primary);
 }
 
 /* Drop overlay */

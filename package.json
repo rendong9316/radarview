@@ -11,6 +11,9 @@
     "build-converter": ".venv-build\\\\Scripts\\\\python -m PyInstaller --onefile --distpath src-tauri/resources --name convert_mat scripts/convert_mat.py"
   },
   "dependencies": {
+    "@deck.gl/core": "9.3.4",
+    "@deck.gl/geo-layers": "9.3.4",
+    "@deck.gl/layers": "9.3.4",
     "@lucide/vue": "^1.18.0",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-dialog": "^2.7.0",

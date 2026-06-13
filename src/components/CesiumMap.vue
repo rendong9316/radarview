@@ -212,15 +212,48 @@ void main() {
   }
 }`
 
+// WebGL 2 variants — Cesium defaults to webgl2 context
+const DOT_CLOUD_VS_GL2 = /* glsl */`#version 300 es
+in vec3 a_position;
+in vec3 a_color;
+out vec3 v_color;
+uniform mat4 u_mvp;
+uniform float u_pointSize;
+void main() {
+  gl_Position = u_mvp * vec4(a_position, 1.0);
+  gl_PointSize = u_pointSize;
+  v_color = a_color;
+}`
+
+const DOT_CLOUD_FS_GL2 = /* glsl */`#version 300 es
+precision mediump float;
+in vec3 v_color;
+out vec4 fragColor;
+void main() {
+  float dist = distance(gl_PointCoord, vec2(0.5));
+  float radius = 0.5;
+  float outlineWidth = 0.08;
+  if (dist > radius) discard;
+  if (dist > radius - outlineWidth) {
+    fragColor = vec4(0.0, 0.0, 0.0, 0.85);
+  } else {
+    fragColor = vec4(v_color, 0.9);
+  }
+}`
+
 function initDotCloudRenderer(scene: Cesium.Scene) {
   const canvas = scene.canvas
-  const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl')
+  const gl2 = canvas.getContext('webgl2')
+  const gl = (gl2 || canvas.getContext('webgl') || canvas.getContext('experimental-webgl')) as WebGLRenderingContext | null
   if (!gl) { console.error('[dotcloud] WebGL context unavailable'); return }
   dotCloudGl = gl as WebGLRenderingContext
+  const isGL2 = !!gl2
 
   // Compile vertex shader
+  const vsSource = isGL2 ? DOT_CLOUD_VS_GL2 : DOT_CLOUD_VS
+  const fsSource = isGL2 ? DOT_CLOUD_FS_GL2 : DOT_CLOUD_FS
   const vs = dotCloudGl.createShader(dotCloudGl.VERTEX_SHADER)!
-  dotCloudGl.shaderSource(vs, DOT_CLOUD_VS)
+  dotCloudGl.shaderSource(vs, vsSource)
   dotCloudGl.compileShader(vs)
   if (!dotCloudGl.getShaderParameter(vs, dotCloudGl.COMPILE_STATUS)) {
     console.error('[dotcloud] VS error:', dotCloudGl.getShaderInfoLog(vs))
@@ -228,7 +261,7 @@ function initDotCloudRenderer(scene: Cesium.Scene) {
 
   // Compile fragment shader
   const fs = dotCloudGl.createShader(dotCloudGl.FRAGMENT_SHADER)!
-  dotCloudGl.shaderSource(fs, DOT_CLOUD_FS)
+  dotCloudGl.shaderSource(fs, fsSource)
   dotCloudGl.compileShader(fs)
   if (!dotCloudGl.getShaderParameter(fs, dotCloudGl.COMPILE_STATUS)) {
     console.error('[dotcloud] FS error:', dotCloudGl.getShaderInfoLog(fs))
@@ -2286,6 +2319,22 @@ onMounted(async () => {
           trackId: picked.id,
         }
         return
+      }
+      // P2-overlay: hover overlay polyline id is "hover::{trackKey}" — strip prefix
+      if (typeof picked.id === 'string' && picked.id.startsWith('hover::')) {
+        const trackId = picked.id.slice('hover::'.length)
+        if (entityMap.has(trackId)) {
+          contextMenu.value = {
+            visible: true,
+            x: movement.position.x,
+            y: movement.position.y,
+            type: 'track',
+            flagId: '',
+            flagLabel: '',
+            trackId,
+          }
+          return
+        }
       }
       // P1: Label pick — label id is "{trackKey}::dot"
       if (typeof picked.id === 'string' && picked.id.endsWith('::dot')) {
