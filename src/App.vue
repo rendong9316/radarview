@@ -362,14 +362,14 @@ onMounted(async () => {
   // Restore management panel visible track set (must be after tracks are loaded)
   try {
     const { restoreVisibleSet } = await import('./composables/useTrackManagement')
-    invoke("push_splash_log", { message: "正在恢复可见航迹..." })
+    invoke('push_splash_log', { message: '正在恢复可见航迹...' })
     await restoreVisibleSet()
   } catch (e) {
     console.error('[App] restoreVisibleSet failed:', e)
   }
 
   await refreshBatches()
-  invoke("push_splash_log", { message: "已加载 " + batches.value.length + " 个批次" })
+  invoke('push_splash_log', { message: '已加载 ' + batches.value.length + ' 个批次' })
 
   // Background DB save completion → refresh batch list + clear persisting UI
   listen('batch-saved', () => {
@@ -417,6 +417,7 @@ onMounted(async () => {
   invoke('push_splash_log', { message: '正在初始化三维地图...' })
   await mapRef.value?.whenMapReady()
   invoke('push_splash_log', { message: '三维地图就绪' })
+  // Notify Rust: show main window, close splash
   invoke('app_ready').catch(e => console.error('[App] app_ready failed:', e))
 })
 

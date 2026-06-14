@@ -14,6 +14,8 @@ use std::time::Duration;
 use rayon::prelude::*;
 use tauri::Manager;
 use tauri::Emitter;
+use tauri::WebviewUrl;
+use tauri::WebviewWindowBuilder;
 use tile_server::{init_and_start_tile_server, get_tile_server_port, list_tile_sources, set_active_tile_source};
 use track::Track;
 use track::TrackDto;
@@ -366,14 +368,13 @@ fn push_splash_log(app: tauri::AppHandle, message: String) -> Result<(), String>
 
 #[tauri::command]
 fn app_ready(app: tauri::AppHandle) -> Result<(), String> {
-    // Show the main window
     let main = app
         .get_webview_window("main")
         .ok_or("Main window not found".to_string())?;
     main.show().map_err(|e| e.to_string())?;
     main.set_focus().map_err(|e| e.to_string())?;
 
-    // Close the splash window (take ownership from managed state)
+    // Close the splash window
     let handle = app.state::<SplashHandle>();
     if let Ok(mut guard) = handle.0.lock() {
         if let Some(splash) = guard.take() {
@@ -390,24 +391,44 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // Create splash window first — shows immediately while we initialize
             let handle = app.handle().clone();
-            let splash = tauri::WebviewWindowBuilder::new(
+
+            // ① Create main window (hidden until ready)
+            let main = WebviewWindowBuilder::new(
+                &handle,
+                "main",
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("RadarView")
+            .inner_size(1400.0, 900.0)
+            .min_inner_size(900.0, 600.0)
+            .decorations(false)
+            .maximized(true)
+            .visible(false)
+            .build()
+            .expect("Failed to create main window");
+
+            // ② Create splash window — child of main, no taskbar, not closable
+            let splash = WebviewWindowBuilder::new(
                 &handle,
                 "splash",
-                tauri::WebviewUrl::App("splash.html".into()),
+                WebviewUrl::App("splash.html".into()),
             )
             .inner_size(760.0, 500.0)
             .decorations(false)
             .resizable(false)
             .center()
+            .skip_taskbar(true)
+            .closable(false)
             .background_color(tauri::window::Color(0x08, 0x0D, 0x16, 255))
+            .parent(&main)
+            .expect("Failed to set splash parent")
             .build()
             .expect("Failed to create splash window");
 
             app.manage(SplashHandle(Mutex::new(Some(splash))));
 
-            // Helper: eval log message into splash window (with delay so each is visible)
+            // Helper: eval log message into splash window
             fn splash_log(app: &tauri::App, msg: &str) {
                 let state = app.state::<SplashHandle>();
                 let guard = state.0.lock().unwrap();

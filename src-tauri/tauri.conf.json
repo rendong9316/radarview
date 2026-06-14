@@ -10,18 +10,7 @@
     "frontendDist": "../dist"
   },
   "app": {
-    "windows": [
-      {
-        "title": "RadarView",
-        "width": 1400,
-        "height": 900,
-        "decorations": false,
-        "minWidth": 900,
-        "minHeight": 600,
-        "maximized": true,
-        "visible": false
-      }
-    ],
+    "windows": [],
     "security": {
       "csp": null
     }
