@@ -13,10 +13,6 @@
             <span class="shortcut-key">Ctrl+Shift+O</span>
             <span class="shortcut-desc">导入雷达数据</span>
           </div>
-          <div class="shortcut-row">
-            <span class="shortcut-key">Ctrl+S</span>
-            <span class="shortcut-desc">导出当前航迹</span>
-          </div>
         </div>
         <div class="shortcut-group">
           <div class="group-title">编辑</div>
@@ -44,6 +40,10 @@
             <span class="shortcut-desc">轨迹面板</span>
           </div>
           <div class="shortcut-row">
+            <span class="shortcut-key">Ctrl+Shift+M</span>
+            <span class="shortcut-desc">航迹管理系统</span>
+          </div>
+          <div class="shortcut-row">
             <span class="shortcut-key">Ctrl+Shift+L</span>
             <span class="shortcut-desc">图层控制</span>
           </div>
@@ -54,13 +54,6 @@
           <div class="shortcut-row">
             <span class="shortcut-key">Ctrl+Shift+E</span>
             <span class="shortcut-desc">时间过滤</span>
-          </div>
-        </div>
-        <div class="shortcut-group">
-          <div class="group-title">工具</div>
-          <div class="shortcut-row">
-            <span class="shortcut-key">F12</span>
-            <span class="shortcut-desc">开发工具 (仅开发模式)</span>
           </div>
         </div>
         <button class="dialog-btn" @click="$emit('close')">关闭</button>

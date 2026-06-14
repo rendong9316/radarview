@@ -30,6 +30,38 @@ pub fn db_path(app_data_dir: &PathBuf) -> PathBuf {
     app_data_dir.join("radarview.db")
 }
 
+/// Check whether the stored app version matches `current_version`.
+/// Returns `Ok(true)` if the database was deleted (version mismatch → fresh start).
+/// Returns `Ok(false)` if versions match, no stored version exists, or the file is absent.
+pub fn check_version_and_reset(path: &PathBuf, current_version: &str) -> Result<bool, String> {
+    if !path.exists() {
+        return Ok(false);
+    }
+    let conn = Connection::open(path).map_err(|e| format!("open db for version check: {}", e))?;
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+    )
+    .map_err(|e| format!("ensure app_settings: {}", e))?;
+    let stored: Option<String> = conn
+        .query_row(
+            "SELECT value FROM app_settings WHERE key = 'app.version'",
+            [],
+            |row| row.get(0),
+        )
+        .ok();
+    drop(conn);
+    match stored {
+        None => Ok(false),
+        Some(v) if v == current_version => Ok(false),
+        Some(_) => {
+            std::fs::remove_file(path).map_err(|e| format!("delete old db: {}", e))?;
+            let _ = std::fs::remove_file(&path.with_extension("db-wal"));
+            let _ = std::fs::remove_file(&path.with_extension("db-shm"));
+            Ok(true)
+        }
+    }
+}
+
 fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, String> {
     let mut stmt = conn
         .prepare(&format!("PRAGMA table_info({})", table))
@@ -42,7 +74,7 @@ fn has_column(conn: &Connection, table: &str, column: &str) -> Result<bool, Stri
     Ok(exists)
 }
 
-pub fn init_db(path: &PathBuf) -> Result<(), String> {
+pub fn init_db(path: &PathBuf, current_version: &str) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {}", e))?;
     }
@@ -175,6 +207,13 @@ pub fn init_db(path: &PathBuf) -> Result<(), String> {
 
     // ── app_settings KV table for user preferences ──
     crate::settings::ensure_settings_table(&conn)?;
+
+    // ── Store current app version for future upgrade detection ──
+    conn.execute(
+        "INSERT OR REPLACE INTO app_settings (key, value) VALUES ('app.version', ?1)",
+        params![current_version],
+    )
+    .map_err(|e| format!("store app version: {}", e))?;
 
     Ok(())
 }

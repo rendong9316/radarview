@@ -486,7 +486,7 @@ function formatCityHeight(value: number) {
 }
 
 const SETTINGS_COLLAPSE_KEY = 'settings.collapsed_sections'
-const collapsedSections = ref<Set<string>>(new Set(['cityAdvanced']))
+const collapsedSections = ref<Set<string>>(new Set(['pointDots', 'pointDotColors', 'fontSize', 'flagScale', 'dotScale']))
 
 function loadCollapsedState() {
   const raw = getRawSetting(SETTINGS_COLLAPSE_KEY)

@@ -117,8 +117,6 @@ const menus: MenuDef[] = [
       { type: 'item', id: 'import-radar', label: '导入雷达数据...', shortcut: 'Ctrl+Shift+O' },
       { type: 'item', id: 'import-radar-raw', label: '导入雷达原始测量数据...' },
       { type: 'separator' },
-      { type: 'item', id: 'export-tracks', label: '导出当前航迹...', shortcut: 'Ctrl+S', disabled: true },
-      { type: 'separator' },
       { type: 'item', id: 'exit', label: '退出', shortcut: 'Alt+F4' },
     ],
   },
@@ -126,10 +124,6 @@ const menus: MenuDef[] = [
     id: 'edit',
     label: '编辑',
     items: [
-      { type: 'item', id: 'undo', label: '撤销', shortcut: 'Ctrl+Z', disabled: true },
-      { type: 'item', id: 'redo', label: '重做', shortcut: 'Ctrl+Y', disabled: true },
-      { type: 'separator' },
-      { type: 'item', id: 'select-all', label: '全选航迹', shortcut: 'Ctrl+A', disabled: true },
       { type: 'item', id: 'clear-selection', label: '清除选中', shortcut: 'Esc' },
       { type: 'separator' },
       { type: 'item', id: 'open-settings', label: '首选项设置', shortcut: 'Ctrl+,' },
@@ -155,13 +149,9 @@ const menus: MenuDef[] = [
     id: 'tools',
     label: '工具',
     items: [
-      { type: 'item', id: 'toggle-playback', label: '航迹回放控制' },
-      { type: 'separator' },
       { type: 'item', id: 'toggle-batch-panel', label: '批量数据管理' },
       { type: 'item', id: 'open-flags', label: '旗标管理' },
       { type: 'item', id: 'clear-all-flags', label: '清除所有旗标' },
-      { type: 'separator' },
-      { type: 'item', id: 'open-dev-tools', label: '开发工具', shortcut: 'F12' },
     ],
   },
   {

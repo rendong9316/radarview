@@ -24,7 +24,7 @@ export const sortConfig = ref<SortConfig>({ ...DEFAULT_SORT })
 
 /** Pagination */
 const currentPage = ref(1)
-export const pageSize = ref(20)
+export const pageSize = ref(100)
 
 /** Table data */
 const rows = ref<TrackMetaInfo[]>([])

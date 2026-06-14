@@ -1,6 +1,6 @@
 import { ref, watch } from 'vue'
 
-const showLabels = ref(true)
+const showLabels = ref(false)
 
 export function useLabelVisibility() {
   function toggle() {

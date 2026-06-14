@@ -463,10 +463,28 @@ pub fn run() {
             splash_log(app, &format!("数据目录: {}", data_dir.display()));
 
             let db_file = db::db_path(&data_dir);
-            splash_log(app, &format!("打开数据库: {}", db_file.file_name().unwrap_or_default().to_string_lossy()));
+
+            // Detect version upgrade and reset database if needed
+            let current_version = app.package_info().version.to_string();
+
+            match db::check_version_and_reset(&db_file, &current_version) {
+                Ok(true) => splash_log(
+                    app,
+                    &format!("检测到版本更新 (v{})，正在重置数据库...", current_version),
+                ),
+                Ok(false) => splash_log(
+                    app,
+                    &format!(
+                        "打开数据库: {}",
+                        db_file.file_name().unwrap_or_default().to_string_lossy()
+                    ),
+                ),
+                Err(e) => splash_log(app, &format!("版本检查警告: {}", e)),
+            }
+
             splash_log(app, "正在创建 / 检查数据表...");
 
-            db::init_db(&db_file).expect("Failed to initialize SQLite database");
+            db::init_db(&db_file, &current_version).expect("Failed to initialize SQLite database");
             app.manage(DbPath(Mutex::new(db_file)));
 
             splash_log(app, "数据库初始化完成");

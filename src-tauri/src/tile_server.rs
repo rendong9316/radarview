@@ -156,7 +156,18 @@ fn scan_mbtiles_internal(base_dir: &PathBuf) -> Result<Vec<InternalTileSource>, 
     if sources.is_empty() {
         return Err("No .mbtiles file found in resource directory".to_string());
     }
-    sources.sort_by(|a, b| a.file_name.cmp(&b.file_name));
+    // Prefer natural_earth (分层设色) as the default tile source.
+    // GRAY_HR sorts before natural_earth alphabetically, so a plain
+    // alphabetical sort would make gray the default on every fresh start.
+    sources.sort_by(|a, b| {
+        let a_is_ne = a.file_name.starts_with("natural_earth");
+        let b_is_ne = b.file_name.starts_with("natural_earth");
+        match (a_is_ne, b_is_ne) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.file_name.cmp(&b.file_name),
+        }
+    });
     Ok(sources)
 }
 

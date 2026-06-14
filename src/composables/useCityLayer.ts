@@ -6,14 +6,14 @@ export type CityLodLevel = Exclude<CityLevel, 'capital'>
 
 export const DEFAULT_CITY_LOD = {
   pointMaxHeight: {
-    regional: 25_000_000,
-    prefecture: 7_000_000,
-    major: 2_000_000,
+    regional: 2_400_000,
+    prefecture: 1_500_000,
+    major: 1_300_000,
   } as Record<CityLodLevel, number>,
   labelMaxHeight: {
-    regional: 12_000_000,
-    prefecture: 3_200_000,
-    major: 1_200_000,
+    regional: 2_400_000,
+    prefecture: 1_000_000,
+    major: 1_000_000,
   } as Record<CityLodLevel, number>,
 }
 
