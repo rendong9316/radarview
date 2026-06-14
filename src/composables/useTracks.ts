@@ -48,29 +48,34 @@ export function useTracks() {
 
   function addTracks(newTracks: Track[]) {
     const map = new Map<string, Track>()
+    // Store existing tracks by reference — only clone on merge conflict.
+    // No downstream code mutates Track objects or positions arrays.
     for (const t of tracks.value) {
-      map.set(trackKey(t.id, t.source), { ...t, positions: [...t.positions] })
+      map.set(trackKey(t.id, t.source), t)
     }
     for (const nt of newTracks) {
       const key = trackKey(nt.id, nt.source)
-      const old = map.get(key)
-      if (old) {
-        const tsSet = new Set(old.positions.map((p) => p.timestamp))
+      const existing = map.get(key)
+      if (existing) {
+        // Clone positions for this track only — the merge path mutates array
+        const merged: Track = { ...existing, positions: [...existing.positions] }
+        const tsSet = new Set(merged.positions.map((p) => p.timestamp))
         const newPoints = nt.positions.filter((p) => !tsSet.has(p.timestamp))
-        old.positions = [...old.positions, ...newPoints].sort(
+        merged.positions = [...merged.positions, ...newPoints].sort(
           (a, b) => a.timestamp - b.timestamp,
         )
         // Update metadata after merge
-        old.pointCount = old.positions.length
-        if (old.pointCount > 0) {
-          old.minTimestamp = old.positions[0].timestamp
-          old.maxTimestamp = old.positions[old.pointCount - 1].timestamp
+        merged.pointCount = merged.positions.length
+        if (merged.pointCount > 0) {
+          merged.minTimestamp = merged.positions[0].timestamp
+          merged.maxTimestamp = merged.positions[merged.pointCount - 1].timestamp
         }
-        for (const key of Object.keys(nt.metadata) as (keyof typeof nt.metadata)[]) {
-          if (nt.metadata[key] && !old.metadata[key]) {
-            ;(old.metadata as Record<string, unknown>)[key] = nt.metadata[key]
+        for (const k of Object.keys(nt.metadata) as (keyof typeof nt.metadata)[]) {
+          if (nt.metadata[k] && !merged.metadata[k]) {
+            ;(merged.metadata as Record<string, unknown>)[k] = nt.metadata[k]
           }
         }
+        map.set(key, merged)
       } else {
         map.set(key, { ...nt, positions: [...nt.positions] })
       }

@@ -956,63 +956,23 @@ pub fn query_track_metadata(
     let rows = stmt
         .query_map(all_dyn.as_slice(), |row| {
             let json: String = row.get(3)?;
-            // Extract metadata fields from JSON
-            let flight_no: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("flight_no")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-            let icao_flight_no: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("icao_flight_no")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-            let registration: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("registration")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-            let aircraft_type: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("aircraft_type")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-            let airline: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("airline")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-            let origin: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("origin")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
-            let destination: String = serde_json::from_str(&json)
-                .ok()
-                .and_then(|v: serde_json::Value| {
-                    v.get("destination")
-                        .and_then(|f| f.as_str())
-                        .map(|s| s.to_string())
-                })
-                .unwrap_or_default();
+            // Parse JSON once, extract all metadata fields from the same Value tree
+            let track_value: serde_json::Value =
+                serde_json::from_str(&json).unwrap_or_default();
+            let field = |key: &str| -> String {
+                track_value
+                    .get(key)
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            };
+            let flight_no = field("flight_no");
+            let icao_flight_no = field("icao_flight_no");
+            let registration = field("registration");
+            let aircraft_type = field("aircraft_type");
+            let airline = field("airline");
+            let origin = field("origin");
+            let destination = field("destination");
 
             Ok(TrackMetaInfo {
                 icao_address: row.get(0)?,

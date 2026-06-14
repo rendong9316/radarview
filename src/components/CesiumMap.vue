@@ -108,9 +108,8 @@ let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let rightClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
-let boundaryDataSources = new Map<BoundaryLayerKey, Cesium.GeoJsonDataSource>()
-/** Cached flat arrays of polyline entities — avoids iterating dataSource.entities.values each time */
-let boundaryPolylines = new Map<BoundaryLayerKey, Cesium.Entity[]>()
+let boundaryLineCollection: Cesium.PolylineCollection | null = null
+let boundaryLines = new Map<BoundaryLayerKey, Cesium.Polyline[]>()
 let cityPointCollection: Cesium.PointPrimitiveCollection | undefined
 let cityLabelCollection: Cesium.LabelCollection | undefined
 let cityFeatures: CityFeature[] = []
@@ -397,76 +396,92 @@ interface CityFeature {
 }
 
 async function loadBoundaryLayers() {
-  if (!viewer) return
+  if (!viewer || !boundaryLineCollection) return
 
-  const results = await Promise.allSettled(
-    BOUNDARY_LAYERS.map(async (layer) => {
-      const dataSource = await Cesium.GeoJsonDataSource.load(layer.url, {
-        stroke: Cesium.Color.fromCssColorString(boundaryColors[layer.key]).withAlpha(layer.alpha),
-        fill: Cesium.Color.TRANSPARENT,
-        strokeWidth: boundaryWidths[layer.key],
-        markerSize: 0,
-        clampToGround: true,
-      })
-      await viewer?.dataSources.add(dataSource)
-      dataSource.show = boundaryVisible[layer.key]
-      boundaryDataSources.set(layer.key, dataSource)
+  for (const layer of BOUNDARY_LAYERS) {
+    try {
+      const resp = await fetch(layer.url)
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`)
+      const geojson = await resp.json()
+      const features: any[] = Array.isArray(geojson.features) ? geojson.features : []
+      const color = Cesium.Color.fromCssColorString(boundaryColors[layer.key]).withAlpha(layer.alpha)
+      const width = boundaryWidths[layer.key]
+      const layerPolys: Cesium.Polyline[] = []
+      boundaryLines.set(layer.key, layerPolys)
 
-      // Pre-cache polyline entities for fast width updates — avoids
-      // iterating dataSource.entities.values on every slider tick.
-      const polylines: Cesium.Entity[] = []
-      for (const entity of dataSource.entities.values) {
-        if (entity.polyline) polylines.push(entity)
+      // Flatten all LineString / MultiLineString coordinates into arrays of Cartesian3[]
+      const allCoords: Cesium.Cartesian3[][] = []
+      for (const feat of features) {
+        const geom = feat.geometry
+        if (!geom) continue
+        const extract = (coords: number[][]) => {
+          const positions = Cesium.Cartesian3.fromDegreesArrayHeights(
+            coords.flatMap((c) => [c[0], c[1], c.length > 2 ? c[2] : 0]),
+          )
+          if (positions.length >= 2) allCoords.push(positions)
+        }
+        if (geom.type === 'LineString') {
+          extract(geom.coordinates)
+        } else if (geom.type === 'MultiLineString') {
+          for (const sub of geom.coordinates) extract(sub)
+        }
       }
-      boundaryPolylines.set(layer.key, polylines)
-      console.log(`[boundary] ${layer.key}: cached ${polylines.length} polyline entities`)
 
-      return dataSource
-    }),
-  )
-
-  for (const result of results) {
-    if (result.status === 'rejected') {
-      console.warn('Failed to load Natural Earth boundary layer:', result.reason)
+      // Batch-add polylines across frames to avoid _createVertexArray stutter
+      const BATCH = 500
+      let cursor = 0
+      const addBatch = () => {
+        const end = Math.min(cursor + BATCH, allCoords.length)
+        const show = boundaryVisible[layer.key]
+        for (let i = cursor; i < end; i++) {
+          const poly = boundaryLineCollection!.add({
+            positions: allCoords[i],
+            width,
+            material: Cesium.Material.fromType('Color', { color }),
+            show,
+          })
+          layerPolys.push(poly)
+        }
+        cursor = end
+        if (cursor < allCoords.length) {
+          requestAnimationFrame(addBatch)
+        } else {
+          console.log(`[boundary] ${layer.key}: loaded ${layerPolys.length} polylines (${allCoords.length} segments)`)
+          viewer?.scene.requestRender()
+        }
+      }
+      addBatch()
+    } catch (e) {
+      console.warn(`Failed to load boundary layer ${layer.key}:`, e)
     }
   }
-
-  viewer?.scene.requestRender()
 }
 
 function clearBoundaryLayers() {
-  if (!viewer) {
-    boundaryDataSources.clear()
-    boundaryPolylines.clear()
-    return
+  if (boundaryLineCollection) {
+    boundaryLineCollection.removeAll()
   }
-  for (const dataSource of boundaryDataSources.values()) {
-    viewer.dataSources.remove(dataSource, true)
-  }
-  boundaryDataSources.clear()
-  boundaryPolylines.clear()
+  boundaryLines.clear()
 }
 
-/** Toggle boundary visibility — only flips dataSource.show per layer, does NOT iterate entities */
+/** Toggle boundary visibility — flips polyline.show per layer */
 function applyBoundaryVisibility() {
-  for (const layer of BOUNDARY_LAYERS) {
-    const dataSource = boundaryDataSources.get(layer.key)
-    if (!dataSource) continue
-    dataSource.show = boundaryVisible[layer.key]
-  }
+  const polylines = boundaryLines.get('coastline')
+  if (polylines) for (const p of polylines) p.show = boundaryVisible.coastline
+  const a1 = boundaryLines.get('admin1')
+  if (a1) for (const p of a1) p.show = boundaryVisible.admin1
+  const a0 = boundaryLines.get('admin0')
+  if (a0) for (const p of a0) p.show = boundaryVisible.admin0
 }
 
 /** Update stroke width for a single boundary layer (uses cached polyline array) */
 function applyBoundaryWidth(layerKey: BoundaryLayerKey) {
-  const polylines = boundaryPolylines.get(layerKey)
+  const polylines = boundaryLines.get(layerKey)
   if (!polylines || polylines.length === 0) return
   const width = boundaryWidths[layerKey]
-  const ds = boundaryDataSources.get(layerKey)
-  ds?.entities.suspendEvents()
-  for (const entity of polylines) {
-    ;(entity.polyline as any).width = width
+  for (const p of polylines) {
+    p.width = width
   }
-  ds?.entities.resumeEvents()
 }
 
 /** Update stroke width for all boundary layers */
@@ -478,17 +493,17 @@ function applyAllBoundaryWidths() {
 
 /** Update stroke color for a single boundary layer (uses cached polyline array) */
 function applyBoundaryColor(layerKey: BoundaryLayerKey) {
-  const polylines = boundaryPolylines.get(layerKey)
+  const polylines = boundaryLines.get(layerKey)
   if (!polylines || polylines.length === 0) return
   const color = boundaryColors[layerKey]
   const layerConfig = BOUNDARY_LAYERS.find(l => l.key === layerKey)
   const alpha = layerConfig?.alpha ?? 0.55
-  const ds = boundaryDataSources.get(layerKey)
-  ds?.entities.suspendEvents()
-  for (const entity of polylines) {
-    ;(entity.polyline as any).material = Cesium.Color.fromCssColorString(color).withAlpha(alpha)
+  const mat = Cesium.Material.fromType('Color', {
+    color: Cesium.Color.fromCssColorString(color).withAlpha(alpha),
+  })
+  for (const p of polylines) {
+    p.material = mat
   }
-  ds?.entities.resumeEvents()
 }
 
 /** Update stroke color for all boundary layers */
@@ -1467,7 +1482,7 @@ watch(
   { deep: true },
 )
 
-// Boundary visibility toggle — fast path: only flips dataSource.show
+// Boundary visibility toggle — fast path: flips polyline.show
 watch(boundaryVisible, () => {
   applyBoundaryVisibility()
   viewer?.scene.requestRender()
@@ -2085,6 +2100,9 @@ onMounted(async () => {
     skyAtmosphere: false,
     baseLayer: false,
   })
+  // Boundary layer PolylineCollection (replaces heavy GeoJsonDataSource Entity API)
+  boundaryLineCollection = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
+
   // Keep globe-facing occlusion correct: back-side tracks, points, and labels
   // must not draw through the earth when the camera moves.
   viewer.scene.globe.depthTestAgainstTerrain = true
@@ -2098,11 +2116,13 @@ onMounted(async () => {
     new Cesium.UrlTemplateImageryProvider({
       url: `http://127.0.0.1:${port}/tiles/{z}/{x}/{y}.png`,
       minimumLevel: 0,
-      maximumLevel: 8,
+      maximumLevel: 7,
       tileWidth: 256,
       tileHeight: 256,
     }),
   )
+  // Aggressively limit GPU memory used by cached tile textures
+  ;(currentImageryLayer as any).maximumMemoryUsage = 64
   // P1: PointPrimitiveCollection for fast endpoint dots (one draw call for all tracks)
   pointPrimitives = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection()) as Cesium.PointPrimitiveCollection
   // P2: PolylineCollection for fast track lines (one draw call for all tracks)
@@ -2519,6 +2539,8 @@ onUnmounted(() => {
       pointDotsCollection.removeAll()
     }
     pointDotsCollection = null
+    boundaryLineCollection = null
+    boundaryLines.clear()
     viewer.destroy()
     viewer = null
   }
@@ -2526,7 +2548,7 @@ onUnmounted(() => {
 
 function switchTileLayer(maxZoom?: number) {
   if (!viewer || tileServerPort === 0) return
-  const maxLevel = maxZoom ?? 8
+  const maxLevel = maxZoom ?? 7
   if (currentImageryLayer) {
     viewer.imageryLayers.remove(currentImageryLayer, true)
     currentImageryLayer = null
@@ -2540,6 +2562,7 @@ function switchTileLayer(maxZoom?: number) {
       tileHeight: 256,
     }),
   )
+  ;(currentImageryLayer as any).maximumMemoryUsage = 64
   viewer.scene.requestRender()
 }
 

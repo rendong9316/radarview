@@ -1,7 +1,7 @@
 use std::net::TcpListener;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU16, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 
 use rusqlite::Connection;
@@ -14,6 +14,10 @@ static ACTIVE_SOURCE: std::sync::OnceLock<Arc<RwLock<PathBuf>>> = std::sync::Onc
 
 /// Full list of available tile sources (file_name → path). Initialized at startup.
 static TILE_SOURCES: std::sync::OnceLock<Vec<InternalTileSource>> = std::sync::OnceLock::new();
+
+/// Cached SQLite connection for the active mbtiles file. Reused across tile requests
+/// to avoid per-request Connection::open overhead. Invalidated when source changes.
+static TILE_DB_CACHE: Mutex<Option<(PathBuf, Connection)>> = Mutex::new(None);
 
 #[derive(serde::Serialize, Clone)]
 pub struct TileSource {
@@ -212,7 +216,17 @@ fn filter_prefer_zoom6(sources: Vec<InternalTileSource>) -> Vec<InternalTileSour
 }
 
 fn get_tile_data(mbtiles_path: &PathBuf, z: u32, x: u32, y: u32) -> Option<Vec<u8>> {
-    let conn = Connection::open(mbtiles_path).ok()?;
+    let mut cache = TILE_DB_CACHE.lock().ok()?;
+    // Open a new connection only when path changes; reuse cached one otherwise
+    let needs_open = match cache.as_ref() {
+        Some((cached_path, _)) => cached_path != mbtiles_path,
+        None => true,
+    };
+    if needs_open {
+        let new_conn = Connection::open(mbtiles_path).ok()?;
+        *cache = Some((mbtiles_path.clone(), new_conn));
+    }
+    let conn = &cache.as_ref()?.1;
     let tms_y = xyz_to_tms(z, y);
     let mut stmt = conn
         .prepare("SELECT tile_data FROM tiles WHERE zoom_level=?1 AND tile_column=?2 AND tile_row=?3")
