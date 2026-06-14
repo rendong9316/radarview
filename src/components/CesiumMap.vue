@@ -9,6 +9,17 @@
     >
       <template v-if="contextMenu.type === 'flag'">
         <div class="context-menu-item" @click="handleContextRename"><Pencil :size="13" /> 重命名</div>
+        <div class="context-menu-item context-menu-has-sub" @click.stop>
+          <FlagIcon :size="13" /> 切换样式 <span class="submenu-arrow">▸</span>
+          <div class="submenu-dropdown">
+            <div class="submenu-item" :class="{ active: getFlagStyle(contextMenu.flagId) === 'flag-pin' }" @click="handleChangeFlagStyle('flag-pin')">图钉</div>
+            <div class="submenu-item" :class="{ active: getFlagStyle(contextMenu.flagId) === 'flag-standard' }" @click="handleChangeFlagStyle('flag-standard')">标准旗</div>
+            <div class="submenu-item" :class="{ active: getFlagStyle(contextMenu.flagId) === 'flag-triangle-right' }" @click="handleChangeFlagStyle('flag-triangle-right')">三角旗</div>
+            <div class="submenu-item" :class="{ active: getFlagStyle(contextMenu.flagId) === 'square-flag' }" @click="handleChangeFlagStyle('square-flag')">方旗</div>
+            <div class="submenu-item" :class="{ active: getFlagStyle(contextMenu.flagId) === 'diamond' }" @click="handleChangeFlagStyle('diamond')">菱形</div>
+            <div class="submenu-item" :class="{ active: getFlagStyle(contextMenu.flagId) === 'circle' }" @click="handleChangeFlagStyle('circle')">圆形</div>
+          </div>
+        </div>
         <div class="context-menu-item context-menu-danger" @click="handleContextDelete"><Trash2 :size="13" /> 删除</div>
       </template>
       <template v-else-if="contextMenu.type === 'track'">
@@ -56,7 +67,7 @@ import { useBoundaryLayers, type BoundaryLayerKey } from '../composables/useBoun
 import { useCityLayer, type CityLevel } from '../composables/useCityLayer'
 import { trackKey } from '../composables/useTracks'
 import { scheduleSave, getRawSetting, whenSettingsLoaded } from '../composables/useSettingsPersistence'
-import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList } from '@lucide/vue'
+import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
 
 const props = defineProps<{
@@ -144,7 +155,7 @@ function updateCesiumBackground() {
 }
 const { visibility } = useLayerVisibility()
 const { showLabels } = useLabelVisibility()
-const { flags, addFlag, removeFlag, renameFlag, selectedPair } = useFlags()
+const { flags, addFlag, removeFlag, renameFlag, setFlagStyle, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
 const { addHighlight } = useTrackHighlight()
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
@@ -822,40 +833,147 @@ function renderCityLayer() {
   viewer.scene.requestRender()
 }
 
-// Generate pin icon via canvas
-function createPinIcon(): string {
+// Generate flag icons in Lucide style via canvas
+function createFlagIcons(): Map<string, string> {
+  const map = new Map<string, string>()
   const size = 32
-  const canvas = document.createElement('canvas')
-  canvas.width = size
-  canvas.height = size
-  const ctx = canvas.getContext('2d')!
-  // Pin body
-  ctx.beginPath()
-  ctx.arc(size / 2, size / 2 - 4, 10, 0, Math.PI * 2)
-  ctx.fillStyle = '#ff4444'
-  ctx.fill()
-  ctx.strokeStyle = '#ffffff'
-  ctx.lineWidth = 2
-  ctx.stroke()
-  // Pin point
-  ctx.beginPath()
-  ctx.moveTo(size / 2 - 5, size / 2 + 2)
-  ctx.lineTo(size / 2, size - 4)
-  ctx.lineTo(size / 2 + 5, size / 2 + 2)
-  ctx.fillStyle = '#ff4444'
-  ctx.fill()
-  ctx.strokeStyle = '#ffffff'
-  ctx.lineWidth = 1.5
-  ctx.stroke()
-  // White dot center
-  ctx.beginPath()
-  ctx.arc(size / 2, size / 2 - 4, 4, 0, Math.PI * 2)
-  ctx.fillStyle = '#ffffff'
-  ctx.fill()
-  return canvas.toDataURL()
+
+  function makeIcon(style: string, draw: (ctx: CanvasRenderingContext2D) => void): string {
+    const canvas = document.createElement('canvas')
+    canvas.width = size
+    canvas.height = size
+    const ctx = canvas.getContext('2d')!
+    draw(ctx)
+    const url = canvas.toDataURL()
+    map.set(style, url)
+    return url
+  }
+
+  // ── flag-standard: Lucide-style rectangular flag with notch ──
+  makeIcon('flag-standard', (ctx) => {
+    // pole
+    ctx.fillStyle = '#555555'
+    ctx.fillRect(8, 4, 2, 22)
+    // flag body
+    ctx.beginPath()
+    ctx.moveTo(10, 5)
+    ctx.lineTo(26, 7)
+    ctx.lineTo(26, 15)
+    ctx.lineTo(18, 11)
+    ctx.lineTo(10, 13)
+    ctx.closePath()
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  })
+
+  // ── flag-triangle-right: triangular pennant ──
+  makeIcon('flag-triangle-right', (ctx) => {
+    // pole
+    ctx.fillStyle = '#555555'
+    ctx.fillRect(8, 4, 2, 22)
+    // triangular flag
+    ctx.beginPath()
+    ctx.moveTo(10, 6)
+    ctx.lineTo(26, 12)
+    ctx.lineTo(10, 18)
+    ctx.closePath()
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  })
+
+  // ── flag-pin: classic pin (preserved) ──
+  makeIcon('flag-pin', (ctx) => {
+    // pin body
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2 - 4, 10, 0, Math.PI * 2)
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    // pin point
+    ctx.beginPath()
+    ctx.moveTo(size / 2 - 5, size / 2 + 2)
+    ctx.lineTo(size / 2, size - 4)
+    ctx.lineTo(size / 2 + 5, size / 2 + 2)
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    // white dot center
+    ctx.beginPath()
+    ctx.arc(size / 2, size / 2 - 4, 4, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+  })
+
+  // ── diamond: diamond marker ──
+  makeIcon('diamond', (ctx) => {
+    ctx.beginPath()
+    ctx.moveTo(16, 4)
+    ctx.lineTo(27, 15)
+    ctx.lineTo(16, 26)
+    ctx.lineTo(5, 15)
+    ctx.closePath()
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    // inner highlight
+    ctx.beginPath()
+    ctx.arc(16, 15, 4, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+  })
+
+  // ── circle: filled circle marker ──
+  makeIcon('circle', (ctx) => {
+    ctx.beginPath()
+    ctx.arc(16, 16, 10, 0, Math.PI * 2)
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 2
+    ctx.stroke()
+    // inner ring
+    ctx.beginPath()
+    ctx.arc(16, 16, 5, 0, Math.PI * 2)
+    ctx.fillStyle = '#ffffff'
+    ctx.fill()
+  })
+
+  // ── square-flag: simple rectangular flag without notch ──
+  makeIcon('square-flag', (ctx) => {
+    // pole
+    ctx.fillStyle = '#555555'
+    ctx.fillRect(8, 4, 2, 22)
+    // rectangular flag body
+    ctx.beginPath()
+    ctx.rect(10, 5, 16, 11)
+    ctx.fillStyle = '#ff4444'
+    ctx.fill()
+    ctx.strokeStyle = '#ffffff'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+  })
+
+  return map
 }
 
-let pinIconDataUrl = ''
+const flagIconDataUrls = createFlagIcons()
+
+function getFlagIconUrl(style?: string): string {
+  if (style && flagIconDataUrls.has(style)) return flagIconDataUrls.get(style)!
+  return flagIconDataUrls.get('flag-pin')!
+}
 
 function createFlagEntity(flag: Flag) {
   if (!viewer) return
@@ -864,7 +982,7 @@ function createFlagEntity(flag: Flag) {
     id: `flag-${flag.id}`,
     position: Cesium.Cartesian3.fromDegrees(flag.longitude, flag.latitude),
     billboard: {
-      image: pinIconDataUrl,
+      image: getFlagIconUrl(flag.style),
       scale: 0.8 * s,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
     },
@@ -921,7 +1039,7 @@ function syncFlagEntities() {
         entity.label.pixelOffset = new Cesium.ConstantProperty(new Cesium.Cartesian2(0, Math.round(8 * s)))
       }
       if (entity.billboard) {
-        entity.billboard.image = new Cesium.ConstantProperty(pinIconDataUrl)
+        entity.billboard.image = new Cesium.ConstantProperty(getFlagIconUrl(flag.style))
         entity.billboard.scale = new Cesium.ConstantProperty(0.8 * s)
       }
     }
@@ -1321,13 +1439,14 @@ watch(
         if (entities.label) entities.label.position = lastPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
       }
-      // P3: Restore all point dots to visible after replay
-      if (pointDotEntityMap.size > 0) {
-        for (const primitives of pointDotEntityMap.values()) {
-          for (const p of primitives) p.show = true
-        }
-        pointDotLastLo.clear()
+      // P3: Restore correct point dot visibility after replay
+      pointDotLastLo.clear()
+      // Bring back any dots still hidden from replay progressive reveal,
+      // then let syncGlobalPointDots prune tracks that shouldn't be showing.
+      for (const primitives of pointDotEntityMap.values()) {
+        for (const p of primitives) p.show = true
       }
+      syncGlobalPointDots()
       reapplyVisibility()
       viewer?.scene.requestRender()
     }
@@ -1832,6 +1951,18 @@ function handleContextDelete() {
   closeContextMenu()
 }
 
+function handleChangeFlagStyle(style: string) {
+  const flagId = contextMenu.value.flagId
+  if (!flagId) return
+  setFlagStyle(flagId, style)
+  closeContextMenu()
+}
+
+function getFlagStyle(flagId: string): string {
+  const flag = flags.value.find((f) => f.id === flagId)
+  return flag?.style || 'flag-pin'
+}
+
 function handleContextShowPointDots() {
   showManualPointDots(contextMenu.value.trackId)
   closeContextMenu()
@@ -1987,10 +2118,6 @@ onMounted(async () => {
   pointDotsCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
   await loadBoundaryLayers()
   await loadCityLayer()
-
-  // Must create pin icon before awaiting settings — flag restoration during
-  // applySettings() can trigger syncFlagEntities(), which needs pinIconDataUrl.
-  pinIconDataUrl = createPinIcon()
 
   // Restore saved camera state, or use default view
   await whenSettingsLoaded()
@@ -2470,5 +2597,57 @@ defineExpose({ getViewer: () => viewer, flyToTrack, flyToFlag, resetView, switch
 .context-menu-danger:hover {
   background: #ef4444;
   color: #fff;
+}
+
+.context-menu-has-sub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.submenu-arrow {
+  margin-left: auto;
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.submenu-dropdown {
+  display: none;
+  position: absolute;
+  left: 100%;
+  top: 0;
+  min-width: 100px;
+  background: var(--bg-panel, #1e1e2e);
+  border: 1px solid var(--border-color, #3a3a5c);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  padding: 4px 0;
+}
+
+.context-menu-has-sub:hover .submenu-dropdown {
+  display: block;
+}
+
+.submenu-item {
+  padding: 8px 16px;
+  cursor: pointer;
+  color: var(--text-primary, #cdd6f4);
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.submenu-item:hover {
+  background: var(--accent-primary, #3b82f6);
+  color: #fff;
+}
+
+.submenu-item.active {
+  color: var(--accent-primary, #3b82f6);
+  font-weight: 600;
+}
+
+.submenu-item.active::before {
+  content: '✓ ';
 }
 </style>

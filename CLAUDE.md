@@ -59,6 +59,10 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 | 前后端同时改 | 两项校验都必须通过 |
 | `tauri.conf.json` 或 `src-tauri/resources/` | `pnpm tauri build` 验证安装包包含必需文件 |
 
+## 启动页设计
+
+`public/splash.html` — 全窗口内联 SVG 抽象艺术作品，非居中对称布局。品牌区定位左下角，底部状态栏。零 CSS 动画（仅 JS setInterval 轮播启动日志）。内联 base64 应用图标。设计参考 IntelliJ / Figma 静态启动页风格，禁止雷达动画/CSS 渐变伪背景/小卡片居中布局。
+
 ## 常见坑
 
 - **MAT 导入卡死在进度 10%**：`convert_mat.exe` 是 74MB PyInstaller 打包的 Python 程序，冷启动耗时 10-30s。超时 120s 后自动杀进程，不要误判为假死。

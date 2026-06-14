@@ -6,6 +6,7 @@ export interface Flag {
   longitude: number
   label: string
   createdAt: number
+  style?: string
 }
 
 const flags = ref<Flag[]>([])
@@ -41,6 +42,10 @@ export function useFlags() {
   function removeFlag(id: string) {
     flags.value = flags.value.filter((f) => f.id !== id)
     selectedFlagIds.value = selectedFlagIds.value.filter((fid) => fid !== id)
+  }
+
+  function setFlagStyle(id: string, style: string) {
+    flags.value = flags.value.map((f) => (f.id === id ? { ...f, style } : f))
   }
 
   function toggleSelectFlag(id: string) {
@@ -90,6 +95,7 @@ export function useFlags() {
     addFlag,
     removeFlag,
     renameFlag,
+    setFlagStyle,
     toggleSelectFlag,
     clearSelection,
     clearAllFlags,
