@@ -120,6 +120,7 @@ let cityLabelCollection: Cesium.LabelCollection | undefined
 let cityFeatures: CityFeature[] = []
 let cityPickMap = new Map<string, CityFeature>()
 let cityHoverEntity: Cesium.Entity | undefined
+let pendingCityCleanup: (() => void) | null = null // deferred old-collection removal
 let removeCityCameraChanged: (() => void) | null = null
 
 // 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
@@ -554,6 +555,11 @@ function normalizeCityLevel(level: unknown, featureCode: unknown, capital: boole
 }
 
 function clearCityLayer() {
+  // Cancel any pending deferred cleanup (old collections may already be gone)
+  if (pendingCityCleanup && viewer) {
+    viewer.scene.preRender.removeEventListener(pendingCityCleanup)
+    pendingCityCleanup = null
+  }
   if (!viewer) {
     cityPointCollection = undefined
     cityLabelCollection = undefined
@@ -728,7 +734,7 @@ function pickedCity(picked: any): CityFeature | null {
   return cityPickMap.get(id) ?? null
 }
 
-function scheduleCityLayerRender(delay = 120) {
+function scheduleCityLayerRender(delay = 120, _force = false) {
   if (cityLayerDebounce) clearTimeout(cityLayerDebounce)
   cityLayerDebounce = setTimeout(() => {
     cityLayerDebounce = null
@@ -738,8 +744,8 @@ function scheduleCityLayerRender(delay = 120) {
 
 function renderCityLayer() {
   if (!viewer) return
-  clearCityLayer()
   if (!cityLayer.visible || cityFeatures.length === 0) {
+    clearCityLayer()
     hideCityHover()
     viewer.scene.requestRender()
     return
@@ -751,10 +757,10 @@ function renderCityLayer() {
   const cities = enabledCities()
   const canvas = viewer.scene.canvas
 
-  const points = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
-  const labels = viewer.scene.primitives.add(new Cesium.LabelCollection())
-  cityPointCollection = points
-  cityLabelCollection = labels
+  // Double-buffer: build new collections first, then swap in atomically
+  // to avoid a "gap frame" that causes visible flickering during zoom
+  const newPoints = new Cesium.PointPrimitiveCollection()
+  const newLabels = new Cesium.LabelCollection()
 
   const labelCandidates: Array<{
     city: CityFeature
@@ -776,7 +782,7 @@ function renderCityLayer() {
     cityPickMap.set(id, city)
 
     if (showPoint) {
-      points.add({
+      newPoints.add({
         id,
         position,
         pixelSize: pointSize,
@@ -823,7 +829,7 @@ function renderCityLayer() {
 
     const id = cityPickId(item.city)
     cityPickMap.set(id, item.city)
-    labels.add({
+    newLabels.add({
       id,
       position: item.position,
       text: item.city.nameZh,
@@ -836,6 +842,35 @@ function renderCityLayer() {
       verticalOrigin: Cesium.VerticalOrigin.CENTER,
       pixelOffset: new Cesium.Cartesian2(item.pointSize + 4, 0),
     })
+  }
+
+  // Atomically swap: add new collections first
+  const oldPoints = cityPointCollection
+  const oldLabels = cityLabelCollection
+  viewer.scene.primitives.add(newPoints)
+  viewer.scene.primitives.add(newLabels)
+  cityPointCollection = newPoints
+  cityLabelCollection = newLabels
+
+  // Cancel any pending cleanup from a previous swap
+  if (pendingCityCleanup) {
+    viewer.scene.preRender.removeEventListener(pendingCityCleanup)
+    pendingCityCleanup = null
+  }
+
+  // Delay removal of old collections by one preRender frame.
+  // New LabelCollection needs one frame to upload glyph textures to the GPU
+  // before the old labels disappear — otherwise we get a visible blank flicker.
+  if (oldPoints || oldLabels) {
+    const cleanup = () => {
+      viewer!.scene.preRender.removeEventListener(cleanup)
+      pendingCityCleanup = null
+      if (oldPoints) viewer!.scene.primitives.remove(oldPoints)
+      if (oldLabels) viewer!.scene.primitives.remove(oldLabels)
+      viewer!.scene.requestRender()
+    }
+    pendingCityCleanup = cleanup
+    viewer.scene.preRender.addEventListener(cleanup)
   }
 
   viewer.scene.requestRender()
@@ -1507,7 +1542,7 @@ watch(boundaryColors, () => {
 
 let cityLayerDebounce: ReturnType<typeof setTimeout> | null = null
 watch(cityLayer, () => {
-  scheduleCityLayerRender(80)
+  scheduleCityLayerRender(80, true)
 }, { deep: true })
 
 // Reactive line width: update existing polylines when slider changes
@@ -2124,7 +2159,8 @@ onMounted(async () => {
   })
   viewer.camera.percentageChanged = 0.03
   removeCityCameraChanged = viewer.camera.changed.addEventListener(() => {
-    scheduleCityLayerRender(120)
+    // City layer is NOT rebuilt on every camera change — that causes flicker.
+    // Instead, we rebuild once on moveEnd after the camera settles.
     emitViewStatus(lastMousePosition)
   })
 
@@ -2223,6 +2259,8 @@ onMounted(async () => {
   viewer.camera.moveEnd.addEventListener(() => {
     if (_cameraSaveTimer) clearTimeout(_cameraSaveTimer)
     _cameraSaveTimer = setTimeout(persistCameraState, 500)
+    // Force city layer rebuild after camera stops — correct LOD for final view
+    scheduleCityLayerRender(100, true)
   })
 
   syncEntities(props.tracks)
