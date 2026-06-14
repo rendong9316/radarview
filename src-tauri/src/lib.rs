@@ -397,10 +397,11 @@ pub fn run() {
                 "splash",
                 tauri::WebviewUrl::App("splash.html".into()),
             )
-            .inner_size(380.0, 360.0)
+            .inner_size(760.0, 500.0)
             .decorations(false)
             .resizable(false)
             .center()
+            .background_color(tauri::window::Color(0x08, 0x0D, 0x16, 255))
             .build()
             .expect("Failed to create splash window");
 

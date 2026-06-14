@@ -83,7 +83,7 @@ const emit = defineEmits<{
   'show-track-detail': [payload: { icao: string; source: string }]
   'delete-track': [payload: { icao: string; source: string }]
   'view-track-points': [track: Track]
-  'view-status': [payload: { cameraHeightKm: number; longitude: number; latitude: number }]
+  'view-status': [payload: { cameraHeightKm: number; longitude: number; latitude: number; fps: number }]
 }>()
 
 const containerRef = ref<HTMLDivElement>()
@@ -108,6 +108,10 @@ let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let rightClickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
+// FPS tracking — smoothed via scene.postRender counting
+let fpsFrameCount = 0
+let fpsLastSampleTime = 0 // 0 = uninitialized, set on first postRender
+let fpsSmoothed = 0
 let boundaryDataSources = new Map<BoundaryLayerKey, Cesium.GeoJsonDataSource>()
 /** Cached flat arrays of polyline entities — avoids iterating dataSource.entities.values each time */
 let boundaryPolylines = new Map<BoundaryLayerKey, Cesium.Entity[]>()
@@ -125,6 +129,10 @@ let ctxKeyFn: ((e: KeyboardEvent) => void) | null = null
 let ctxCanvasEl: HTMLCanvasElement | null = null
 let statusMouseLeaveFn: (() => void) | null = null
 const { getEffectiveHex, lineColors } = useLineColor()
+
+// Deferred promise — resolves when Cesium Viewer + boundary/city layers are fully initialized
+let resolveMapReady!: () => void
+const mapReadyPromise = new Promise<void>(r => { resolveMapReady = r })
 
 // ── 右键上下文菜单状态 ──
 const contextMenu = ref<{
@@ -601,7 +609,7 @@ function emitViewStatus(screenPosition?: Cesium.Cartesian2 | null) {
     }
   }
 
-  emit('view-status', { cameraHeightKm, longitude, latitude })
+  emit('view-status', { cameraHeightKm, longitude, latitude, fps: Math.round(fpsSmoothed) })
 }
 
 function cityPointMaxHeight(level: CityLevel) {
@@ -2088,6 +2096,32 @@ onMounted(async () => {
   // Keep globe-facing occlusion correct: back-side tracks, points, and labels
   // must not draw through the earth when the camera moves.
   viewer.scene.globe.depthTestAgainstTerrain = true
+  // Track actual scene render FPS via postRender — fires only when requestRenderMode triggers a real draw
+  viewer.scene.postRender.addEventListener(() => {
+    const now = performance.now()
+    // Start measurement window on first render, not at script load time
+    if (fpsLastSampleTime === 0) {
+      fpsLastSampleTime = now
+      fpsFrameCount = 1
+      return
+    }
+    fpsFrameCount++
+    const elapsed = now - fpsLastSampleTime
+    // Update FPS every ~500ms for faster response; require ≥5 frames to avoid idle-spike noise
+    if (elapsed >= 500 && fpsFrameCount >= 5) {
+      const instantFps = fpsFrameCount / (elapsed / 1000)
+      // EMA α=0.5 — faster convergence than 0.3, still smooth
+      fpsSmoothed = fpsSmoothed === 0 ? instantFps : fpsSmoothed * 0.5 + instantFps * 0.5
+      fpsFrameCount = 0
+      fpsLastSampleTime = now
+    }
+    // If no render for >1.5s, reset to 0 (will display as "--" in status bar)
+    if (elapsed > 1500) {
+      fpsSmoothed = 0
+      fpsFrameCount = 0
+      fpsLastSampleTime = now
+    }
+  })
   viewer.camera.percentageChanged = 0.03
   removeCityCameraChanged = viewer.camera.changed.addEventListener(() => {
     scheduleCityLayerRender(120)
@@ -2442,6 +2476,9 @@ onMounted(async () => {
   document.addEventListener('keydown', ctxKeyFn)
 
   emitViewStatus(null)
+
+  // Signal that Cesium map is fully initialized
+  resolveMapReady()
 })
 
 onUnmounted(() => {
@@ -2552,7 +2589,7 @@ function flyToFlag(flag: Flag) {
   })
 }
 
-defineExpose({ getViewer: () => viewer, flyToTrack, flyToFlag, resetView, switchTileLayer })
+defineExpose({ getViewer: () => viewer, flyToTrack, flyToFlag, resetView, switchTileLayer, whenMapReady: () => mapReadyPromise })
 </script>
 
 <style scoped>

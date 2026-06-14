@@ -104,6 +104,7 @@
       :camera-height-km="cameraHeightKm"
       :mouse-longitude="mouseLongitude"
       :mouse-latitude="mouseLatitude"
+      :fps="currentFps"
       @toggle-playback="replay.isPlaying.value ? replay.pause() : replay.play()"
       @seek="replay.seek($event)"
       @set-speed="replay.setSpeed($event)"
@@ -236,11 +237,13 @@ const statusSources = computed(() => [
 const cameraHeightKm = ref(0)
 const mouseLongitude = ref(0)
 const mouseLatitude = ref(0)
+const currentFps = ref(0)
 
-function onMapViewStatus(payload: { cameraHeightKm: number; longitude: number; latitude: number }) {
+function onMapViewStatus(payload: { cameraHeightKm: number; longitude: number; latitude: number; fps: number }) {
   cameraHeightKm.value = payload.cameraHeightKm
   mouseLongitude.value = payload.longitude
   mouseLatitude.value = payload.latitude
+  currentFps.value = payload.fps
 }
 
 // ── Menu action handler ──
@@ -410,7 +413,10 @@ onMounted(async () => {
   })
 
   invoke('push_splash_log', { message: '启动完成' })
-  // Notify Rust that Vue is ready → show main window, close splash
+  // Wait for Cesium map to fully initialize before showing main window
+  invoke('push_splash_log', { message: '正在初始化三维地图...' })
+  await mapRef.value?.whenMapReady()
+  invoke('push_splash_log', { message: '三维地图就绪' })
   invoke('app_ready').catch(e => console.error('[App] app_ready failed:', e))
 })
 

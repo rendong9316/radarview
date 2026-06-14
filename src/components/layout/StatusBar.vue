@@ -36,22 +36,21 @@
 
       <!-- Speed selector -->
       <div class="status-speed" v-if="hasData">
-        <button
-          v-for="opt in speedOptions"
-          :key="opt"
-          class="status-speed-btn"
-          :class="{ active: speed === opt }"
-          @click="$emit('setSpeed', opt)"
+        <select
+          class="status-speed-select"
+          :value="showCustomInput || !speedOptions.includes(speed) ? 'custom' : speed"
+          @change="onSpeedSelect(($event.target as HTMLSelectElement).value)"
         >
-          {{ opt }}x
-        </button>
+          <option v-for="opt in speedOptions" :key="opt" :value="opt">{{ opt }}x</option>
+          <option value="custom">自定义...</option>
+        </select>
         <input
+          v-if="showCustomInput || !speedOptions.includes(speed)"
           class="status-speed-input"
           type="number"
           :value="speed"
           min="1"
           @keydown.enter="onCustomSpeed(($event.target as HTMLInputElement).value)"
-          @blur="onCustomSpeed(($event.target as HTMLInputElement).value)"
           title="自定义倍速 (回车生效)"
         />
       </div>
@@ -76,6 +75,9 @@
       </span>
       <span class="status-view" :title="`鼠标经纬度 ${formatCoordinate(mouseLongitude)}, ${formatCoordinate(mouseLatitude)}`">
         经纬: {{ formatCoordinate(mouseLongitude) }}, {{ formatCoordinate(mouseLatitude) }}
+      </span>
+      <span class="status-view" :title="`渲染帧率 ${fps > 0 ? fps : '--'} FPS`">
+        FPS: {{ fps > 0 ? fps : '--' }}
       </span>
 
       <!-- Source indicators -->
@@ -105,7 +107,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { useTheme } from '../../composables/useTheme'
 import type { DataSource } from '../../types/track'
 import { Play, Pause, AlertTriangle, Moon, Sun, Contrast } from '@lucide/vue'
@@ -127,6 +129,7 @@ const props = defineProps<{
   cameraHeightKm: number
   mouseLongitude: number
   mouseLatitude: number
+  fps: number
 }>()
 
 const emit = defineEmits<{
@@ -141,6 +144,12 @@ const { activeTheme } = useTheme()
 
 const progressRef = ref<HTMLElement | null>(null)
 const isDragging = ref(false)
+const showCustomInput = ref(!props.speedOptions.includes(props.speed))
+
+// When speed changes externally (e.g. settings loaded), sync custom input state
+watch(() => props.speed, (v) => {
+  if (props.speedOptions.includes(v)) showCustomInput.value = false
+})
 
 function formatHeightKm(value: number) {
   if (!Number.isFinite(value)) return '0'
@@ -164,6 +173,15 @@ function onCustomSpeed(raw: string) {
   const v = Number(raw)
   if (!isFinite(v) || v <= 0) return
   emit('setSpeed', v)
+}
+
+function onSpeedSelect(value: string) {
+  if (value === 'custom') {
+    showCustomInput.value = true
+    return
+  }
+  showCustomInput.value = false
+  emit('setSpeed', Number(value))
 }
 
 function onSeek(e: MouseEvent) {
@@ -317,28 +335,23 @@ onUnmounted(() => {
   align-items: center;
   gap: 2px;
 }
-.status-speed-btn {
-  padding: 0 4px;
+.status-speed-select {
   height: 16px;
   font-size: 0.714rem;
+  padding: 0 2px;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
   color: inherit;
-  background: transparent;
-  border: 1px solid transparent;
   border-radius: 2px;
   cursor: pointer;
-  opacity: 0.7;
+  max-width: 72px;
 }
-.status-speed-btn:hover {
-  opacity: 1;
-  background: rgba(255,255,255,0.1);
-}
-.status-speed-btn.active {
-  opacity: 1;
-  border-color: rgba(255,255,255,0.3);
-  background: rgba(255,255,255,0.1);
+.status-speed-select option {
+  background: var(--statusbar-bg);
+  color: var(--statusbar-fg);
 }
 .status-speed-input {
-  width: 36px;
+  width: 64px;
   height: 16px;
   font-size: 0.714rem;
   padding: 0 4px;
