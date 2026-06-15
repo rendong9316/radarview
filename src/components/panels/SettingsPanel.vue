@@ -398,6 +398,58 @@
         </div>
       </div>
     </div>
+
+    <!-- ═══ 高级 ═══ -->
+    <div class="settings-group">
+      <div class="group-header" @click="toggleSection('advanced')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('advanced') }" />
+        <Settings2 :size="13" class="group-icon" />
+        <span>高级</span>
+      </div>
+      <div class="group-body" v-show="!isCollapsed('advanced')">
+        <!-- 分段阈值 -->
+        <div class="subsection-label">航迹分段</div>
+        <div class="setting-row">
+          <span class="row-label">倍数</span>
+          <input type="range" class="row-slider" min="2" max="20" step="1"
+            :value="segMultiplier"
+            @input="setSegMultiplier(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ segMultiplier }}×</span>
+          <button class="reset-btn" :class="{ show: segMultiplier !== 10 }"
+            @click="setSegMultiplier(10)"><RotateCcw :size="12" /></button>
+        </div>
+        <div class="setting-row">
+          <span class="row-label">下限</span>
+          <input type="range" class="row-slider" min="1" max="30" step="1"
+            :value="segMinThresholdMin"
+            @input="setSegMinThresholdMin(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ segMinThresholdMin }}min</span>
+          <button class="reset-btn" :class="{ show: segMinThresholdMin !== 5 }"
+            @click="setSegMinThresholdMin(5)"><RotateCcw :size="12" /></button>
+        </div>
+
+        <!-- 桥接线样式 -->
+        <div class="subsection-label">间隙桥接线</div>
+        <div class="setting-row">
+          <span class="row-label">线宽比</span>
+          <input type="range" class="row-slider" min="0.05" max="1.0" step="0.05"
+            :value="bridgeWidthRatio"
+            @input="setBridgeWidthRatio(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ bridgeWidthRatio.toFixed(2) }}</span>
+          <button class="reset-btn" :class="{ show: bridgeWidthRatio !== 0.3 }"
+            @click="setBridgeWidthRatio(0.3)"><RotateCcw :size="12" /></button>
+        </div>
+        <div class="setting-row">
+          <span class="row-label">透明度</span>
+          <input type="range" class="row-slider" min="0.05" max="0.5" step="0.05"
+            :value="bridgeAlpha"
+            @input="setBridgeAlpha(Number(($event.target as HTMLInputElement).value))" />
+          <span class="row-value">{{ bridgeAlpha.toFixed(2) }}</span>
+          <button class="reset-btn" :class="{ show: bridgeAlpha !== 0.15 }"
+            @click="setBridgeAlpha(0.15)"><RotateCcw :size="12" /></button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -412,10 +464,11 @@ import { useTrackPointDots } from '../../composables/useTrackPointDots'
 import { useBoundaryLayers } from '../../composables/useBoundaryLayers'
 import { useCityLayer, type CityLevel, type CityLodLevel } from '../../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../../composables/useSettingsPersistence'
+import { useSegmentationSettings } from '../../composables/useSegmentationSettings'
 import {
   Palette, GripHorizontal, Map, Globe, CircleDot, Flag,
   Type, Eraser, PaintBucket, Wrench, Database, Eye,
-  Maximize2, Trash2, RotateCcw, Dot, ChevronDown, MapPin,
+  Maximize2, Trash2, RotateCcw, Dot, ChevronDown, MapPin, Settings2,
 } from '@lucide/vue'
 
 defineProps<{
@@ -461,6 +514,11 @@ const {
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
+
+const {
+  segMultiplier, segMinThresholdMin, bridgeWidthRatio, bridgeAlpha,
+  setSegMultiplier, setSegMinThresholdMin, setBridgeWidthRatio, setBridgeAlpha,
+} = useSegmentationSettings()
 const trackPointDotScaleVal = computed(() => trackPointDotScale.value)
 const cityLevelRows: { key: CityLevel; label: string }[] = [
   { key: 'capital', label: '首都' },
@@ -668,6 +726,19 @@ function onResetPointDotColor(src: DataSource) {
 
 .lod-value {
   min-width: 46px;
+}
+
+.subsection-label {
+  font-size: 0.714rem;
+  color: var(--text-tertiary);
+  padding: 4px 0 0 0;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-secondary);
+}
+.subsection-label:first-child {
+  margin-top: 0;
+  border-top: none;
+  padding-top: 0;
 }
 
 .row-slider {

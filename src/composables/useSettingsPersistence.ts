@@ -370,4 +370,22 @@ async function applySettings(raw: Record<string, string>) {
       } catch { /* keep default */ }
     }
   } catch { /* manage module not loaded yet, fine */ }
+
+  // ── Segmentation settings (dynamic gap threshold + bridge line style) ──
+  try {
+    const segModule = await import('./useSegmentationSettings')
+    const seg = segModule.useSegmentationSettings()
+    if (raw['segmentation.multiplier'] !== undefined) {
+      try { seg.segMultiplier.value = JSON.parse(raw['segmentation.multiplier']) } catch { /* keep default */ }
+    }
+    if (raw['segmentation.min_threshold_min'] !== undefined) {
+      try { seg.segMinThresholdMin.value = JSON.parse(raw['segmentation.min_threshold_min']) } catch { /* keep default */ }
+    }
+    if (raw['segmentation.bridge_width_ratio'] !== undefined) {
+      try { seg.bridgeWidthRatio.value = JSON.parse(raw['segmentation.bridge_width_ratio']) } catch { /* keep default */ }
+    }
+    if (raw['segmentation.bridge_alpha'] !== undefined) {
+      try { seg.bridgeAlpha.value = JSON.parse(raw['segmentation.bridge_alpha']) } catch { /* keep default */ }
+    }
+  } catch { /* segmentation module not loaded yet, fine */ }
 }
