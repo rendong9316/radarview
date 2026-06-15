@@ -220,10 +220,9 @@ function rebuildPointDotsForTrack(trackId: string) {
     const pos = track.positions[i]
     const lon = Number(pos.longitude)
     const lat = Number(pos.latitude)
-    const alt = Number(pos.altitude)
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
 
-    Cesium.Cartesian3.fromDegrees(lon, lat, (Number.isFinite(alt) ? alt : 0) + VISUAL_ALT_OFFSET, undefined, _scratchCartesian)
+    Cesium.Cartesian3.fromDegrees(lon, lat, FLAT_ALTITUDE, undefined, _scratchCartesian)
     const prim = pointDotsCollection.add({
       id: `pointdot::${trackId}::${i}`,
       position: _scratchCartesian,
@@ -749,7 +748,7 @@ function showPointDotHover(trackId: string, pointIndex: number) {
   const line2 = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 
   const text = `${line1}\n${line2}`
-  const position = Cesium.Cartesian3.fromDegrees(pt.longitude, pt.latitude, alt + VISUAL_ALT_OFFSET)
+  const position = Cesium.Cartesian3.fromDegrees(pt.longitude, pt.latitude, FLAT_ALTITUDE)
 
   if (!pointDotHoverEntity) {
     pointDotHoverEntity = viewer.entities.add({
@@ -1183,27 +1182,23 @@ function isFinitePoint(p: TrackPoint): boolean {
  *  point-dot rendering still shows the original observations. Cesium's wide
  *  polyline triangulation can draw long spurious triangles when fed
  *  zero-length/near-zero-length segments. */
-function toCartesianArray(positions: TrackPoint[], altOffset = 0): Cesium.Cartesian3[] {
+function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
   const flat: number[] = []
   let lastLng = Number.NaN
   let lastLat = Number.NaN
-  let lastAlt = Number.NaN
 
   for (let i = 0; i < positions.length; i++) {
     const p = positions[i]
     if (!isFinitePoint(p)) continue
 
-    const alt = p.altitude + altOffset
     const sameAsLast =
       Math.abs(p.longitude - lastLng) < 1e-7 &&
-      Math.abs(p.latitude - lastLat) < 1e-7 &&
-      Math.abs(alt - lastAlt) < 0.1
+      Math.abs(p.latitude - lastLat) < 1e-7
     if (sameAsLast) continue
 
-    flat.push(p.longitude, p.latitude, alt)
+    flat.push(p.longitude, p.latitude, FLAT_ALTITUDE)
     lastLng = p.longitude
     lastLat = p.latitude
-    lastAlt = alt
   }
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
 }
@@ -1280,9 +1275,8 @@ function createTrackEntities(track: Track) {
   const lines: Cesium.Polyline[] = []
   const normalAlpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
   const segWidth = isSelected ? SELECTED_WIDTH : baseW
-  const altOff = VISUAL_ALT_OFFSET
   for (let si = 0; si < segments.length; si++) {
-    const cartPts = toCartesianArray(segments[si], altOff)
+    const cartPts = toCartesianArray(segments[si])
     if (cartPts.length >= 2) {
       const line = trackLines.add({
         id: `${tKey}::seg${si}`,
@@ -1336,7 +1330,7 @@ function createTrackEntities(track: Track) {
     .join(' | ')
 
   const last = track.positions[track.positions.length - 1]
-  const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + altOff)
+  const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
 
   // P1: PointPrimitive for endpoint dot
   let pointPrimitive: Cesium.PointPrimitive | undefined
@@ -1347,7 +1341,6 @@ function createTrackEntities(track: Track) {
       position: lastPos,
       color: color,
       pixelSize: pointPrimSize(base, track.source),
-      disableDepthTestDistance: Number.POSITIVE_INFINITY,
     })
   }
 
@@ -1491,9 +1484,8 @@ function syncEntities(newTracks: Track[]) {
 
         // Rebuild data-segment lines
         existing.lines = []
-        const altOff = VISUAL_ALT_OFFSET
         for (let si = 0; si < existing.segments.length; si++) {
-          const cartPts = toCartesianArray(existing.segments[si], altOff)
+          const cartPts = toCartesianArray(existing.segments[si])
           if (cartPts.length >= 2) {
             const line = trackLines!.add({
               id: `${tKey}::seg${si}`,
@@ -1550,8 +1542,7 @@ function syncEntities(newTracks: Track[]) {
 
       // Update label & PointPrimitive to last position
       const last = track.positions[track.positions.length - 1]
-      const endAltOff = VISUAL_ALT_OFFSET
-      const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + endAltOff)
+      const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
       if (existing.label) existing.label.position = lastPos
       if (existing.pointPrimitive) existing.pointPrimitive.position = lastPos
     }
@@ -1638,7 +1629,7 @@ function updateReplayPositions(time: number) {
       if (lastPastSeg >= 0) {
         const lastSeg = entities.segments[lastPastSeg]
         const lastPt = lastSeg[lastSeg.length - 1]
-        const frozenPos = Cesium.Cartesian3.fromDegrees(lastPt.longitude, lastPt.latitude, lastPt.altitude + VISUAL_ALT_OFFSET)
+        const frozenPos = Cesium.Cartesian3.fromDegrees(lastPt.longitude, lastPt.latitude, FLAT_ALTITUDE)
         if (entities.label) entities.label.position = frozenPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = frozenPos
         // Show all point dots from completed segments
@@ -1675,7 +1666,7 @@ function updateReplayPositions(time: number) {
     const cpPos = Cesium.Cartesian3.fromDegrees(
       trail.currentPoint.longitude,
       trail.currentPoint.latitude,
-      trail.currentPoint.altitude + VISUAL_ALT_OFFSET,
+      FLAT_ALTITUDE,
     )
     if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
@@ -1699,7 +1690,7 @@ function updateReplayPositions(time: number) {
         allVisible.push(trail.currentPoint)
       }
 
-      const newPositions = toCartesianArray(allVisible, VISUAL_ALT_OFFSET)
+      const newPositions = toCartesianArray(allVisible)
       entities.trailRef.positions = newPositions
 
       if (entities.trailLine) {
@@ -1797,9 +1788,8 @@ watch(
 
         // Rebuild data-segment lines
         entities.lines = []
-        const altOff = VISUAL_ALT_OFFSET
         for (let si = 0; si < entities.segments.length; si++) {
-          const cartPts = toCartesianArray(entities.segments[si], altOff)
+          const cartPts = toCartesianArray(entities.segments[si])
           if (cartPts.length >= 2) {
             const line = trackLines!.add({
               id: `${trackKey(track.id, track.source)}::seg${si}`,
@@ -1844,7 +1834,7 @@ watch(
         }
 
         // Restore label & PointPrimitive to last position
-        const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + altOff)
+        const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
         if (entities.label) entities.label.position = lastPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
       }
@@ -2071,11 +2061,13 @@ const SELECTED_ALPHA = 1.0
 const DEDUP_DEG = 1e-7
 const DEDUP_ALT = 0.1
 
-/** Visual altitude offset (meters) applied universally to ALL tracks during rendering.
- *  Renders every track 10 km above its actual altitude so terrain occlusion is
- *  impossible regardless of globe surface elevation.  Original altitude data is
- *  NOT modified — labels, hover tooltips, and the data model remain untouched. */
-const VISUAL_ALT_OFFSET = 10000
+/** All tracks render at this exact WGS84 altitude (meters).  Real altitude from
+ *  the data is ignored for rendering — only used in labels / hover tooltips. */
+const FLAT_ALTITUDE = 10000
+
+/** Extra altitude (meters) for the hover overlay above FLAT_ALTITUDE.
+ *  500 m provides wide depth-test margin without perceptible visual offset. */
+const HOVER_ALT_MARGIN = 1500
 
 // Dot (billboard) base scale values, multiplied by props.dotScale
 const DOT_BASE = 0.7
@@ -2107,21 +2099,30 @@ function applyHoverHighlight(trackId: string) {
       hoverOverlayLines.remove(activeOverlayLine)
       activeOverlayLine = null
     }
-    // Build combined positions from all visible segment lines + bridge lines
+    // Build combined positions from all visible segment lines + bridge lines.
+    // CLONE each Cartesian3 with an outward ECEF scale — preserves lat/lng
+    // (same ray direction) while adding exactly HOVER_ALT_MARGIN meters of altitude.
+    // All tracks sit at the same FLAT_ALTITUDE, so 100 m guarantees the hover
+    // overlay wins every depth test without any visible vertical offset.
     const allPos: Cesium.Cartesian3[] = []
+    const HOVER_Z_BIAS = (6371000 + FLAT_ALTITUDE + HOVER_ALT_MARGIN) / (6371000 + FLAT_ALTITUDE)
     for (let i = 0; i < entry.lines.length; i++) {
       const line = entry.lines[i]
       if (line && line.show !== false) {
         const positions = line.positions
         for (let j = 0; j < positions.length; j++) {
-          allPos.push(positions[j])
+          const clone = Cesium.Cartesian3.clone(positions[j])
+          Cesium.Cartesian3.multiplyByScalar(clone, HOVER_Z_BIAS, clone)
+          allPos.push(clone)
         }
       }
       // Insert bridge positions between segments
       if (i < entry.bridgeLines.length && entry.bridgeLines[i].show !== false) {
         const brPos = entry.bridgeLines[i].positions
         for (let j = 0; j < brPos.length; j++) {
-          allPos.push(brPos[j])
+          const clone = Cesium.Cartesian3.clone(brPos[j])
+          Cesium.Cartesian3.multiplyByScalar(clone, HOVER_Z_BIAS, clone)
+          allPos.push(clone)
         }
       }
     }
@@ -2464,7 +2465,7 @@ function flyToTrack(track: Track) {
   if (!viewer || track.positions.length === 0) return
   const last = track.positions[track.positions.length - 1]
   viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + VISUAL_ALT_OFFSET + 8000),
+    destination: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE + 8000),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-45),
@@ -2726,7 +2727,8 @@ onMounted(async () => {
   pointPrimitives = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection()) as Cesium.PointPrimitiveCollection
   // P2: PolylineCollection for fast track lines (one draw call for all tracks)
   trackLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
-  // Lower track lines to the bottom so Entity overlays (labels, billboards) render on top
+  // Lower endpoint dots and track lines to the bottom so everything renders above them
+  viewer.scene.primitives.lowerToBottom(pointPrimitives as any)
   viewer.scene.primitives.lowerToBottom(trackLines as any)
   // P2: Separate collection for hover/select overlay — added AFTER trackLines so renders on top.
   // Using a separate collection avoids MATERIAL_INDEX triggering full VBO rebuild on 3000+ tracks.
@@ -2737,6 +2739,12 @@ onMounted(async () => {
   pointDotsCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
   await loadBoundaryLayers()
   await loadCityLayer()
+
+  // Raise hover overlay to the top-most layer.  With the 1.002 ECEF bias
+  // (~22.7 km altitude) it wins the depth test against all track lines and
+  // endpoint dots.  Only the point-dot hover entity (disableDepthTestDistance=∞)
+  // renders above it.
+  viewer.scene.primitives.raiseToTop(hoverOverlayLines as any)
 
   // Restore saved camera state, or use default view
   await whenSettingsLoaded()
