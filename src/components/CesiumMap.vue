@@ -1309,8 +1309,8 @@ function createTrackEntities(track: Track) {
         Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
       if (sameLoc) continue
       const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
-        prevLast.longitude, prevLast.latitude, prevLast.altitude,
-        nextFirst.longitude, nextFirst.latitude, nextFirst.altitude,
+        prevLast.longitude, prevLast.latitude, FLAT_ALTITUDE,
+        nextFirst.longitude, nextFirst.latitude, FLAT_ALTITUDE,
       ])
       const br = trackLines.add({
         id: `${tKey}::bridge${si}`,
@@ -1514,8 +1514,8 @@ function syncEntities(newTracks: Track[]) {
               Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
             if (sameLoc) continue
             const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
-              prevLast.longitude, prevLast.latitude, prevLast.altitude,
-              nextFirst.longitude, nextFirst.latitude, nextFirst.altitude,
+              prevLast.longitude, prevLast.latitude, FLAT_ALTITUDE,
+              nextFirst.longitude, nextFirst.latitude, FLAT_ALTITUDE,
             ])
             const br = trackLines!.add({
               id: `${tKey}::bridge${si}`,
@@ -1818,8 +1818,8 @@ watch(
               Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
             if (sameLoc) continue
             const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
-              prevLast.longitude, prevLast.latitude, prevLast.altitude,
-              nextFirst.longitude, nextFirst.latitude, nextFirst.altitude,
+              prevLast.longitude, prevLast.latitude, FLAT_ALTITUDE,
+              nextFirst.longitude, nextFirst.latitude, FLAT_ALTITUDE,
             ])
             entities.bridgeLines.push(trackLines!.add({
               id: `${trackKey(track.id, track.source)}::bridge${si}`,
