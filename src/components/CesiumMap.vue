@@ -127,6 +127,8 @@ let cityHoverEntity: Cesium.Entity | undefined
 let pointDotHoverEntity: Cesium.Entity | undefined
 let hoveredPointDotId: string | null = null
 let pendingCityCleanup: (() => void) | null = null // deferred old-collection removal
+let pendingOldCityPoints: Cesium.PointPrimitiveCollection | null = null
+let pendingOldCityLabels: Cesium.LabelCollection | null = null
 let removeCityCameraChanged: (() => void) | null = null
 
 // 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
@@ -135,6 +137,8 @@ let ctxClickOutsideFn: (() => void) | null = null
 let ctxKeyFn: ((e: KeyboardEvent) => void) | null = null
 let ctxCanvasEl: HTMLCanvasElement | null = null
 let statusMouseLeaveFn: (() => void) | null = null
+let onWheel: ((event: WheelEvent) => void) | null = null
+let labelRebuildCounter = 0
 const { getEffectiveHex, lineColors } = useLineColor()
 
 // Deferred promise — resolves when Cesium Viewer + boundary/city layers are fully initialized
@@ -756,10 +760,12 @@ function clearCityLayer() {
   }
   if (cityPointCollection) {
     viewer.scene.primitives.remove(cityPointCollection)
+    if (!cityPointCollection.isDestroyed()) cityPointCollection.destroy()
     cityPointCollection = undefined
   }
   if (cityLabelCollection) {
     viewer.scene.primitives.remove(cityLabelCollection)
+    if (!cityLabelCollection.isDestroyed()) cityLabelCollection.destroy()
     cityLabelCollection = undefined
   }
   cityPickMap.clear()
@@ -1108,17 +1114,38 @@ function renderCityLayer() {
   if (pendingCityCleanup) {
     viewer.scene.preRender.removeEventListener(pendingCityCleanup)
     pendingCityCleanup = null
+    // Destroy the intermediate collections skipped by rapid swaps
+    if (pendingOldCityPoints) {
+      viewer.scene.primitives.remove(pendingOldCityPoints)
+      if (!pendingOldCityPoints.isDestroyed()) pendingOldCityPoints.destroy()
+      pendingOldCityPoints = null
+    }
+    if (pendingOldCityLabels) {
+      viewer.scene.primitives.remove(pendingOldCityLabels)
+      if (!pendingOldCityLabels.isDestroyed()) pendingOldCityLabels.destroy()
+      pendingOldCityLabels = null
+    }
   }
 
   // Delay removal of old collections by one preRender frame.
   // New LabelCollection needs one frame to upload glyph textures to the GPU
   // before the old labels disappear — otherwise we get a visible blank flicker.
   if (oldPoints || oldLabels) {
+    pendingOldCityPoints = oldPoints ?? null
+    pendingOldCityLabels = oldLabels ?? null
     const cleanup = () => {
       viewer!.scene.preRender.removeEventListener(cleanup)
       pendingCityCleanup = null
-      if (oldPoints) viewer!.scene.primitives.remove(oldPoints)
-      if (oldLabels) viewer!.scene.primitives.remove(oldLabels)
+      if (oldPoints) {
+        viewer!.scene.primitives.remove(oldPoints)
+        if (!oldPoints.isDestroyed()) oldPoints.destroy()
+      }
+      if (oldLabels) {
+        viewer!.scene.primitives.remove(oldLabels)
+        if (!oldLabels.isDestroyed()) oldLabels.destroy()
+      }
+      pendingOldCityPoints = null
+      pendingOldCityLabels = null
       viewer!.scene.requestRender()
     }
     pendingCityCleanup = cleanup
@@ -1527,6 +1554,36 @@ function syncEntities(newTracks: Track[]) {
   }
   const t1 = performance.now()
   console.log(`[perf] Cesium syncEntities: ${(t1 - t0).toFixed(0)}ms  |  tracks=${newTracks.length}`)
+
+  // Periodic LabelCollection rebuild to prevent glyph atlas bloat
+  labelRebuildCounter = (labelRebuildCounter || 0) + 1
+  if (labelRebuildCounter > 50 && trackLabels && viewer) {
+    labelRebuildCounter = 0
+    // Destroy old LabelCollection, create new one
+    viewer.scene.primitives.remove(trackLabels)
+    if (!trackLabels.isDestroyed()) trackLabels.destroy()
+    const newLabels = viewer.scene.primitives.add(new Cesium.LabelCollection())
+    trackLabels = newLabels
+    // Rebuild all labels
+    for (const [tKey, entry] of entityMap) {
+      if (!entry.label) continue
+      const last = entry.label.position
+      entry.label = newLabels.add({
+        id: `${tKey}::dot`,
+        show: entry.label.show,
+        position: last,
+        text: entry.label.text,
+        font: entry.label.font,
+        fillColor: entry.label.fillColor,
+        outlineColor: entry.label.outlineColor,
+        outlineWidth: entry.label.outlineWidth,
+        style: entry.label.style,
+        verticalOrigin: entry.label.verticalOrigin,
+        pixelOffset: entry.label.pixelOffset,
+      })
+    }
+    console.log('[perf] LabelCollection rebuilt to shrink glyph atlas')
+  }
 }
 
 // Sync Cesium entities when props.tracks changes — handles initial load, filter, isolation, clear
@@ -1715,7 +1772,20 @@ watch(boundaryColors, () => {
 }, { deep: true })
 
 let cityLayerDebounce: ReturnType<typeof setTimeout> | null = null
+let lastCityRenderHeight = 0 // LOD threshold tracking
+
+// City visible toggle → load/unload
+watch(() => cityLayer.visible, (vis) => {
+  if (vis) {
+    if (cityFeatures.length === 0) loadCityLayer()
+    else { renderCityLayer(); viewer?.scene.requestRender() }
+  } else {
+    clearCityLayer()
+  }
+})
+
 watch(cityLayer, () => {
+  if (!cityLayer.visible) return // 不可见时跳过重建
   scheduleCityLayerRender(80, true)
 }, { deep: true })
 
@@ -2501,7 +2571,8 @@ onMounted(async () => {
   // ── 边界层延迟加载：等设置恢复后按可见性加载 ──
   await whenSettingsLoaded()
   applyBoundaryVisibility()
-  await loadCityLayer()
+  // 城市图层懒加载：只在可见时才加载
+  if (cityLayer.visible) await loadCityLayer()
 
   // Raise hover overlay to the top-most layer.  With the 1.002 ECEF bias
   // (~22.7 km altitude) it wins the depth test against all track lines and
@@ -2525,7 +2596,7 @@ onMounted(async () => {
 
   // 注册原生 wheel 事件，按 deltaY 比例调整相机距离
   const zoomCanvas = viewer.scene.canvas
-  const onWheel = (event: WheelEvent) => {
+  onWheel = (event: WheelEvent) => {
     event.preventDefault()
 
     // 归一化 delta：deltaMode 0=像素 1=行 2=页
@@ -2575,11 +2646,26 @@ onMounted(async () => {
   zoomCanvas.addEventListener('wheel', onWheel, { passive: false })
 
   // Persist camera state on move end (debounced 500ms)
+  // City layer LOD: only rebuild when camera crosses a threshold
+  const CITY_LOD_THRESHOLDS = [1_000_000, 1_300_000, 1_500_000, 2_400_000]
   viewer.camera.moveEnd.addEventListener(() => {
     if (_cameraSaveTimer) clearTimeout(_cameraSaveTimer)
     _cameraSaveTimer = setTimeout(persistCameraState, 500)
-    // Force city layer rebuild after camera stops — correct LOD for final view
-    scheduleCityLayerRender(100, true)
+    if (cityLayer.visible) {
+      const h = currentCameraHeight()
+      // Rebuild only if camera height crossed a LOD boundary
+      let crossed = false
+      for (const t of CITY_LOD_THRESHOLDS) {
+        if ((lastCityRenderHeight < t && h >= t) || (lastCityRenderHeight >= t && h < t)) {
+          crossed = true
+          break
+        }
+      }
+      if (crossed || lastCityRenderHeight === 0) {
+        lastCityRenderHeight = h
+        scheduleCityLayerRender(100, true)
+      }
+    }
   })
 
   syncEntities(props.tracks)
@@ -2925,6 +3011,10 @@ onUnmounted(() => {
   ctxKeyFn = null
   statusMouseLeaveFn = null
   ctxCanvasEl = null
+  if (onWheel) {
+    viewer?.scene?.canvas?.removeEventListener('wheel', onWheel)
+    onWheel = null
+  }
   if (viewer) {
     pointPrimitives = null
     trackLines = null
