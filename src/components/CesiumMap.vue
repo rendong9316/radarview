@@ -223,7 +223,7 @@ function rebuildPointDotsForTrack(trackId: string) {
     const alt = Number(pos.altitude)
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
 
-    Cesium.Cartesian3.fromDegrees(lon, lat, Number.isFinite(alt) ? alt : 0, undefined, _scratchCartesian)
+    Cesium.Cartesian3.fromDegrees(lon, lat, (Number.isFinite(alt) ? alt : 0) + VISUAL_ALT_OFFSET, undefined, _scratchCartesian)
     const prim = pointDotsCollection.add({
       id: `pointdot::${trackId}::${i}`,
       position: _scratchCartesian,
@@ -749,7 +749,7 @@ function showPointDotHover(trackId: string, pointIndex: number) {
   const line2 = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 
   const text = `${line1}\n${line2}`
-  const position = Cesium.Cartesian3.fromDegrees(pt.longitude, pt.latitude, alt)
+  const position = Cesium.Cartesian3.fromDegrees(pt.longitude, pt.latitude, alt + VISUAL_ALT_OFFSET)
 
   if (!pointDotHoverEntity) {
     pointDotHoverEntity = viewer.entities.add({
@@ -1183,7 +1183,7 @@ function isFinitePoint(p: TrackPoint): boolean {
  *  point-dot rendering still shows the original observations. Cesium's wide
  *  polyline triangulation can draw long spurious triangles when fed
  *  zero-length/near-zero-length segments. */
-function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
+function toCartesianArray(positions: TrackPoint[], altOffset = 0): Cesium.Cartesian3[] {
   const flat: number[] = []
   let lastLng = Number.NaN
   let lastLat = Number.NaN
@@ -1193,16 +1193,17 @@ function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
     const p = positions[i]
     if (!isFinitePoint(p)) continue
 
+    const alt = p.altitude + altOffset
     const sameAsLast =
       Math.abs(p.longitude - lastLng) < 1e-7 &&
       Math.abs(p.latitude - lastLat) < 1e-7 &&
-      Math.abs(p.altitude - lastAlt) < 0.1
+      Math.abs(alt - lastAlt) < 0.1
     if (sameAsLast) continue
 
-    flat.push(p.longitude, p.latitude, p.altitude)
+    flat.push(p.longitude, p.latitude, alt)
     lastLng = p.longitude
     lastLat = p.latitude
-    lastAlt = p.altitude
+    lastAlt = alt
   }
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
 }
@@ -1279,12 +1280,14 @@ function createTrackEntities(track: Track) {
   const lines: Cesium.Polyline[] = []
   const normalAlpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
   const segWidth = isSelected ? SELECTED_WIDTH : baseW
+  const altOff = VISUAL_ALT_OFFSET
   for (let si = 0; si < segments.length; si++) {
-    if (segments[si].length >= 2) {
+    const cartPts = toCartesianArray(segments[si], altOff)
+    if (cartPts.length >= 2) {
       const line = trackLines.add({
         id: `${tKey}::seg${si}`,
         show: !replaying && vis,
-        positions: toCartesianArray(segments[si]),
+        positions: cartPts,
         width: segWidth,
         material: Cesium.Material.fromType('Color', {
           color: color.withAlpha(normalAlpha),
@@ -1298,11 +1301,19 @@ function createTrackEntities(track: Track) {
   }
 
   // ── Bridge polylines (thin + faded connections across gaps) ──
+  // Skip bridge when the two endpoints are at nearly the same location
+  // (e.g. stationary radar target during the gap), otherwise Cesium's
+  // wide-line triangulation produces spurious long triangles.
   const bridgeLines: Cesium.Polyline[] = []
   for (let si = 0; si < segments.length - 1; si++) {
     const prevLast = segments[si][segments[si].length - 1]
     const nextFirst = segments[si + 1][0]
     if (prevLast && nextFirst) {
+      const sameLoc =
+        Math.abs(prevLast.longitude - nextFirst.longitude) < DEDUP_DEG &&
+        Math.abs(prevLast.latitude - nextFirst.latitude) < DEDUP_DEG &&
+        Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
+      if (sameLoc) continue
       const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
         prevLast.longitude, prevLast.latitude, prevLast.altitude,
         nextFirst.longitude, nextFirst.latitude, nextFirst.altitude,
@@ -1325,7 +1336,7 @@ function createTrackEntities(track: Track) {
     .join(' | ')
 
   const last = track.positions[track.positions.length - 1]
-  const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude)
+  const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + altOff)
 
   // P1: PointPrimitive for endpoint dot
   let pointPrimitive: Cesium.PointPrimitive | undefined
@@ -1336,6 +1347,7 @@ function createTrackEntities(track: Track) {
       position: lastPos,
       color: color,
       pixelSize: pointPrimSize(base, track.source),
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
     })
   }
 
@@ -1479,12 +1491,14 @@ function syncEntities(newTracks: Track[]) {
 
         // Rebuild data-segment lines
         existing.lines = []
+        const altOff = VISUAL_ALT_OFFSET
         for (let si = 0; si < existing.segments.length; si++) {
-          if (existing.segments[si].length >= 2) {
+          const cartPts = toCartesianArray(existing.segments[si], altOff)
+          if (cartPts.length >= 2) {
             const line = trackLines!.add({
               id: `${tKey}::seg${si}`,
               show: !replaying && vis !== false,
-              positions: toCartesianArray(existing.segments[si]),
+              positions: cartPts,
               width: segWidth,
               material: Cesium.Material.fromType('Color', {
                 color: color.withAlpha(normalAlpha),
@@ -1502,6 +1516,11 @@ function syncEntities(newTracks: Track[]) {
           const prevLast = existing.segments[si][existing.segments[si].length - 1]
           const nextFirst = existing.segments[si + 1][0]
           if (prevLast && nextFirst) {
+            const sameLoc =
+              Math.abs(prevLast.longitude - nextFirst.longitude) < DEDUP_DEG &&
+              Math.abs(prevLast.latitude - nextFirst.latitude) < DEDUP_DEG &&
+              Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
+            if (sameLoc) continue
             const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
               prevLast.longitude, prevLast.latitude, prevLast.altitude,
               nextFirst.longitude, nextFirst.latitude, nextFirst.altitude,
@@ -1531,7 +1550,8 @@ function syncEntities(newTracks: Track[]) {
 
       // Update label & PointPrimitive to last position
       const last = track.positions[track.positions.length - 1]
-      const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude)
+      const endAltOff = VISUAL_ALT_OFFSET
+      const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + endAltOff)
       if (existing.label) existing.label.position = lastPos
       if (existing.pointPrimitive) existing.pointPrimitive.position = lastPos
     }
@@ -1618,7 +1638,7 @@ function updateReplayPositions(time: number) {
       if (lastPastSeg >= 0) {
         const lastSeg = entities.segments[lastPastSeg]
         const lastPt = lastSeg[lastSeg.length - 1]
-        const frozenPos = Cesium.Cartesian3.fromDegrees(lastPt.longitude, lastPt.latitude, lastPt.altitude)
+        const frozenPos = Cesium.Cartesian3.fromDegrees(lastPt.longitude, lastPt.latitude, lastPt.altitude + VISUAL_ALT_OFFSET)
         if (entities.label) entities.label.position = frozenPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = frozenPos
         // Show all point dots from completed segments
@@ -1655,7 +1675,7 @@ function updateReplayPositions(time: number) {
     const cpPos = Cesium.Cartesian3.fromDegrees(
       trail.currentPoint.longitude,
       trail.currentPoint.latitude,
-      trail.currentPoint.altitude,
+      trail.currentPoint.altitude + VISUAL_ALT_OFFSET,
     )
     if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
@@ -1679,7 +1699,7 @@ function updateReplayPositions(time: number) {
         allVisible.push(trail.currentPoint)
       }
 
-      const newPositions = toCartesianArray(allVisible)
+      const newPositions = toCartesianArray(allVisible, VISUAL_ALT_OFFSET)
       entities.trailRef.positions = newPositions
 
       if (entities.trailLine) {
@@ -1777,12 +1797,14 @@ watch(
 
         // Rebuild data-segment lines
         entities.lines = []
+        const altOff = VISUAL_ALT_OFFSET
         for (let si = 0; si < entities.segments.length; si++) {
-          if (entities.segments[si].length >= 2) {
+          const cartPts = toCartesianArray(entities.segments[si], altOff)
+          if (cartPts.length >= 2) {
             const line = trackLines!.add({
               id: `${trackKey(track.id, track.source)}::seg${si}`,
               show: vis,
-              positions: toCartesianArray(entities.segments[si]),
+              positions: cartPts,
               width: segWidth,
               material: Cesium.Material.fromType('Color', {
                 color: color.withAlpha(normalAlpha),
@@ -1800,6 +1822,11 @@ watch(
           const prevLast = entities.segments[si][entities.segments[si].length - 1]
           const nextFirst = entities.segments[si + 1][0]
           if (prevLast && nextFirst) {
+            const sameLoc =
+              Math.abs(prevLast.longitude - nextFirst.longitude) < DEDUP_DEG &&
+              Math.abs(prevLast.latitude - nextFirst.latitude) < DEDUP_DEG &&
+              Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
+            if (sameLoc) continue
             const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
               prevLast.longitude, prevLast.latitude, prevLast.altitude,
               nextFirst.longitude, nextFirst.latitude, nextFirst.altitude,
@@ -1817,7 +1844,7 @@ watch(
         }
 
         // Restore label & PointPrimitive to last position
-        const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude)
+        const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + altOff)
         if (entities.label) entities.label.position = lastPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
       }
@@ -2039,6 +2066,16 @@ const NORMAL_ALPHA = 0.88
 const RAW_ALPHA = 0.75
 const SELECTED_WIDTH = 4.0
 const SELECTED_ALPHA = 1.0
+
+// Spatial dedup thresholds — matches toCartesianArray cooperative dedup
+const DEDUP_DEG = 1e-7
+const DEDUP_ALT = 0.1
+
+/** Visual altitude offset (meters) applied universally to ALL tracks during rendering.
+ *  Renders every track 10 km above its actual altitude so terrain occlusion is
+ *  impossible regardless of globe surface elevation.  Original altitude data is
+ *  NOT modified — labels, hover tooltips, and the data model remain untouched. */
+const VISUAL_ALT_OFFSET = 10000
 
 // Dot (billboard) base scale values, multiplied by props.dotScale
 const DOT_BASE = 0.7
@@ -2427,7 +2464,7 @@ function flyToTrack(track: Track) {
   if (!viewer || track.positions.length === 0) return
   const last = track.positions[track.positions.length - 1]
   viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + 8000),
+    destination: Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, last.altitude + VISUAL_ALT_OFFSET + 8000),
     orientation: {
       heading: Cesium.Math.toRadians(0),
       pitch: Cesium.Math.toRadians(-45),
