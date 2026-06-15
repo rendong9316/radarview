@@ -67,8 +67,6 @@ import { useBoundaryLayers, type BoundaryLayerKey } from '../composables/useBoun
 import { useCityLayer, type CityLevel } from '../composables/useCityLayer'
 import { trackKey } from '../composables/useTracks'
 import { scheduleSave, getRawSetting, whenSettingsLoaded } from '../composables/useSettingsPersistence'
-import { segmentTrack } from '../composables/useTrackSegmentation'
-import { bridgeWidthRatio, bridgeAlpha, segMultiplier, segMinThresholdMin } from '../composables/useSegmentationSettings'
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
 
@@ -114,9 +112,13 @@ let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
 let fpsFrameCount = 0
 let fpsLastSampleTime = 0 // 0 = uninitialized, set on first postRender
 let fpsSmoothed = 0
-let boundaryDataSources = new Map<BoundaryLayerKey, Cesium.GeoJsonDataSource>()
-/** Cached flat arrays of polyline entities — avoids iterating dataSource.entities.values each time */
-let boundaryPolylines = new Map<BoundaryLayerKey, Cesium.Entity[]>()
+// ── 边界层 Primitive（方案D：每层一个 Primitive，替代 PolylineCollection）──
+const BOUNDARY_ALTITUDE = 50 // 米，略高于椭球面防 Z-fighting
+const SIMPLIFY_TOLERANCE = 0.01 // Douglas-Peucker 简化容差（度），~0.01°≈1km
+/** Per-layer Primitive references */
+const boundaryPrimitives = new Map<BoundaryLayerKey, Cesium.Primitive>()
+/** Per-layer merged ring coordinates [lon, lat][] — cached for rebuild on color/width change */
+const boundaryRingCache = new Map<BoundaryLayerKey, number[][][]>()
 let cityPointCollection: Cesium.PointPrimitiveCollection | undefined
 let cityLabelCollection: Cesium.LabelCollection | undefined
 let cityFeatures: CityFeature[] = []
@@ -379,24 +381,12 @@ const BOUNDARY_LAYERS = [
 }>
 
 interface TrackEntities {
-  /** P2: Data-segment polylines in PolylineCollection — one per contiguous segment */
-  lines: Cesium.Polyline[]
-  /** P2: Bridge polylines connecting segments across temporal gaps — thin + faded */
-  bridgeLines: Cesium.Polyline[]
-  /** P2: Replay trail polyline — created on demand during active replay */
+  line: Cesium.Polyline
   trailLine: Cesium.Polyline | undefined
-  /** P1: Label in LabelCollection — GPU-instanced, one draw call for all labels */
   label: Cesium.Label | undefined
-  /** P1: PointPrimitive for endpoint dot — replaces billboard image */
   pointPrimitive: Cesium.PointPrimitive | undefined
   source: string
   labelText: string
-  /** Mutable holder for current polyline positions — updated each replay frame */
-  trailRef: { positions: Cesium.Cartesian3[] }
-  /** Last lo index from binary search — polyline only updated when this advances */
-  lastTrailLo: number
-  /** Pre-computed segment position arrays (references into track.positions) */
-  segments: TrackPoint[][]
 }
 
 const entityMap = new Map<string, TrackEntities>()
@@ -416,77 +406,274 @@ interface CityFeature {
   latitude: number
 }
 
-async function loadBoundaryLayers() {
-  if (!viewer) return
+/** Extract all line coordinate rings from a GeoJSON geometry object */
+function extractPolygonRings(geometry: any): number[][][] {
+  const type = geometry?.type
+  const coords = geometry?.coordinates
+  if (!type || !coords) return []
 
-  const results = await Promise.allSettled(
-    BOUNDARY_LAYERS.map(async (layer) => {
-      const dataSource = await Cesium.GeoJsonDataSource.load(layer.url, {
-        stroke: Cesium.Color.fromCssColorString(boundaryColors[layer.key]).withAlpha(layer.alpha),
-        fill: Cesium.Color.TRANSPARENT,
-        strokeWidth: boundaryWidths[layer.key],
-        markerSize: 0,
-        clampToGround: true,
-      })
-      await viewer?.dataSources.add(dataSource)
-      dataSource.show = boundaryVisible[layer.key]
-      boundaryDataSources.set(layer.key, dataSource)
+  switch (type) {
+    case 'LineString':
+      return [coords]
+    case 'MultiLineString':
+      return coords
+    case 'Polygon':
+      return [coords[0]] // 只取外环，忽略岛洞
+    case 'MultiPolygon':
+      return coords.map((p: any) => p[0])
+    default:
+      return []
+  }
+}
 
-      // Pre-cache polyline entities for fast width updates — avoids
-      // iterating dataSource.entities.values on every slider tick.
-      const polylines: Cesium.Entity[] = []
-      for (const entity of dataSource.entities.values) {
-        if (entity.polyline) polylines.push(entity)
-      }
-      boundaryPolylines.set(layer.key, polylines)
-      console.log(`[boundary] ${layer.key}: cached ${polylines.length} polyline entities`)
+/** Douglas-Peucker 折线简化算法（基于索引，零临时数组分配） */
+function simplifyRing(ring: number[][], tolerance: number): number[][] {
+  if (ring.length <= 2) return ring
+  const result: number[][] = []
+  result.push(ring[0])
+  simplifyDp(ring, 0, ring.length - 1, tolerance, result)
+  result.push(ring[ring.length - 1])
+  return result
+}
 
-      return dataSource
-    }),
-  )
+function simplifyDp(
+  ring: number[][], lo: number, hi: number, tolerance: number, out: number[][],
+) {
+  if (hi - lo <= 1) return
 
-  for (const result of results) {
-    if (result.status === 'rejected') {
-      console.warn('Failed to load Natural Earth boundary layer:', result.reason)
+  const first = ring[lo]
+  const last = ring[hi]
+  const dx = last[0] - first[0]
+  const dy = last[1] - first[1]
+  const lenSq = dx * dx + dy * dy
+
+  let maxDist = 0
+  let maxIdx = lo + 1
+
+  for (let i = lo + 1; i < hi; i++) {
+    let dist: number
+    if (lenSq === 0) {
+      const ddx = ring[i][0] - first[0]
+      const ddy = ring[i][1] - first[1]
+      dist = Math.sqrt(ddx * ddx + ddy * ddy)
+    } else {
+      const cross = Math.abs((ring[i][0] - first[0]) * dy - (ring[i][1] - first[1]) * dx)
+      dist = cross / Math.sqrt(lenSq)
+    }
+    if (dist > maxDist) {
+      maxDist = dist
+      maxIdx = i
     }
   }
 
-  viewer?.scene.requestRender()
+  if (maxDist <= tolerance) return // 中间所有点都可丢弃
+
+  simplifyDp(ring, lo, maxIdx, tolerance, out)
+  out.push(ring[maxIdx])
+  simplifyDp(ring, maxIdx, hi, tolerance, out)
+}
+
+/** 合并端点相接的环，大幅减少 Polyline 对象数量 */
+function mergeConnectedRings(rings: number[][][]): number[][][] {
+  if (rings.length <= 1) return rings
+
+  const key = (pt: number[]) => `${pt[0].toFixed(6)},${pt[1].toFixed(6)}`
+  const startMap = new Map<string, number[]>()
+  const endMap = new Map<string, number[]>()
+  const used = new Set<number>()
+  const closed: number[][][] = [] // 闭合环（首尾相接），单独保留
+
+  for (let i = 0; i < rings.length; i++) {
+    if (rings[i].length < 2) { used.add(i); continue }
+    const sk = key(rings[i][0])
+    const ek = key(rings[i][rings[i].length - 1])
+    if (!startMap.has(sk)) startMap.set(sk, [])
+    startMap.get(sk)!.push(i)
+    if (!endMap.has(ek)) endMap.set(ek, [])
+    endMap.get(ek)!.push(i)
+    // 闭合环单独保留
+    if (sk === ek) { used.add(i); closed.push(rings[i].slice()) }
+  }
+
+  const merged: number[][][] = [...closed]
+
+  for (let i = 0; i < rings.length; i++) {
+    if (used.has(i)) continue
+
+    let chain = rings[i].slice()
+    used.add(i)
+
+    // 向前扩展
+    let growing = true
+    while (growing) {
+      growing = false
+      const headKey = key(chain[0])
+      // 其他环尾 == 当前头
+      for (const ci of endMap.get(headKey) || []) {
+        if (!used.has(ci)) { chain = [...rings[ci].slice(0, -1), ...chain]; used.add(ci); growing = true; break }
+      }
+      if (growing) continue
+      // 其他环头 == 当前头（需反转）
+      for (const ci of startMap.get(headKey) || []) {
+        if (!used.has(ci)) { chain = [...rings[ci].slice().reverse().slice(0, -1), ...chain]; used.add(ci); growing = true; break }
+      }
+    }
+
+    // 向后扩展
+    growing = true
+    while (growing) {
+      growing = false
+      const tailKey = key(chain[chain.length - 1])
+      // 其他环头 == 当前尾
+      for (const ci of startMap.get(tailKey) || []) {
+        if (!used.has(ci)) { chain = [...chain, ...rings[ci].slice(1)]; used.add(ci); growing = true; break }
+      }
+      if (growing) continue
+      // 其他环尾 == 当前尾（需反转）
+      for (const ci of endMap.get(tailKey) || []) {
+        if (!used.has(ci)) { chain = [...chain, ...rings[ci].slice().reverse().slice(1)]; used.add(ci); growing = true; break }
+      }
+    }
+
+    merged.push(chain)
+  }
+
+  return merged
 }
 
 function clearBoundaryLayers() {
-  if (!viewer) {
-    boundaryDataSources.clear()
-    boundaryPolylines.clear()
-    return
+  for (const [key] of boundaryPrimitives) {
+    clearSingleBoundaryLayer(key)
   }
-  for (const dataSource of boundaryDataSources.values()) {
-    viewer.dataSources.remove(dataSource, true)
-  }
-  boundaryDataSources.clear()
-  boundaryPolylines.clear()
+  boundaryRingCache.clear()
 }
 
-/** Toggle boundary visibility — only flips dataSource.show per layer, does NOT iterate entities */
+/** Build a Cesium Primitive from cached rings for one boundary layer */
+function buildBoundaryPrimitive(layerKey: BoundaryLayerKey): Cesium.Primitive | null {
+  const rings = boundaryRingCache.get(layerKey)
+  if (!rings || rings.length === 0) return null
+
+  const layerConfig = BOUNDARY_LAYERS.find(l => l.key === layerKey)
+  const alpha = layerConfig?.alpha ?? 0.55
+  const color = Cesium.Color.fromCssColorString(boundaryColors[layerKey]).withAlpha(alpha)
+  const width = boundaryWidths[layerKey]
+
+  const instances: Cesium.GeometryInstance[] = []
+  for (let i = 0; i < rings.length; i++) {
+    const positions = rings[i].map(pt =>
+      Cesium.Cartesian3.fromDegrees(pt[0], pt[1], BOUNDARY_ALTITUDE),
+    )
+    instances.push(new Cesium.GeometryInstance({
+      geometry: new Cesium.PolylineGeometry({
+        positions,
+        width,
+        vertexFormat: Cesium.PolylineMaterialAppearance.VERTEX_FORMAT,
+      }),
+    }))
+  }
+
+  return new Cesium.Primitive({
+    geometryInstances: instances,
+    appearance: new Cesium.PolylineMaterialAppearance({
+      material: Cesium.Material.fromType('Color', { color }),
+    }),
+    asynchronous: false,
+  })
+}
+
+/** Toggle boundary layers — load on first show, unload on hide */
 function applyBoundaryVisibility() {
   for (const layer of BOUNDARY_LAYERS) {
-    const dataSource = boundaryDataSources.get(layer.key)
-    if (!dataSource) continue
-    dataSource.show = boundaryVisible[layer.key]
+    if (boundaryVisible[layer.key]) {
+      if (boundaryPrimitives.has(layer.key)) continue
+      loadSingleBoundaryLayer(layer.key)
+    } else {
+      clearSingleBoundaryLayer(layer.key)
+    }
   }
 }
 
-/** Update stroke width for a single boundary layer (uses cached polyline array) */
-function applyBoundaryWidth(layerKey: BoundaryLayerKey) {
-  const polylines = boundaryPolylines.get(layerKey)
-  if (!polylines || polylines.length === 0) return
-  const width = boundaryWidths[layerKey]
-  const ds = boundaryDataSources.get(layerKey)
-  ds?.entities.suspendEvents()
-  for (const entity of polylines) {
-    ;(entity.polyline as any).width = width
+async function loadSingleBoundaryLayer(layerKey: BoundaryLayerKey) {
+  if (!viewer) return
+  if (boundaryPrimitives.has(layerKey)) return
+
+  const layer = BOUNDARY_LAYERS.find(l => l.key === layerKey)
+  if (!layer) return
+
+  try {
+    const response = await fetch(layer.url)
+    if (!response.ok) throw new Error(`HTTP ${response.status}`)
+    const geojson = await response.json()
+    const features = Array.isArray(geojson.features) ? geojson.features : []
+
+    // 1. 收集 + 简化 + 合并
+    const allRings: number[][][] = []
+    for (const feature of features) {
+      const rings = extractPolygonRings(feature.geometry)
+      for (const ring of rings) {
+        if (Array.isArray(ring) && ring.length >= 2) allRings.push(ring as number[][])
+      }
+    }
+    const simplified = allRings.map(r => simplifyRing(r, SIMPLIFY_TOLERANCE))
+    const merged = mergeConnectedRings(simplified)
+
+    const totalRawVerts = allRings.reduce((s, r) => s + r.length, 0)
+    const totalSimpleVerts = simplified.reduce((s, r) => s + r.length, 0)
+
+    // 2. 缓存合并后的环（用于后续颜色/线宽变更重建）
+    boundaryRingCache.set(layerKey, merged)
+
+    // 3. 构建 Primitive 并加入场景
+    const primitive = buildBoundaryPrimitive(layerKey)
+    if (!primitive) return
+
+    // fetch 期间用户可能关掉了可见性
+    if (!boundaryVisible[layerKey]) return
+
+    viewer.scene.primitives.add(primitive)
+    boundaryPrimitives.set(layerKey, primitive)
+
+    const ratio = totalRawVerts > 0 ? ((1 - totalSimpleVerts / totalRawVerts) * 100).toFixed(0) : '0'
+    console.log(`[boundary] ${layerKey}: ${allRings.length}→${merged.length} rings, ${totalRawVerts}→${totalSimpleVerts} verts (-${ratio}%)`)
+    viewer.scene.requestRender()
+  } catch (e) {
+    console.warn(`[boundary] failed to load ${layerKey}:`, e)
   }
-  ds?.entities.resumeEvents()
+}
+
+function clearSingleBoundaryLayer(layerKey: BoundaryLayerKey) {
+  const primitive = boundaryPrimitives.get(layerKey)
+  if (primitive && viewer) {
+    viewer.scene.primitives.remove(primitive)
+    if (!primitive.isDestroyed()) primitive.destroy()
+  }
+  boundaryPrimitives.delete(layerKey)
+  boundaryRingCache.delete(layerKey)
+  viewer?.scene.requestRender()
+}
+
+/** Rebuild a boundary primitive with new width/color */
+function rebuildBoundaryPrimitive(layerKey: BoundaryLayerKey) {
+  if (!boundaryPrimitives.has(layerKey)) return // 未加载，无需重建
+  // 销毁旧 Primitive
+  const old = boundaryPrimitives.get(layerKey)!
+  if (viewer) {
+    viewer.scene.primitives.remove(old)
+    if (!old.isDestroyed()) old.destroy()
+  }
+  boundaryPrimitives.delete(layerKey)
+  // 重建
+  const primitive = buildBoundaryPrimitive(layerKey)
+  if (primitive && viewer) {
+    viewer.scene.primitives.add(primitive)
+    boundaryPrimitives.set(layerKey, primitive)
+    viewer.scene.requestRender()
+  }
+}
+
+/** Update stroke width for a single boundary layer */
+function applyBoundaryWidth(layerKey: BoundaryLayerKey) {
+  rebuildBoundaryPrimitive(layerKey)
 }
 
 /** Update stroke width for all boundary layers */
@@ -496,19 +683,9 @@ function applyAllBoundaryWidths() {
   }
 }
 
-/** Update stroke color for a single boundary layer (uses cached polyline array) */
+/** Update stroke color for a single boundary layer */
 function applyBoundaryColor(layerKey: BoundaryLayerKey) {
-  const polylines = boundaryPolylines.get(layerKey)
-  if (!polylines || polylines.length === 0) return
-  const color = boundaryColors[layerKey]
-  const layerConfig = BOUNDARY_LAYERS.find(l => l.key === layerKey)
-  const alpha = layerConfig?.alpha ?? 0.55
-  const ds = boundaryDataSources.get(layerKey)
-  ds?.entities.suspendEvents()
-  for (const entity of polylines) {
-    ;(entity.polyline as any).material = Cesium.Color.fromCssColorString(color).withAlpha(alpha)
-  }
-  ds?.entities.resumeEvents()
+  rebuildBoundaryPrimitive(layerKey)
 }
 
 /** Update stroke color for all boundary layers */
@@ -1177,79 +1354,15 @@ function isFinitePoint(p: TrackPoint): boolean {
     p.latitude >= -90 && p.latitude <= 90
 }
 
-/** Batch-convert TrackPoint[] → Cartesian3[] for polyline rendering.
- *  Consecutive near-duplicate vertices are removed only for the line mesh;
- *  point-dot rendering still shows the original observations. Cesium's wide
- *  polyline triangulation can draw long spurious triangles when fed
- *  zero-length/near-zero-length segments. */
+/** Convert track positions to a flat Cartesian3 array for polyline rendering */
 function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
   const flat: number[] = []
-  let lastLng = Number.NaN
-  let lastLat = Number.NaN
-
   for (let i = 0; i < positions.length; i++) {
     const p = positions[i]
     if (!isFinitePoint(p)) continue
-
-    const sameAsLast =
-      Math.abs(p.longitude - lastLng) < 1e-7 &&
-      Math.abs(p.latitude - lastLat) < 1e-7
-    if (sameAsLast) continue
-
     flat.push(p.longitude, p.latitude, FLAT_ALTITUDE)
-    lastLng = p.longitude
-    lastLat = p.latitude
   }
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
-}
-
-/** For replay trail: return all points up to `time` plus the interpolated current position.
- *  pastPoints — points with timestamp <= time (the "already flown" portion)
- *  currentPoint — interpolated position at exact `time` (where the dot sits) */
-function getTrailData(points: TrackPoint[], time: number): {
-  pastPoints: TrackPoint[]
-  currentPoint: TrackPoint
-  /** Index of the last data point at or before `time` */
-  lo: number
-} | null {
-  if (points.length === 0) return null
-
-  if (time <= points[0].timestamp) {
-    return { pastPoints: [points[0]], currentPoint: points[0], lo: 0 }
-  }
-
-  if (time >= points[points.length - 1].timestamp) {
-    return {
-      pastPoints: [...points],
-      currentPoint: points[points.length - 1],
-      lo: points.length - 1,
-    }
-  }
-
-  let lo = 0
-  let hi = points.length - 1
-  while (lo < hi - 1) {
-    const mid = (lo + hi) >> 1
-    if (points[mid].timestamp <= time) lo = mid
-    else hi = mid
-  }
-
-  const dt = points[hi].timestamp - points[lo].timestamp
-  const t = dt > 0 ? (time - points[lo].timestamp) / dt : 0
-
-  const currentPoint: TrackPoint = {
-    timestamp: points[lo].timestamp,
-    latitude: points[lo].latitude + (points[hi].latitude - points[lo].latitude) * t,
-    longitude: points[lo].longitude + (points[hi].longitude - points[lo].longitude) * t,
-    altitude: points[lo].altitude + (points[hi].altitude - points[lo].altitude) * t,
-    heading: points[lo].heading + (points[hi].heading - points[lo].heading) * t,
-    groundSpeed: points[lo].groundSpeed + (points[hi].groundSpeed - points[lo].groundSpeed) * t,
-    verticalRate: points[lo].verticalRate + (points[hi].verticalRate - points[lo].verticalRate) * t,
-  }
-
-  const pastPoints = points.slice(0, lo + 1)
-
-  return { pastPoints, currentPoint, lo }
 }
 
 function createTrackEntities(track: Track) {
@@ -1263,67 +1376,20 @@ function createTrackEntities(track: Track) {
   const replaying = props.replayTime !== null
   const vis = visibility.value[track.source as keyof typeof visibility.value] !== false
 
-  // Segment track positions at large temporal gaps
-  const rawSegments = segmentTrack(track.positions)
-  const segments: TrackPoint[][] = rawSegments.map(s => s.positions)
+  const flat = toCartesianArray(track.positions)
   const baseW = baseWidth(track.source)
-
-  // Mutable holder for replay trail — always starts empty; updateReplayPositions fills it
-  const trailRef = { positions: [] as Cesium.Cartesian3[] }
-
-  // ── Data-segment polylines ──
-  const lines: Cesium.Polyline[] = []
   const normalAlpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
-  const segWidth = isSelected ? SELECTED_WIDTH : baseW
-  for (let si = 0; si < segments.length; si++) {
-    const cartPts = toCartesianArray(segments[si])
-    if (cartPts.length >= 2) {
-      const line = trackLines.add({
-        id: `${tKey}::seg${si}`,
-        show: !replaying && vis,
-        positions: cartPts,
-        width: segWidth,
-        material: Cesium.Material.fromType('Color', {
-          color: color.withAlpha(normalAlpha),
-        }),
-      })
-      lines.push(line)
-    } else {
-      // Placeholder for segment indices alignment
-      lines.push(null as unknown as Cesium.Polyline)
-    }
-  }
 
-  // ── Bridge polylines (thin + faded connections across gaps) ──
-  // Skip bridge when the two endpoints are at nearly the same location
-  // (e.g. stationary radar target during the gap), otherwise Cesium's
-  // wide-line triangulation produces spurious long triangles.
-  const bridgeLines: Cesium.Polyline[] = []
-  for (let si = 0; si < segments.length - 1; si++) {
-    const prevLast = segments[si][segments[si].length - 1]
-    const nextFirst = segments[si + 1][0]
-    if (prevLast && nextFirst) {
-      const sameLoc =
-        Math.abs(prevLast.longitude - nextFirst.longitude) < DEDUP_DEG &&
-        Math.abs(prevLast.latitude - nextFirst.latitude) < DEDUP_DEG &&
-        Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
-      if (sameLoc) continue
-      const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
-        prevLast.longitude, prevLast.latitude, FLAT_ALTITUDE,
-        nextFirst.longitude, nextFirst.latitude, FLAT_ALTITUDE,
-      ])
-      const br = trackLines.add({
-        id: `${tKey}::bridge${si}`,
-        show: !replaying && vis,
-        positions: bridgePos,
-        width: Math.max(1.0, segWidth * bridgeWidthRatio.value),
-        material: Cesium.Material.fromType('Color', {
-          color: color.withAlpha(bridgeAlpha.value),
-        }),
-      })
-      bridgeLines.push(br)
-    }
-  }
+  // Single polyline with all positions (no segmentation)
+  const line = trackLines.add({
+    id: tKey,
+    show: !replaying && vis,
+    positions: flat,
+    width: isSelected ? SELECTED_WIDTH : baseW,
+    material: Cesium.Material.fromType('Color', {
+      color: color.withAlpha(normalAlpha),
+    }),
+  })
 
   const label = [track.metadata.flightNumber, track.metadata.aircraftType]
     .filter(Boolean)
@@ -1363,23 +1429,15 @@ function createTrackEntities(track: Track) {
   }
 
   entityMap.set(tKey, {
-    lines, bridgeLines, trailLine: undefined,
-    label: lbl, pointPrimitive,
+    line, trailLine: undefined, label: lbl, pointPrimitive,
     source: track.source, labelText: label || track.id,
-    trailRef, lastTrailLo: track.positions.length - 1,
-    segments,
   })
 }
 
 function removeTrackEntities(id: string) {
   const entry = entityMap.get(id)
   if (entry && viewer) {
-    for (const line of entry.lines) {
-      if (line) trackLines?.remove(line)
-    }
-    for (const br of entry.bridgeLines) {
-      trackLines?.remove(br)
-    }
+    trackLines?.remove(entry.line)
     if (entry.trailLine) trackLines?.remove(entry.trailLine)
     if (entry.label) trackLabels?.remove(entry.label)
     if (entry.pointPrimitive) pointPrimitives?.remove(entry.pointPrimitive)
@@ -1387,20 +1445,11 @@ function removeTrackEntities(id: string) {
   }
 }
 
-/** Strip segment/bridge suffix from a polyline ID to get the entityMap key.
- *  "{icao}::{source}::seg0" | "{icao}::{source}::bridge0" → "{icao}::{source}"
- */
+/** Strip suffix from a polyline ID to get the entityMap key */
 function extractTrackKeyFromPolylineId(polylineId: string): string | null {
-  // Segment ID pattern: "{trackKey}::seg{N}" or "{trackKey}::bridge{N}"
-  const segIdx = polylineId.lastIndexOf('::seg')
-  if (segIdx > 0) return polylineId.substring(0, segIdx)
-  const brIdx = polylineId.lastIndexOf('::bridge')
-  if (brIdx > 0) return polylineId.substring(0, brIdx)
-  // trail polyline: "{trackKey}::trail"
-  const trailIdx = polylineId.lastIndexOf('::trail')
-  if (trailIdx > 0) return polylineId.substring(0, trailIdx)
-  // Direct trackKey (backward compat for PointPrimitive / Label)
-  return polylineId
+  if (entityMap.has(polylineId)) return polylineId
+  if (polylineId.endsWith('::dot')) return polylineId.slice(0, polylineId.lastIndexOf('::'))
+  return null
 }
 
 function clearAllEntities() {
@@ -1416,12 +1465,7 @@ function clearAllEntities() {
 function reapplyVisibility() {
   for (const [, entities] of entityMap) {
     const vis = visibility.value[entities.source as keyof typeof visibility.value]
-    for (const line of entities.lines) {
-      if (line) line.show = vis
-    }
-    for (const br of entities.bridgeLines) {
-      br.show = vis
-    }
+    entities.line.show = vis
     if (entities.label) entities.label.show = vis
     if (entities.pointPrimitive) entities.pointPrimitive.show = vis
   }
@@ -1454,90 +1498,20 @@ function syncEntities(newTracks: Track[]) {
         continue
       }
 
-      // Re-segment and rebuild lines when positions changed (e.g. time filter)
-      const posCountChanged = existing.segments.reduce((s, seg) => s + seg.length, 0) !== track.positions.length
-      if (posCountChanged) {
-        // Remove old lines/bridgeLines
-        for (const line of existing.lines) {
-          if (line) trackLines?.remove(line)
-        }
-        for (const br of existing.bridgeLines) {
-          trackLines?.remove(br)
-        }
-        if (existing.trailLine) {
-          trackLines?.remove(existing.trailLine)
-          existing.trailLine = undefined
-        }
-
-        // Re-segment
-        const rawSegments = segmentTrack(track.positions)
-        existing.segments = rawSegments.map(s => s.positions)
-        existing.lastTrailLo = track.positions.length - 1
-        existing.trailRef.positions = []
-
+      // Update line positions when changed (e.g. time filter)
+      if (existing.line.positions.length !== track.positions.length) {
+        existing.line.positions = toCartesianArray(track.positions)
+        // Re-apply color in case selection state changed
         const color = getLineColor(track.source)
         const isSelected = tKey === props.selectedId
         const isRaw = track.source === 'radar_raw'
-        const vis = visibility.value[track.source as keyof typeof visibility.value]
-        const segWidth = isSelected ? SELECTED_WIDTH : baseWidth(track.source)
         const normalAlpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
-
-        // Rebuild data-segment lines
-        existing.lines = []
-        for (let si = 0; si < existing.segments.length; si++) {
-          const cartPts = toCartesianArray(existing.segments[si])
-          if (cartPts.length >= 2) {
-            const line = trackLines!.add({
-              id: `${tKey}::seg${si}`,
-              show: !replaying && vis !== false,
-              positions: cartPts,
-              width: segWidth,
-              material: Cesium.Material.fromType('Color', {
-                color: color.withAlpha(normalAlpha),
-              }),
-            })
-            existing.lines.push(line)
-          } else {
-            existing.lines.push(null as unknown as Cesium.Polyline)
-          }
+        if (existing.line.material && existing.line.material.type === 'Color') {
+          existing.line.material.uniforms.color = color.withAlpha(normalAlpha)
         }
-
-        // Rebuild bridge lines
-        existing.bridgeLines = []
-        for (let si = 0; si < existing.segments.length - 1; si++) {
-          const prevLast = existing.segments[si][existing.segments[si].length - 1]
-          const nextFirst = existing.segments[si + 1][0]
-          if (prevLast && nextFirst) {
-            const sameLoc =
-              Math.abs(prevLast.longitude - nextFirst.longitude) < DEDUP_DEG &&
-              Math.abs(prevLast.latitude - nextFirst.latitude) < DEDUP_DEG &&
-              Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
-            if (sameLoc) continue
-            const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
-              prevLast.longitude, prevLast.latitude, FLAT_ALTITUDE,
-              nextFirst.longitude, nextFirst.latitude, FLAT_ALTITUDE,
-            ])
-            const br = trackLines!.add({
-              id: `${tKey}::bridge${si}`,
-              show: !replaying && vis !== false,
-              positions: bridgePos,
-              width: Math.max(1.0, segWidth * bridgeWidthRatio.value),
-              material: Cesium.Material.fromType('Color', {
-                color: color.withAlpha(bridgeAlpha.value),
-              }),
-            })
-            existing.bridgeLines.push(br)
-          }
-        }
+        existing.line.width = isSelected ? SELECTED_WIDTH : baseWidth(track.source)
       } else if (!replaying) {
-        // Same positions — just update visibility
-        const vis = visibility.value[track.source as keyof typeof visibility.value] !== false
-        for (const line of existing.lines) {
-          if (line) line.show = vis
-        }
-        for (const br of existing.bridgeLines) {
-          br.show = vis
-        }
+        existing.line.show = visibility.value[track.source as keyof typeof visibility.value] !== false
       }
 
       // Update label & PointPrimitive to last position
@@ -1566,164 +1540,78 @@ watch(
 
 function updateReplayPositions(time: number) {
   if (!viewer) return
+  const visCtx = visibility.value
   for (const track of props.tracks) {
-    const entities = entityMap.get(trackKey(track.id, track.source))
-    if (!entities) continue
+    const tKey = trackKey(track.id, track.source)
+    const entities = entityMap.get(tKey)
+    if (!entities || track.positions.length === 0) continue
 
-    // ── Determine which segment contains the current replay time ──
-    let activeSegIdx = -1
-    for (let s = 0; s < entities.segments.length; s++) {
-      const seg = entities.segments[s]
-      if (seg.length > 0 && time >= seg[0].timestamp && time <= seg[seg.length - 1].timestamp) {
-        activeSegIdx = s
-        break
-      }
+    const pts = track.positions
+    const vis = visCtx[entities.source as keyof typeof visCtx] !== false
+
+    // Binary search current time index
+    let lo = 0, hi = pts.length - 1
+    while (lo < hi - 1) {
+      const mid = (lo + hi) >> 1
+      if (pts[mid].timestamp <= time) lo = mid; else hi = mid
     }
-
-    // Find the last fully-past segment (time beyond its end)
-    let lastPastSeg = -1
-    for (let s = 0; s < entities.segments.length; s++) {
-      const seg = entities.segments[s]
-      if (seg.length > 0 && time > seg[seg.length - 1].timestamp) {
-        lastPastSeg = s
-      }
-    }
-
-    const vis = visibility.value[entities.source as keyof typeof visibility.value] !== false
-
-    // If time is before the first point, hide everything
-    if (entities.segments.length === 0 || time < entities.segments[0][0].timestamp) {
-      for (const line of entities.lines) { if (line) line.show = false }
-      for (const br of entities.bridgeLines) { br.show = false }
-      if (entities.trailLine) { const tl = entities.trailLine; entities.trailLine.show = false; entities.trailLine = undefined; trackLines?.remove(tl) }
+    if (time < pts[0].timestamp) {
+      entities.line.show = false
+      if (entities.trailLine) { trackLines!.remove(entities.trailLine); entities.trailLine = undefined }
       continue
     }
 
-    // ── Past (fully completed) segments: show full ──
-    for (let s = 0; s <= lastPastSeg; s++) {
-      if (entities.lines[s]) entities.lines[s].show = vis
-    }
-    // Bridges whose both endpoints are fully past: show
-    for (let s = 0; s < lastPastSeg && s < entities.bridgeLines.length; s++) {
-      entities.bridgeLines[s].show = vis
-    }
+    // Interpolate current position
+    const dt = pts[hi].timestamp - pts[lo].timestamp
+    const t = dt > 0 ? (time - pts[lo].timestamp) / dt : 0
+    const cpLat = pts[lo].latitude + (pts[hi].latitude - pts[lo].latitude) * t
+    const cpLng = pts[lo].longitude + (pts[hi].longitude - pts[lo].longitude) * t
 
-    // ── Future segments: hide ──
-    const firstFutureSeg = activeSegIdx >= 0 ? activeSegIdx + 1 : lastPastSeg + 1
-    for (let s = firstFutureSeg; s < entities.lines.length; s++) {
-      if (entities.lines[s]) entities.lines[s].show = false
-    }
-    // Future bridges (from active onward): hide
-    for (let s = activeSegIdx >= 0 ? activeSegIdx : lastPastSeg + 1; s < entities.bridgeLines.length; s++) {
-      entities.bridgeLines[s].show = false
-    }
-
-    // ── If time is in a gap (no active segment), freeze label/dot at last past point ──
-    if (activeSegIdx < 0) {
-      if (entities.trailLine) {
-        entities.trailLine.show = false
-        trackLines?.remove(entities.trailLine)
-        entities.trailLine = undefined
-      }
-      // Keep label & dot at last position of last completed segment
-      if (lastPastSeg >= 0) {
-        const lastSeg = entities.segments[lastPastSeg]
-        const lastPt = lastSeg[lastSeg.length - 1]
-        const frozenPos = Cesium.Cartesian3.fromDegrees(lastPt.longitude, lastPt.latitude, FLAT_ALTITUDE)
-        if (entities.label) entities.label.position = frozenPos
-        if (entities.pointPrimitive) entities.pointPrimitive.position = frozenPos
-        // Show all point dots from completed segments
-        const tKey = trackKey(track.id, track.source)
-        const dotPrimitives = pointDotEntityMap.get(tKey)
-        if (dotPrimitives && dotPrimitives.length > 0) {
-          let globalEnd = 0
-          for (let s = 0; s <= lastPastSeg; s++) globalEnd += entities.segments[s].length
-          const prevLo = pointDotLastLo.get(tKey) ?? -1
-          if (globalEnd - 1 !== prevLo) {
-            pointDotLastLo.set(tKey, globalEnd - 1)
-            for (let i = 0; i < dotPrimitives.length; i++) {
-              dotPrimitives[i].show = i < globalEnd
-            }
-          }
-        }
-      }
-      continue
-    }
-
-    // ── Active segment: build progressive trail ──
-    const color = getLineColor(track.source)
-    const isSel = trackKey(track.id, track.source) === props.selectedId
-    const isRaw = track.source === 'radar_raw'
-
-    // Hide active segment's static line — trailLine does the work
-    if (entities.lines[activeSegIdx]) entities.lines[activeSegIdx].show = false
-
-    const activeSeg = entities.segments[activeSegIdx]
-    const trail = getTrailData(activeSeg, time)
-    if (!trail) continue
-
-    // Label & PointPrimitive → interpolated current position
-    const cpPos = Cesium.Cartesian3.fromDegrees(
-      trail.currentPoint.longitude,
-      trail.currentPoint.latitude,
-      FLAT_ALTITUDE,
-    )
+    const cpPos = Cesium.Cartesian3.fromDegrees(cpLng, cpLat, FLAT_ALTITUDE)
     if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
 
-    // Trail polyline: remove old trail on segment switch (lo resets to 0 from a higher value)
-    const switchingSegments = trail.lo === 0 && entities.lastTrailLo !== 0 && entities.trailLine
-    if (switchingSegments) {
-      trackLines!.remove(entities.trailLine!)
-      entities.trailLine = undefined
+    // Build progressive trail: points up to lo + interpolated current
+    const trailPts: number[] = []
+    for (let i = 0; i <= lo; i++) {
+      trailPts.push(pts[i].longitude, pts[i].latitude, FLAT_ALTITUDE)
+    }
+    // Add interpolated point if different from last past point
+    const lastPast = pts[lo]
+    if (Math.abs(cpLat - lastPast.latitude) > 1e-7 || Math.abs(cpLng - lastPast.longitude) > 1e-7) {
+      trailPts.push(cpLng, cpLat, FLAT_ALTITUDE)
+    }
+    const trailPositions = Cesium.Cartesian3.fromDegreesArrayHeights(trailPts)
+
+    // Hide full line, show trail
+    entities.line.show = false
+
+    if (entities.trailLine) {
+      entities.trailLine.positions = trailPositions
+      entities.trailLine.show = trailPositions.length >= 2 && vis
+    } else if (trailPositions.length >= 2) {
+      const color = getLineColor(track.source)
+      const isSel = tKey === props.selectedId
+      const isRaw = track.source === 'radar_raw'
+      entities.trailLine = trackLines!.add({
+        id: tKey + '::trail',
+        show: vis,
+        positions: trailPositions,
+        width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
+        material: Cesium.Material.fromType('Color', {
+          color: color.withAlpha(isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)),
+        }),
+      })
     }
 
-    if (trail.lo !== entities.lastTrailLo || switchingSegments) {
-      entities.lastTrailLo = trail.lo
-
-      const lastPast = trail.pastPoints[trail.pastPoints.length - 1]
-      const allVisible = [...trail.pastPoints]
-      if (
-        trail.currentPoint.latitude !== lastPast.latitude ||
-        trail.currentPoint.longitude !== lastPast.longitude
-      ) {
-        allVisible.push(trail.currentPoint)
-      }
-
-      const newPositions = toCartesianArray(allVisible)
-      entities.trailRef.positions = newPositions
-
-      if (entities.trailLine) {
-        entities.trailLine.show = allVisible.length >= 2 && vis
-        entities.trailLine.positions = newPositions
-      } else if (allVisible.length >= 2) {
-        entities.trailLine = trackLines!.add({
-          id: `${trackKey(track.id, track.source)}::trail`,
-          show: vis,
-          positions: newPositions,
-          width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
-          material: Cesium.Material.fromType('Color', {
-            color: color.withAlpha(isSel ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA),
-          }),
-        })
-      }
-    }
-
-    // ── Point dots: progressively show as replay advances ──
-    // Compute global position offset so segment-relative lo maps to the full dotPrimitives array
-    const tKey = trackKey(track.id, track.source)
+    // Progressive point dots
     const dotPrimitives = pointDotEntityMap.get(tKey)
     if (dotPrimitives && dotPrimitives.length > 0) {
-      let globalBase = 0
-      for (let s = 0; s < activeSegIdx; s++) {
-        globalBase += entities.segments[s].length
-      }
-      const globalLo = globalBase + trail.lo
       const prevLo = pointDotLastLo.get(tKey) ?? -1
-      if (globalLo !== prevLo) {
-        pointDotLastLo.set(tKey, globalLo)
+      if (lo !== prevLo) {
+        pointDotLastLo.set(tKey, lo)
         for (let i = 0; i < dotPrimitives.length; i++) {
-          dotPrimitives[i].show = i <= globalLo
+          dotPrimitives[i].show = i <= lo
         }
       }
     }
@@ -1737,17 +1625,14 @@ watch(
   (time) => {
     if (time !== null) {
       if (!wasReplaying) {
-        // P2: On replay start, hide all track segment lines — updateReplayPositions will control visibility
+        // Hide full lines at replay start; trail lines show progressively
         for (const [, entities] of entityMap) {
-          entities.trailRef.positions = []
-          for (const line of entities.lines) { if (line) line.show = false }
-          for (const br of entities.bridgeLines) { br.show = false }
+          entities.line.show = false
           if (entities.trailLine) {
             trackLines?.remove(entities.trailLine)
             entities.trailLine = undefined
           }
         }
-        // P3: Hide all point dots at replay start
         if (pointDotEntityMap.size > 0) {
           pointDotLastLo.clear()
           for (const primitives of pointDotEntityMap.values()) {
@@ -1759,95 +1644,26 @@ watch(
       wasReplaying = true
     } else if (wasReplaying) {
       wasReplaying = false
-      // P2: Restore full segment polylines + labels to last position.
+      // Remove trail lines, restore full lines
       for (const track of props.tracks) {
         const entities = entityMap.get(trackKey(track.id, track.source))
         if (!entities || track.positions.length === 0) continue
-        const last = track.positions[track.positions.length - 1]
-
-        // Remove trail line if any
         if (entities.trailLine) {
           trackLines?.remove(entities.trailLine)
           entities.trailLine = undefined
         }
-        entities.trailRef.positions = []
-        entities.lastTrailLo = track.positions.length - 1
-
-        // Re-segment and rebuild (in case positions changed during replay)
-        const rawSegments = segmentTrack(track.positions)
-        entities.segments = rawSegments.map(s => s.positions)
-
-        // Remove old lines/bridgeLines
-        for (const line of entities.lines) { if (line) trackLines?.remove(line) }
-        for (const br of entities.bridgeLines) { trackLines?.remove(br) }
-
-        const color = getLineColor(track.source)
-        const vis = visibility.value[entities.source as keyof typeof visibility.value] !== false
-        const segWidth = baseWidth(track.source)
-        const normalAlpha = entities.source === 'radar_raw' ? RAW_ALPHA : NORMAL_ALPHA
-
-        // Rebuild data-segment lines
-        entities.lines = []
-        for (let si = 0; si < entities.segments.length; si++) {
-          const cartPts = toCartesianArray(entities.segments[si])
-          if (cartPts.length >= 2) {
-            const line = trackLines!.add({
-              id: `${trackKey(track.id, track.source)}::seg${si}`,
-              show: vis,
-              positions: cartPts,
-              width: segWidth,
-              material: Cesium.Material.fromType('Color', {
-                color: color.withAlpha(normalAlpha),
-              }),
-            })
-            entities.lines.push(line)
-          } else {
-            entities.lines.push(null as unknown as Cesium.Polyline)
-          }
-        }
-
-        // Rebuild bridge lines
-        entities.bridgeLines = []
-        for (let si = 0; si < entities.segments.length - 1; si++) {
-          const prevLast = entities.segments[si][entities.segments[si].length - 1]
-          const nextFirst = entities.segments[si + 1][0]
-          if (prevLast && nextFirst) {
-            const sameLoc =
-              Math.abs(prevLast.longitude - nextFirst.longitude) < DEDUP_DEG &&
-              Math.abs(prevLast.latitude - nextFirst.latitude) < DEDUP_DEG &&
-              Math.abs(prevLast.altitude - nextFirst.altitude) < DEDUP_ALT
-            if (sameLoc) continue
-            const bridgePos = Cesium.Cartesian3.fromDegreesArrayHeights([
-              prevLast.longitude, prevLast.latitude, FLAT_ALTITUDE,
-              nextFirst.longitude, nextFirst.latitude, FLAT_ALTITUDE,
-            ])
-            entities.bridgeLines.push(trackLines!.add({
-              id: `${trackKey(track.id, track.source)}::bridge${si}`,
-              show: vis,
-              positions: bridgePos,
-              width: Math.max(1.0, segWidth * bridgeWidthRatio.value),
-              material: Cesium.Material.fromType('Color', {
-                color: color.withAlpha(bridgeAlpha.value),
-              }),
-            }))
-          }
-        }
-
-        // Restore label & PointPrimitive to last position
+        entities.line.show = visibility.value[entities.source as keyof typeof visibility.value] !== false
+        const last = track.positions[track.positions.length - 1]
         const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
         if (entities.label) entities.label.position = lastPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
       }
-      // P3: Restore correct point dot visibility after replay
       pointDotLastLo.clear()
-      // Bring back any dots still hidden from replay progressive reveal,
-      // then let syncGlobalPointDots prune tracks that shouldn't be showing.
       for (const primitives of pointDotEntityMap.values()) {
         for (const p of primitives) p.show = true
       }
       syncGlobalPointDots()
       reapplyVisibility()
-      // Restore selection highlight after rebuild
       if (previousSelectedId) applyHighlight(previousSelectedId)
       viewer?.scene.requestRender()
     }
@@ -1859,12 +1675,7 @@ watch(
   () => {
     for (const [, entities] of entityMap) {
       const vis = visibility.value[entities.source as keyof typeof visibility.value]
-      for (const line of entities.lines) {
-        if (line) line.show = vis
-      }
-      for (const br of entities.bridgeLines) {
-        br.show = vis
-      }
+      entities.line.show = vis
       if (entities.label) entities.label.show = vis
       if (entities.pointPrimitive) entities.pointPrimitive.show = vis
     }
@@ -1915,9 +1726,7 @@ watch(
     for (const [tKey, entry] of entityMap) {
       if (tKey !== previousSelectedId) {
         const bw = baseWidth(entry.source as DataSource)
-        for (const line of entry.lines) {
-          if (line) line.width = bw
-        }
+        entry.line.width = bw
       }
     }
     viewer?.scene.requestRender()
@@ -1954,12 +1763,11 @@ watch(lineColors, () => {
 
     const color = getLineColor(entry.source as DataSource)
     const isRaw = entry.source === 'radar_raw'
-    for (const line of entry.lines) {
-      if (line) {
-        line.material = Cesium.Material.fromType('Color', {
-          color: color.withAlpha(isRaw ? RAW_ALPHA : NORMAL_ALPHA),
-        })
-      }
+    const newColor = color.withAlpha(isRaw ? RAW_ALPHA : NORMAL_ALPHA)
+    if (entry.line.material && entry.line.material.type === 'Color') {
+      entry.line.material.uniforms.color = newColor
+    } else {
+      entry.line.material = Cesium.Material.fromType('Color', { color: newColor })
     }
     if (entry.pointPrimitive) {
       entry.pointPrimitive.color = color
@@ -1967,22 +1775,6 @@ watch(lineColors, () => {
   }
   viewer?.scene.requestRender()
 }, { deep: true })
-
-// Reactive segmentation settings: rebuild all polylines when thresholds or bridge style change
-watch([segMultiplier, segMinThresholdMin, bridgeWidthRatio, bridgeAlpha], () => {
-  if (props.tracks.length === 0 || !viewer) return
-  if (props.replayTime !== null) return  // don't rebuild during active replay
-  // Force full rebuild — remove all existing entities and re-create
-  for (const id of Array.from(entityMap.keys())) {
-    removeTrackEntities(id)
-  }
-  for (const track of props.tracks) {
-    createTrackEntities(track)
-  }
-  reapplyVisibility()
-  if (previousSelectedId) applyHighlight(previousSelectedId)
-  viewer.scene.requestRender()
-})
 
 // Highlight selected track
 let previousSelectedId: string | null = null
@@ -1995,19 +1787,14 @@ function applyHighlight(trackId: string | null) {
     const prev = entityMap.get(previousSelectedId)
     if (prev) {
       const color = getLineColor(prev.source as DataSource)
-      for (const line of prev.lines) {
-        if (line) {
-          line.material = Cesium.Material.fromType('Color', {
-            color: color.withAlpha(baseAlpha(prev.source)),
-          })
-          line.width = baseWidth(prev.source as DataSource)
-        }
-      }
-      for (const br of prev.bridgeLines) {
-        br.material = Cesium.Material.fromType('Color', {
-          color: color.withAlpha(bridgeAlpha.value),
+      if (prev.line.material && prev.line.material.type === 'Color') {
+        prev.line.material.uniforms.color = color.withAlpha(baseAlpha(prev.source))
+      } else {
+        prev.line.material = Cesium.Material.fromType('Color', {
+          color: color.withAlpha(baseAlpha(prev.source)),
         })
       }
+      prev.line.width = baseWidth(prev.source as DataSource)
     }
     if (prev?.pointPrimitive) {
       prev.pointPrimitive.pixelSize = pointPrimSize(prev.source === 'radar_raw' ? DOT_RAW : DOT_BASE, prev.source)
@@ -2020,19 +1807,14 @@ function applyHighlight(trackId: string | null) {
     const entry = entityMap.get(trackId)
     if (entry) {
       const color = getLineColor(entry.source as DataSource)
-      for (const line of entry.lines) {
-        if (line) {
-          line.material = Cesium.Material.fromType('Color', {
-            color: color.withAlpha(SELECTED_ALPHA),
-          })
-          line.width = SELECTED_WIDTH
-        }
-      }
-      for (const br of entry.bridgeLines) {
-        br.material = Cesium.Material.fromType('Color', {
+      if (entry.line.material && entry.line.material.type === 'Color') {
+        entry.line.material.uniforms.color = color.withAlpha(SELECTED_ALPHA)
+      } else {
+        entry.line.material = Cesium.Material.fromType('Color', {
           color: color.withAlpha(SELECTED_ALPHA),
         })
       }
+      entry.line.width = SELECTED_WIDTH
     }
     if (entry?.pointPrimitive) {
       entry.pointPrimitive.pixelSize = pointPrimSize(DOT_SELECTED, entry.source)
@@ -2057,9 +1839,7 @@ const RAW_ALPHA = 0.75
 const SELECTED_WIDTH = 4.0
 const SELECTED_ALPHA = 1.0
 
-// Spatial dedup thresholds — matches toCartesianArray cooperative dedup
-const DEDUP_DEG = 1e-7
-const DEDUP_ALT = 0.1
+
 
 /** All tracks render at this exact WGS84 altitude (meters).  Real altitude from
  *  the data is ignored for rendering — only used in labels / hover tooltips. */
@@ -2091,40 +1871,21 @@ function baseAlpha(source: string): number {
 
 function applyHoverHighlight(trackId: string) {
   const entry = entityMap.get(trackId)
-  if (!entry || entry.lines.length === 0) return
+  if (!entry || !entry.line) return
 
-  // P2: Add overlay polyline — collect positions from all data-segment lines
+  // Add overlay polyline — clone all positions at slightly higher altitude
   if (hoverOverlayLines) {
     if (activeOverlayLine) {
       hoverOverlayLines.remove(activeOverlayLine)
       activeOverlayLine = null
     }
-    // Build combined positions from all visible segment lines + bridge lines.
-    // CLONE each Cartesian3 with an outward ECEF scale — preserves lat/lng
-    // (same ray direction) while adding exactly HOVER_ALT_MARGIN meters of altitude.
-    // All tracks sit at the same FLAT_ALTITUDE, so 100 m guarantees the hover
-    // overlay wins every depth test without any visible vertical offset.
     const allPos: Cesium.Cartesian3[] = []
     const HOVER_Z_BIAS = (6371000 + FLAT_ALTITUDE + HOVER_ALT_MARGIN) / (6371000 + FLAT_ALTITUDE)
-    for (let i = 0; i < entry.lines.length; i++) {
-      const line = entry.lines[i]
-      if (line && line.show !== false) {
-        const positions = line.positions
-        for (let j = 0; j < positions.length; j++) {
-          const clone = Cesium.Cartesian3.clone(positions[j])
-          Cesium.Cartesian3.multiplyByScalar(clone, HOVER_Z_BIAS, clone)
-          allPos.push(clone)
-        }
-      }
-      // Insert bridge positions between segments
-      if (i < entry.bridgeLines.length && entry.bridgeLines[i].show !== false) {
-        const brPos = entry.bridgeLines[i].positions
-        for (let j = 0; j < brPos.length; j++) {
-          const clone = Cesium.Cartesian3.clone(brPos[j])
-          Cesium.Cartesian3.multiplyByScalar(clone, HOVER_Z_BIAS, clone)
-          allPos.push(clone)
-        }
-      }
+    const positions = entry.line.positions
+    for (let j = 0; j < positions.length; j++) {
+      const clone = Cesium.Cartesian3.clone(positions[j])
+      Cesium.Cartesian3.multiplyByScalar(clone, HOVER_Z_BIAS, clone)
+      allPos.push(clone)
     }
     if (allPos.length >= 2) {
       activeOverlayLine = hoverOverlayLines.add({
@@ -2737,7 +2498,9 @@ onMounted(async () => {
   trackLabels = viewer.scene.primitives.add(new Cesium.LabelCollection())
   // P3: PointPrimitiveCollection for track point dots — GPU-instanced, outlined circles
   pointDotsCollection = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
-  await loadBoundaryLayers()
+  // ── 边界层延迟加载：等设置恢复后按可见性加载 ──
+  await whenSettingsLoaded()
+  applyBoundaryVisibility()
   await loadCityLayer()
 
   // Raise hover overlay to the top-most layer.  With the 1.002 ECEF bias
@@ -2747,7 +2510,6 @@ onMounted(async () => {
   viewer.scene.primitives.raiseToTop(hoverOverlayLines as any)
 
   // Restore saved camera state, or use default view
-  await whenSettingsLoaded()
   if (!restoreCameraState()) {
     viewer.camera.setView({
       destination: Cesium.Cartesian3.fromDegrees(110, 25, 12000000),
