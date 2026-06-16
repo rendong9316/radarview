@@ -1919,38 +1919,7 @@ watch(lineColors, () => {
 let previousSelectedId: string | null = null
 
 function applyHighlight(trackId: string | null) {
-  if (!viewer) return
-
-  // Restore previous
-  if (previousSelectedId && previousSelectedId !== trackId) {
-    const prev = entityMap.get(previousSelectedId)
-    if (prev?.entity?.polyline) {
-      const color = getLineColor(prev.source as DataSource)
-      prev.entity.polyline.material = color.withAlpha(baseAlpha(prev.source)) as any
-      (prev.entity.polyline as any).width = baseWidth(prev.source as DataSource)
-    }
-    if (prev?.pointPrimitive) {
-      prev.pointPrimitive.pixelSize = pointPrimSize(prev.source === 'radar_raw' ? DOT_RAW : DOT_BASE, prev.source)
-      prev.pointPrimitive.color = getLineColor(prev.source as DataSource)
-    }
-  }
-
-  // Apply to new
-  if (trackId) {
-    const entry = entityMap.get(trackId)
-    if (entry?.entity?.polyline) {
-      const color = getLineColor(entry.source as DataSource)
-      entry.entity.polyline.material = color.withAlpha(SELECTED_ALPHA) as any
-      (entry.entity.polyline as any).width = SELECTED_WIDTH
-    }
-    if (entry?.pointPrimitive) {
-      entry.pointPrimitive.pixelSize = pointPrimSize(DOT_SELECTED, entry.source)
-      entry.pointPrimitive.color = getLineColor(entry.source as DataSource)
-    }
-  }
-
-  previousSelectedId = trackId
-  viewer.scene.requestRender()
+ return
 }
 
 // Hover highlight — bright red + thick, unmistakable
@@ -1999,7 +1968,7 @@ function applyHoverHighlight(trackId: string) {
   if (!entry || !entry.entity?.polyline) return
 
   // If this track is already click-selected, don't override with red
-  if (previousSelectedId === trackId) return
+  //if (previousSelectedId === trackId) return
 
   // Get the main polyline's positions, clone them to elevated altitude
   const srcPositions = (entry.entity.polyline as any).positions?.getValue?.()
