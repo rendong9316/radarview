@@ -2053,21 +2053,66 @@ function doPick(endPosition: Cesium.Cartesian2) {
     return
   }
 
-  // ── Penetration: hover overlay sits at 11500m and wins depth test ──
-  // drillPick through it to get the real object underneath at 10000m
+  // ── 点迹穿透：命中点迹时钻取找下方航迹 ──
+  if (typeof picked.id === 'string' && picked.id.startsWith('pointdot::')) {
+    const drill = viewer!.scene.drillPick(endPosition, 5)
+    
+    for (let i = 1; i < drill.length; i++) {
+      const hit = drill[i]
+      if (!Cesium.defined(hit.id)) continue
+      if (typeof hit.id === 'string' && hit.id.startsWith('pointdot::')) continue
+      if (typeof hit.id === 'string' && hit.id === 'hover-overlay') continue
+      
+      let trackId: string | null = null
+      if (typeof hit.id === 'string') {
+        if (hit.id.startsWith('trail::')) {
+          trackId = hit.id.slice('trail::'.length)
+        } else if (entityMap.has(hit.id)) {
+          trackId = hit.id
+        }
+      } else if (hit.id instanceof Cesium.Entity) {
+        const entityId = (hit.id as Cesium.Entity).id
+        if (typeof entityId === 'string' && entityMap.has(entityId)) {
+          trackId = entityId
+        }
+      }
+      
+      if (trackId && entityMap.has(trackId)) {
+        doPickWithPicked({ id: trackId }, endPosition)
+        return
+      }
+    }
+    
+    // 没有下方航迹：仅显示点迹信息（不触发航迹高亮）
+    const parts = (picked.id as string).split('::')
+    if (parts.length === 3) {
+      const trackId = parts[1]
+      const index = parseInt(parts[2], 10)
+      if (!isNaN(index) && entityMap.has(trackId)) {
+        // 先清除之前的航迹高亮
+        removeHoverHighlight()
+        hideCityHover()
+        // 显示点迹信息
+        showPointDotHover(trackId, index)
+        viewer!.scene.requestRender()
+      }
+    }
+    return
+  }
+
+  // ── hover-overlay 穿透 ──
   if (typeof picked.id === 'string' && picked.id === 'hover-overlay') {
     const drill = viewer!.scene.drillPick(endPosition, 3)
     const realHit = drill.length > 1 ? drill[1] : null
     if (!realHit || !Cesium.defined(realHit.id)) {
-      // Only overlay hit, nothing underneath — keep current hover
       viewer!.scene.requestRender()
       return
     }
-    // Recurse with the real hit underneath the overlay
     doPickWithPicked(realHit, endPosition)
     return
   }
 
+  // ── 正常处理 ──
   doPickWithPicked(picked, endPosition)
 }
 
