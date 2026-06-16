@@ -2187,7 +2187,7 @@ function checkPointDotHit(trackId: string, mousePos: Cesium.Cartesian2): { id: s
   const primitives = pointDotEntityMap.get(trackId)
   if (!primitives || primitives.length === 0) return null
 
-  const threshold = Math.max(pointDotPixelSize + 4, 10) // px radius
+  const threshold = Math.max(pointDotPixelSize + 30, 60) // px radius
   const thresholdSq = threshold * threshold
   let bestIdx = -1
   let bestDistSq = Infinity
