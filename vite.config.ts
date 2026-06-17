@@ -12,6 +12,12 @@ export default defineConfig(async () => ({
     cesium(),
   ],
 
+  // ⭐ 新增：Worker 配置
+  worker: {
+    format: 'es',
+    plugins: () => [vue()],  // 让 Worker 也支持 Vue 语法（如果有需要）
+  },
+
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
   // 1. prevent vite from obscuring rust errors
