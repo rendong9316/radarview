@@ -450,6 +450,14 @@ export function rebuildLabelAndPointCollections() {
 // 回放逐帧更新
 // ═══════════════════════════════════════════
 
+/**
+ * 预分配 trail 构建缓冲区（Float64Array）。
+ * 2900 条航迹每帧一条 new Array + push 会产生巨大的 GC 压力。
+ * 单条航迹最大点数 20000 → 60000 个 float64 → ~480KB 复用。
+ */
+const MAX_TRAIL_PTS = 20000
+const _trailBuf = new Float64Array(MAX_TRAIL_PTS * 3)
+
 export function updateReplayPositions(
   time: number,
   tracks: Track[],
@@ -462,6 +470,7 @@ export function updateReplayPositions(
   const tStart = performance.now()
 
   let diagTrailUpdated = 0
+  let diagTrailReused = 0
   let diagTrailSkipped = 0
   let diagTrailNoCache = 0
 
@@ -512,40 +521,61 @@ export function updateReplayPositions(
     if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
 
-    // Build progressive trail
-    const trailPts: number[] = []
-    for (let i = 0; i <= lo; i++) {
-      trailPts.push(pts[i].longitude, pts[i].latitude, FLAT_ALTITUDE)
-    }
-    const lastPast = pts[lo]
-    if (Math.abs(cpLat - lastPast.latitude) > 1e-7 || Math.abs(cpLng - lastPast.longitude) > 1e-7) {
-      trailPts.push(cpLng, cpLat, FLAT_ALTITUDE)
-    }
-    const trailPositions = Cesium.Cartesian3.fromDegreesArrayHeights(trailPts)
-
     // Hide full entity line, show trail in PolylineCollection
     if (entities.entity) entities.entity.show = false
 
-    if (entities.trailLine) {
-      entities.trailLine.positions = trailPositions
-      entities.trailLine.show = trailPositions.length >= 2 && vis
-      diagTrailUpdated++
-    } else if (trailPositions.length >= 2) {
-      const color = state.getLineColor(track.source)
-      const isSel = tKey === state.selectedId
-      const isRaw = track.source === 'radar_raw'
-      entities.trailLine = ctx.trackLines!.add({
-        id: `trail::${tKey}`,
-        show: vis,
-        positions: trailPositions,
-        width: isSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths),
-        material: Cesium.Material.fromType('Color', {
-          color: color.withAlpha(isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)),
-        }),
-      })
-      diagTrailUpdated++
+    // ── Trail geometry: only rebuild when lo advances ──
+    // 2900 tracks × 每帧 rebuild trail (0→lo 遍历 + fromDegreesArrayHeights + VBO 上传)
+    // 是回放卡顿的根因。数据点间隔通常远大于帧间隔，大部分帧 lo 不变。
+    const prevLo = entities.lastTrailLo
+    if (lo !== prevLo) {
+      entities.lastTrailLo = lo
+
+      // Build progressive trail using pre-allocated buffer
+      let bufIdx = 0
+      const maxBuf = MAX_TRAIL_PTS * 3
+      for (let i = 0; i <= lo && bufIdx + 3 <= maxBuf; i++) {
+        _trailBuf[bufIdx++] = pts[i].longitude
+        _trailBuf[bufIdx++] = pts[i].latitude
+        _trailBuf[bufIdx++] = FLAT_ALTITUDE
+      }
+      const lastPast = pts[lo]
+      if (bufIdx + 3 <= maxBuf &&
+        (Math.abs(cpLat - lastPast.latitude) > 1e-7 || Math.abs(cpLng - lastPast.longitude) > 1e-7)) {
+        _trailBuf[bufIdx++] = cpLng
+        _trailBuf[bufIdx++] = cpLat
+        _trailBuf[bufIdx++] = FLAT_ALTITUDE
+      }
+      const trailPositions = Cesium.Cartesian3.fromDegreesArrayHeights(
+        new Float64Array(_trailBuf.buffer, 0, bufIdx) as unknown as number[],
+      )
+
+      if (entities.trailLine) {
+        entities.trailLine.positions = trailPositions
+        entities.trailLine.show = trailPositions.length >= 2 && vis
+        diagTrailUpdated++
+      } else if (trailPositions.length >= 2) {
+        const color = state.getLineColor(track.source)
+        const isSel = tKey === state.selectedId
+        const isRaw = track.source === 'radar_raw'
+        entities.trailLine = ctx.trackLines!.add({
+          id: `trail::${tKey}`,
+          show: vis,
+          positions: trailPositions,
+          width: isSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths),
+          material: Cesium.Material.fromType('Color', {
+            color: color.withAlpha(isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)),
+          }),
+        })
+        diagTrailUpdated++
+      } else {
+        diagTrailSkipped++
+      }
     } else {
-      diagTrailSkipped++
+      diagTrailReused++
+      if (entities.trailLine && !entities.trailLine.show) {
+        entities.trailLine.show = vis
+      }
     }
 
     // Progressive point dots
@@ -569,8 +599,7 @@ export function updateReplayPositions(
     const tMs = (performance.now() - tStart).toFixed(1)
     console.log(
       `[REPLAY-DIAG] frame#${diagFc} ${tMs}ms | tracks=${tracks.length} ` +
-      `trails=${diagTrailUpdated} skipped=${diagTrailSkipped} noCache=${diagTrailNoCache} | ` +
-      `total=${diagTrailUpdated + diagTrailSkipped + diagTrailNoCache}`
+      `trails=${diagTrailUpdated} reused=${diagTrailReused} skipped=${diagTrailSkipped} noCache=${diagTrailNoCache}`
     )
   }
 
