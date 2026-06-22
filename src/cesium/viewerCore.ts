@@ -118,6 +118,33 @@ export function destroyViewer(ctx: CesiumContext) {
 }
 
 // ═══════════════════════════════════════════
+// PolylineCollection 重建（回放后收缩 VBO）
+// ═══════════════════════════════════════════
+
+/**
+ * 销毁并重建 PolylineCollection。
+ * Cesium 的 PolylineCollection 使用共享 VBO，批量添加/删除折线后 VBO 只增不减。
+ * 回放期间 2900+ 条 trailLine 会让 VBO 膨胀到峰值容量，停止后即使全部 remove，
+ * VBO 仍保持峰值大小，导致每帧 GPU 遍历大量死空间，帧率无法恢复。
+ * 唯一还原方式：销毁整个 Collection → 重新创建 → lowerToBottom。
+ *
+ * 调用者负责：重建后清空所有 entity.trailLine 引用（旧 Polyline 已失效）。
+ */
+export function rebuildTrackLines(ctx: CesiumContext) {
+  if (ctx.trackLines) {
+    ctx.viewer.scene.primitives.remove(ctx.trackLines)
+    if (!ctx.trackLines.isDestroyed()) ctx.trackLines.destroy()
+  }
+  const fresh = ctx.viewer.scene.primitives.add(
+    new Cesium.PolylineCollection(),
+  ) as unknown as Cesium.PolylineCollection
+  ctx.viewer.scene.primitives.lowerToBottom(fresh as any)
+  ctx.trackLines = fresh
+  ctx.activeOverlayLine = null
+  console.log('[perf] PolylineCollection rebuilt to shrink VBO after replay')
+}
+
+// ═══════════════════════════════════════════
 // FPS 追踪
 // ═══════════════════════════════════════════
 

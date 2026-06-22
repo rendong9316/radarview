@@ -350,6 +350,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
 
   function pause() {
     isPlaying.value = false
+    isReplayActive.value = false
     if (animFrameId !== null) {
       cancelAnimationFrame(animFrameId)
       animFrameId = null

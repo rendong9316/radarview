@@ -534,16 +534,28 @@ watch(
       TrackR.setWasReplaying(true)
     } else if (TrackR.getWasReplaying()) {
       TrackR.setWasReplaying(false)
+
+      // 1. 移除 trailLine、unhide entity、复位 label/dot
       TrackR.onReplayStop(
         props.tracks,
         { visibility: { ...visibility.value }, selectedId: props.selectedId },
         DotR.getEntityMap_mutable(),
         DotR.getLastLo() as Map<string, number>,
       )
+
+      // 2. 重建 PolylineCollection — 释放回放期间膨胀的共享 VBO
+      ViewerCore.rebuildTrackLines(cesiumCtx)
+      TrackR.clearTrailLineRefs()
+
+      // 3. 复现"筛选→切回全量"的完整重建 —— 两次 syncEntities
+      //    先同步空列表（清空所有 entity/label/pointPrimitive）
+      //    再同步全量（重建所有 entity/label/pointPrimitive，全新 GPU 资源）
+      TrackR.forceRebuildAll(props.tracks, buildTrackState())
+
+      // 4. 同步点迹、收缩影图集
       DotR.syncGlobalPointDots(props.tracks, getPointDotColor, pointDotPixelSize, showAllPointDots.value, manualPointDotsTrackIds.value, globalHiddenTrackKeys.value)
-      TrackR.reapplyVisibility({ ...visibility.value }, null)
-      previousSelectedId = props.selectedId
       TrackR.rebuildLabelAndPointCollections()
+      previousSelectedId = props.selectedId
       cesiumCtx.viewer.scene.requestRender()
     }
   },

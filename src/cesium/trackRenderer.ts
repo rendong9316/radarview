@@ -646,6 +646,41 @@ export function removeHoverHighlight(
 }
 
 // ═══════════════════════════════════════════
+// PolylineCollection 重建后清理
+// ═══════════════════════════════════════════
+
+/**
+ * 在 PolylineCollection 重建后调用，清空所有 entity 中指向旧 Collection 的
+ * trailLine 引用。旧 Polyline 对象已随旧 Collection 一同销毁，若不清空引用
+ * 会在下次回放时访问 dangling pointer。
+ */
+export function clearTrailLineRefs() {
+  for (const [, entry] of entityMap) {
+    entry.trailLine = undefined
+  }
+}
+
+// ═══════════════════════════════════════════
+// 回放停止后：复现"筛选→切回全量"的完整重建效果
+// ═══════════════════════════════════════════
+
+/**
+ * 回放结束后调用。通过 "先同步空列表再同步全量" 两次 syncEntities 调用，
+ * 精确复现"筛选航迹再切回全量"时的完整重建流程：
+ *
+ *   1. syncEntities([])   → 移除所有 entity/label/pointPrimitive（释放所有 GPU 资源）
+ *   2. syncEntities(tracks) → 为每条航迹重建 entity/label/pointPrimitive（全新 GPU 资源）
+ *
+ * 这与用户在 TimeFilterPanel 中先设一个极窄时间窗口（过滤掉大量航迹）
+ * 再清除过滤（恢复全量）的效果完全一致。
+ */
+export function forceRebuildAll(tracks: Track[], state: TrackState) {
+  if (!ctx?.viewer) return
+  syncEntities([], state)
+  syncEntities(tracks, state)
+}
+
+// ═══════════════════════════════════════════
 // 回放开始/停止辅助
 // ═══════════════════════════════════════════
 
