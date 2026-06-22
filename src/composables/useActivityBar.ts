@@ -18,7 +18,6 @@ const panelWidths = reactive<Record<PanelId, number>>({
   settings: DEFAULT_WIDTH,
 })
 
-let _restoringWidth = false
 let _watchersSetup = false
 
 export function useActivityBar() {
@@ -64,11 +63,9 @@ export function useActivityBar() {
       if (old && panelWidths[old] !== undefined) {
         panelWidths[old] = sidebarWidth.value
       }
-      // Restore new panel's width (guard to avoid triggering sidebarWidth watcher save)
+      // Restore new panel's width
       if (v) {
-        _restoringWidth = true
         sidebarWidth.value = panelWidths[v]
-        _restoringWidth = false
       }
 
       import('./useSettingsPersistence').then(({ scheduleSave }) => {
@@ -76,21 +73,24 @@ export function useActivityBar() {
       })
     }, { immediate: false })
 
-    // Persist per-panel sidebar width
-    // flush: 'sync' is required — _restoringWidth flag must be checked synchronously
-    // before it's reset in the same activePanel watcher tick.
+    // Persist per-panel sidebar width.
+    // 不依赖 _restoringWidth flag（有竞态隐患），直接用值比较：
+    // 切换面板时 sidebarWidth 被设为 panelWidths[v]，此时 v === panelWidths[v]
+    // → 提前返回不保存；用户拖拽时 v !== panelWidths[panel] → 正常保存。
     watch(sidebarWidth, (v) => {
-      if (_restoringWidth) return
       const panel = activePanel.value
       if (!panel) return
 
-      // Sync to memory
+      // 刚完成面板切换恢复宽度 → 值与缓存一致 → 跳过保存
+      if (v === panelWidths[panel]) return
+
+      // 用户拖拽改变了宽度 → 值与缓存不一致 → 同步内存 + 持久化
       panelWidths[panel] = v
 
       import('./useSettingsPersistence').then(({ scheduleSave }) => {
         scheduleSave(`sidebar.width.${panel}`, JSON.stringify(v))
       })
-    }, { immediate: false, flush: 'sync' })
+    }, { immediate: false })
   }
 
   return {
