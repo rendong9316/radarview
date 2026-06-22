@@ -7,7 +7,6 @@ import type { SerializedTrack, TrackResult, WorkerMessage } from './types/worker
 // ── Worker 状态 ──
 let cachedTracks: SerializedTrack[] = []
 let cachedKeys: string[] = []
-let flatAltitude = 10000
 
 // ── 二分查找（O(log n)） ──
 function binarySearch(timestamps: Float64Array, time: number): number {
@@ -122,7 +121,6 @@ self.addEventListener('message', (e: MessageEvent<WorkerMessage>) => {
     // 初始化：缓存航迹数据
     cachedTracks = data.tracks
     cachedKeys = data.trackKeys
-    flatAltitude = data.flatAltitude
     console.log(`[Worker] 初始化完成，缓存 ${cachedTracks.length} 条航迹`)
     return
   }

@@ -4,7 +4,6 @@
 
 import { ref, computed, watch, type Ref, onUnmounted } from 'vue'
 import type { Track, TrackPoint } from '../types/track'
-import type { TrackResult } from '../workers/types/worker-messages'
 
 export interface ReplayPosition {
   point: TrackPoint | null
@@ -182,7 +181,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
               pendingResults = data.results
               // 通知所有订阅者
               for (const cb of resultCallbacks) {
-                cb(pendingResults)
+                if (pendingResults) cb(pendingResults)
               }
             }
           }
@@ -241,7 +240,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
       resultCallbacks.push(handler)
 
       // 发送计算请求
-      worker.postMessage({
+      worker?.postMessage({
         type: 'compute',
         time
       })

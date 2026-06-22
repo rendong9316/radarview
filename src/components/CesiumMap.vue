@@ -70,357 +70,82 @@ import { scheduleSave, getRawSetting, whenSettingsLoaded } from '../composables/
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
 
-// ============================================================
-// 1. Props：父组件 → 本组件（数据流入）
-// ============================================================
 const props = defineProps<{
-  /** 航迹数据列表（核心数据源） */
   tracks: Track[]
-  /** 
-   * 回放时间戳（毫秒）
-   * - null：退出回放模式，显示完整航迹
-   * - number：进入回放模式，显示该时刻之前的轨迹
-   */
   replayTime: number | null
-  /** 
-   * 当前选中的航迹 ID（格式："icao::source"）
-   * - 非 null 时该航迹会高亮显示（加粗、透明度提升）
-   */
   selectedId: string | null
-  /** 每种数据源的航迹线宽度（用户通过滑块调节） */
   lineWidths: Record<DataSource, number>
-  /** 每种数据源的端点圆点缩放系数（用户通过滑块调节） */
   dotScale: Record<DataSource, number>
 }>()
 
-// ============================================================
-// 2. Emits：本组件 → 父组件（事件流出）
-// ============================================================
 const emit = defineEmits<{
-  /** 
-   * 用户单击航迹时触发
-   * - 传入 trackId：选中该航迹
-   * - 传入 null：取消选中（点击空白区域）
-   */
   'track-pick': [trackId: string | null]
-  /** 
-   * 右键菜单 → "详细信息" 触发
-   * 父组件应打开航迹详情面板
-   */
   'show-track-detail': [payload: { icao: string; source: string }]
-  /** 
-   * 右键菜单 → "删除该航迹" 触发
-   * 父组件应移除该航迹数据
-   */
   'delete-track': [payload: { icao: string; source: string }]
-  /** 
-   * 右键菜单 → "查看点迹数据" 触发
-   * 父组件应打开点迹数据表格
-   */
   'view-track-points': [track: Track]
-  /** 
-   * 鼠标移动时持续触发（用于状态栏显示）
-   * 包含相机高度、鼠标指向的经纬度、实时 FPS
-   */
-  'view-status': [payload: { 
-    cameraHeightKm: number   // 相机高度（公里）
-    longitude: number        // 鼠标指向位置的经度
-    latitude: number         // 鼠标指向位置的纬度
-    fps: number              // 当前平滑帧率
-  }]
+  'view-status': [payload: { cameraHeightKm: number; longitude: number; latitude: number; fps: number }]
 }>()
 
-// ============================================================
-// 3. 模板引用（Template Ref）
-// ============================================================
-/** 
- * 容器 DOM 元素引用
- * - 在模板中通过 ref="containerRef" 绑定到 <div>
- * - onMounted 时用于挂载 Cesium Viewer
- */
 const containerRef = ref<HTMLDivElement>()
 
-// ============================================================
-// 4. 回放与控制变量
-// ============================================================
-
-/** 
- * 回放帧计数器（用于隔帧更新几何体）
- * - 每帧 +1，取模 2 后判断是否为 0
- * - 偶数帧更新几何体，奇数帧仅更新位置（减少 CPU 开销）
- */
-let replayCounter = 0
-
-// ============================================================
-// 5. Cesium 核心渲染对象
-// ============================================================
-
-/** 
- * Cesium 主引擎实例
- * - 在 onMounted 中初始化
- * - 在 onUnmounted 中销毁
- */
 let viewer: Cesium.Viewer | null = null
-
-/** 
- * P2 级别：回放轨迹线集合
- * - 使用 PolylineCollection（非 Entity）
- * - 优势：单次 Draw Call 渲染所有轨迹线，性能远优于 Entity
- * - 仅在回放模式（replayTime !== null）下使用
- */
+/** P2: PolylineCollection for replay trail lines — shared VBO, one draw call for progressive replay */
 let trackLines: Cesium.PolylineCollection | null = null
-
-/** 
- * P2 级别：悬停高亮专用集合
- * - 独立于 trackLines，渲染在 FLAT_ALTITUDE + 1500 高度
- * - 深度测试优先，确保不被其他航迹遮挡
- */
+/** P2: Separate PolylineCollection for hover overlay at elevated altitude — wins depth test against all tracks */
 let hoverOverlayLines: Cesium.PolylineCollection | null = null
-
-/** 
- * 悬停高亮复用线段
- * - 只创建一次，后续复用
- * - 每次悬停仅更新 positions 和 uniforms.color
- * - 避免频繁创建/销毁材质，极高性能
- */
+/** Single reusable hover overlay polyline — allocated once, positions + uniform updated each hover */
 let activeOverlayLine: Cesium.Polyline | null = null
-
-/** 
- * P1 级别：端点圆点集合
- * - 使用 PointPrimitiveCollection（GPU 实例化）
- * - 每个航迹最新位置显示一个圆点
- * - 单次 Draw Call 渲染所有端点
- */
+/** P1: PointPrimitiveCollection for fast endpoint dots — one draw call for all track dots */
 let pointPrimitives: Cesium.PointPrimitiveCollection | null = null
-
-/** 
- * P1 级别：航迹标签集合
- * - 使用 LabelCollection（GPU 实例化）
- * - 每个航迹显示航班号/机型
- * - 单次 Draw Call 渲染所有标签
- */
+/** P1: LabelCollection for track labels — GPU-instanced, one draw call for all labels */
 let trackLabels: Cesium.LabelCollection | null = null
-
-/** 
- * P3 级别：航迹点迹集合
- * - 使用 PointPrimitiveCollection（GPU 实例化）
- * - 显示航迹历史上所有点迹（可逐点渐进显示）
- * - 支持轮廓描边（outlineColor/outlineWidth）
- */
+/** P3: PointPrimitiveCollection for track point dots — GPU instanced, outlined circles via Cesium public API */
 let pointDotsCollection: Cesium.PointPrimitiveCollection | null = null
-
-/** 
- * 当前地图瓦片图层
- * - 由本地 Tauri 后端提供瓦片服务
- * - 支持动态切换最大缩放级别
- */
 let currentImageryLayer: Cesium.ImageryLayer | null = null
-
-/** 
- * 本地瓦片服务器端口
- * - 通过 Tauri IPC 调用 get_tile_server_port 获取
- * - 用于构建瓦片 URL：http://127.0.0.1:${port}/tiles/{z}/{x}/{y}.png
- */
 let tileServerPort = 0
-
-// ============================================================
-// 6. 鼠标事件处理器
-// ============================================================
-
-/** 左键单击处理器（用于选中航迹） */
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
-
-/** 左键双击处理器（用于放置/删除旗标） */
 let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
-
-/** 右键单击处理器（用于上下文菜单） */
 let rightClickHandler: Cesium.ScreenSpaceEventHandler | null = null
-
-/** 鼠标移动处理器（用于悬停高亮 + 状态栏更新） */
 let moveHandler: Cesium.ScreenSpaceEventHandler | null = null
-
-/** 
- * 清除选中状态的防抖定时器
- * - 点击空白区域后延迟 300ms 清除选中
- * - 如果期间点击了航迹，取消清除
- */
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
-
-// ============================================================
-// 7. FPS 帧率追踪
-// ============================================================
-
-/** 帧计数器（每帧 +1） */
+// FPS tracking — smoothed via scene.postRender counting
 let fpsFrameCount = 0
-
-/** 
- * 上次采样时间戳（毫秒）
- * - 0 表示未初始化
- * - 在第一次 scene.postRender 时设置
- */
-let fpsLastSampleTime = 0
-
-/** 
- * 平滑后的帧率
- * - 使用 EMA（指数移动平均）平滑，α=0.5
- * - 每 500ms 更新一次
- * - 用于状态栏显示
- */
+let fpsLastSampleTime = 0 // 0 = uninitialized, set on first postRender
 let fpsSmoothed = 0
-
-// ============================================================
-// 8. 边界层（行政区划边界）
-// ============================================================
-
-/** 
- * 边界绘制高度（米）
- * - 略高于椭球面（50m），防止 Z-fighting（深度冲突）
- */
-const BOUNDARY_ALTITUDE = 50
-
-/** 
- * Douglas-Peucker 简化容差（度）
- * - 0.01° ≈ 1km
- * - 在保持形状的同时大幅减少顶点数
- */
-const SIMPLIFY_TOLERANCE = 0.01
-
-/** 
- * 每层边界的 Primitive 引用
- * - Key: 'coastline' | 'admin1' | 'admin0'
- * - Value: Cesium.Primitive（直接操作几何实例，性能最优）
- */
+// ── 边界层 Primitive（方案D：每层一个 Primitive，替代 PolylineCollection）──
+const BOUNDARY_ALTITUDE = 50 // 米，略高于椭球面防 Z-fighting
+const SIMPLIFY_TOLERANCE = 0.01 // Douglas-Peucker 简化容差（度），~0.01°≈1km
+/** Per-layer Primitive references */
 const boundaryPrimitives = new Map<BoundaryLayerKey, Cesium.Primitive>()
-
-/** 
- * 每层边界的几何环缓存 [lon, lat][][]
- * - 在首次加载时解析 GeoJSON 并缓存简化后的环
- * - 颜色/线宽变化时直接重建 Primitive，无需重新解析 GeoJSON
- */
+/** Per-layer merged ring coordinates [lon, lat][] — cached for rebuild on color/width change */
 const boundaryRingCache = new Map<BoundaryLayerKey, number[][][]>()
-
-// ============================================================
-// 9. 城市图层
-// ============================================================
-
-/** 城市点集合（PointPrimitiveCollection，GPU 实例化） */
 let cityPointCollection: Cesium.PointPrimitiveCollection | undefined
-
-/** 城市标签集合（LabelCollection，GPU 实例化） */
 let cityLabelCollection: Cesium.LabelCollection | undefined
-
-/** 城市特征数据列表（从 GeoJSON 解析） */
 let cityFeatures: CityFeature[] = []
-
-/** 
- * 城市拾取映射表
- * - Key: 'city::{cityId}'（用于 scene.pick 识别）
- * - Value: CityFeature（城市数据）
- */
 let cityPickMap = new Map<string, CityFeature>()
-
-/** 鼠标悬停时显示的城市名标签（Entity 方式） */
 let cityHoverEntity: Cesium.Entity | undefined
-
-/** 鼠标悬停时显示的点迹信息标签（Entity 方式） */
 let pointDotHoverEntity: Cesium.Entity | undefined
-
-/** 当前悬停的点迹 ID（格式：'pointdot::{trackId}::{index}'） */
 let hoveredPointDotId: string | null = null
-
-/** 
- * 城市图层延迟清理函数
- * - 用于双缓冲机制：在新集合创建后延迟一帧删除旧集合
- * - 避免纹理上传期间的闪屏
- */
-let pendingCityCleanup: (() => void) | null = null
-
-/** 待删除的旧城市点集合（延迟清理用） */
+let pendingCityCleanup: (() => void) | null = null // deferred old-collection removal
 let pendingOldCityPoints: Cesium.PointPrimitiveCollection | null = null
-
-/** 待删除的旧城市标签集合（延迟清理用） */
 let pendingOldCityLabels: Cesium.LabelCollection | null = null
-
-/** 相机变化事件取消函数（由 camera.changed.addEventListener 返回） */
 let removeCityCameraChanged: (() => void) | null = null
 
-// ============================================================
-// 10. 右键上下文菜单 - 原生事件监听器
-// ============================================================
-
-/** 
- * 阻止浏览器默认右键菜单的函数
- * - 在 canvas 上监听 'contextmenu' 事件
- * - 调用 e.preventDefault()
- */
+// 右键上下文菜单 — 原生事件监听器引用（用于 onUnmounted 清理）
 let ctxMenuFn: ((e: MouseEvent) => void) | null = null
-
-/** 点击菜单外部关闭菜单的函数 */
 let ctxClickOutsideFn: (() => void) | null = null
-
-/** 按 ESC 键关闭菜单的函数 */
 let ctxKeyFn: ((e: KeyboardEvent) => void) | null = null
-
-/** Cesium Canvas 元素引用（用于绑定/解绑原生事件） */
 let ctxCanvasEl: HTMLCanvasElement | null = null
-
-/** 
- * 鼠标离开 canvas 时清除状态栏信息的函数
- * - 监听 'mouseleave' 事件
- * - 调用 emit('view-status', null)
- */
 let statusMouseLeaveFn: (() => void) | null = null
-
-/** 
- * 自定义滚轮缩放函数
- * - 替代 Cesium 默认步进缩放
- * - 实现无极缩放（Stepless Zoom）
- */
 let onWheel: ((event: WheelEvent) => void) | null = null
-
-/** 
- * 标签集合重建计数器
- * - 每 50 次 syncEntities 重建一次 LabelCollection
- * - 解决 Cesium 字形纹理泄漏问题
- */
 let labelRebuildCounter = 0
-
-// ============================================================
-// 11. Composables 引用
-// ============================================================
-
 const { getEffectiveHex, lineColors } = useLineColor()
 
-// ============================================================
-// 12. 地图就绪 Promise
-// ============================================================
-
-/** 
- * 延迟 Promise 的 resolve 函数
- * - 在 onMounted 中调用，通知外部地图已初始化完成
- * - 父组件可通过 whenMapReady() 等待
- */
+// Deferred promise — resolves when Cesium Viewer + boundary/city layers are fully initialized
 let resolveMapReady!: () => void
-
-/** 
- * 地图就绪 Promise
- * - 外部调用 whenMapReady() 可等待 Cesium 完全加载
- * - 包括 Viewer、边界层、城市层初始化完成
- */
 const mapReadyPromise = new Promise<void>(r => { resolveMapReady = r })
 
-// ============================================================
-// 13. 右键上下文菜单响应式状态
-// ============================================================
-
-/** 
- * 右键菜单显示状态
- * - visible: 是否显示
- * - x, y: 屏幕位置（像素）
- * - type: 'flag' | 'track'（旗标菜单 or 航迹菜单）
- * - flagId / flagLabel: 旗标信息（type='flag' 时使用）
- * - trackId: 航迹 ID（type='track' 时使用）
- */
+// ── 右键上下文菜单状态 ──
 const contextMenu = ref<{
   visible: boolean
   x: number
@@ -429,34 +154,14 @@ const contextMenu = ref<{
   flagId: string
   flagLabel: string
   trackId: string
-}>({ 
-  visible: false, 
-  x: 0, 
-  y: 0, 
-  type: 'flag', 
-  flagId: '', 
-  flagLabel: '', 
-  trackId: '' 
-})
+}>({ visible: false, x: 0, y: 0, type: 'flag', flagId: '', flagLabel: '', trackId: '' })
 
-// ============================================================
-// 14. 颜色解析与主题更新
-// ============================================================
-
-/** 
- * 解析航迹颜色：自定义覆盖 > 主题默认
- * @param source - 数据源类型（'radar_raw' | 'radar_fusion' | ...）
- * @returns Cesium.Color 对象
- */
+/** Resolve line/billboard color: custom override > theme default */
 function getLineColor(source: DataSource): Cesium.Color {
   return Cesium.Color.fromCssColorString(getEffectiveHex(source))
 }
 
-/** 
- * 更新 Cesium 场景背景和地球基色以匹配当前主题
- * - 从 CSS 变量中读取颜色值
- * - 同步更新 scene.backgroundColor 和 globe.baseColor
- */
+/** Update Cesium scene background and globe base color to match current theme */
 function updateCesiumBackground() {
   if (!viewer) return
   const bgHex = getThemeVar('--cesium-bg') || '#1a1a2e'
@@ -467,124 +172,48 @@ function updateCesiumBackground() {
   viewer.scene.globe.baseColor = globeColor
   viewer.scene.requestRender()
 }
-
-// ============================================================
-// 15. Composables 初始化（功能模块注入）
-// ============================================================
-
-/** 图层可见性控制（原始/融合数据切换） */
 const { visibility } = useLayerVisibility()
-
-/** 航迹标签显示开关 */
 const { showLabels } = useLabelVisibility()
-
-/** 旗标管理（增删改查、样式切换、两旗标连线） */
 const { flags, addFlag, removeFlag, renameFlag, setFlagStyle, selectedPair } = useFlags()
-
-/** 旗标缩放系数 */
 const { flagScale } = useFlagScale()
-
-/** 航迹高亮（用于右键菜单"详细信息"跳转） */
 const { addHighlight } = useTrackHighlight()
-
-/** 点迹管理（缩放、全局显示、颜色自定义） */
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
-
-/** 主题管理（深色/浅色切换） */
 const { activeTheme, getThemeVar } = useTheme()
-
-/** 边界层管理（可见性、线宽、颜色） */
 const { boundaryVisible, boundaryWidths, boundaryColors } = useBoundaryLayers()
-
-/** 城市图层管理（可见性、LOD 参数） */
 const { cityLayer } = useCityLayer()
 
-// ============================================================
-// 16. 点迹状态管理（P3 级别）
-// ============================================================
-
-/** 
- * 用户手动选择显示点迹的航迹 ID 集合
- * - 通过右键菜单 "显示所有对应点迹" 添加
- * - 优先级高于全局模式
- */
+// ── Track point dots state ──
+/** TrackKeys the user has manually chosen to show (multiple tracks supported) */
 const manualPointDotsTrackIds = ref(new Set<string>())
-
-/** 
- * 全局模式下用户明确隐藏的航迹 ID 集合
- * - 仅当 showAllPointDots = true 时生效
- * - 用于排除某些航迹的点迹
- */
+/** TrackKeys the user has explicitly hidden in global mode */
 const globalHiddenTrackKeys = ref(new Set<string>())
-
-/** 
- * 已渲染点迹的分组映射
- * - Key: trackKey（航迹唯一标识）
- * - Value: PointPrimitive 对象数组
- */
+/** Rendered point dots grouped by trackKey → array of PointPrimitive objects */
 const pointDotEntityMap = new Map<string, Cesium.PointPrimitive[]>()
-
-/** 
- * 点迹像素大小（基础值 7.0 × trackPointDotScale）
- * - 用户通过滑块调节缩放系数
- */
+/** Point dot pixel size, scaled by trackPointDotScale */
 let pointDotPixelSize = 7.0
-
-/** 
- * 回放中点迹的渐进显示状态
- * - Key: trackKey
- * - Value: 上次显示的最后一个点索引（lo）
- * - 仅当 lo 变化时才更新点迹 show 状态，避免重复操作
- */
+/** Last visible point dot index during replay, per trackKey. Avoids redundant show updates. */
 const pointDotLastLo = new Map<string, number>()
 
-/** 
- * 检查某个航迹是否正在显示点迹
- * @param trackKey - 航迹唯一标识
- * @returns true 表示该航迹的点迹已渲染
- */
+/** Check whether point dots are currently rendered for a given trackKey */
 function isTrackShowingDots(trackKey: string): boolean {
   return pointDotEntityMap.has(trackKey)
 }
 
-// ============================================================
-// 17. 点迹渲染核心逻辑（P3 - PointPrimitiveCollection）
-// ============================================================
+// ═══════════════════════════════════════════
+// P3: Point Dot Rendering via Cesium PointPrimitiveCollection
+// GPU-instanced, outlined circles, no private WebGL API
+// ═══════════════════════════════════════════
 
-/**
- * ═══════════════════════════════════════════
- * P3: 点迹渲染 — 通过 Cesium PointPrimitiveCollection
- * GPU 实例化、描边圆点、无需私有 WebGL API
- * ═══════════════════════════════════════════
- */
-
-/** 
- * 预分配的临时 Cartesian3 对象（复用避免 GC 压力）
- * - 在循环中反复使用，减少对象创建
- */
+/** Pre-allocated scratch Cartesian3 — reused to avoid GC pressure in rebuild loop */
 const _scratchCartesian = new Cesium.Cartesian3()
-
-/** 
- * 预分配的点迹描边颜色（所有点迹共用）
- * - 黑色，透明度 0.85
- */
+/** Pre-allocated outline color — reused for all point dots */
 const _pointDotOutline = Cesium.Color.BLACK.withAlpha(0.85)
 
-/** 
- * 为单个航迹重建所有点迹
- * @param trackId - 航迹唯一标识
- * 
- * 流程：
- * 1. 移除该航迹的旧点迹
- * 2. 遍历航迹所有位置点
- * 3. 为每个点创建 PointPrimitive（带描边）
- * 4. 存入 pointDotEntityMap
- * 5. 请求重新渲染
- */
+/** Create PointPrimitive objects for a single track's positions */
 function rebuildPointDotsForTrack(trackId: string) {
   if (!pointDotsCollection || !viewer) return
 
-  // 移除现有点迹
+  // Remove existing dots for this track
   removePointDotsForTrack(trackId)
 
   const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
@@ -601,7 +230,7 @@ function rebuildPointDotsForTrack(trackId: string) {
 
     Cesium.Cartesian3.fromDegrees(lon, lat, FLAT_ALTITUDE, undefined, _scratchCartesian)
     const prim = pointDotsCollection.add({
-      id: `pointdot::${trackId}::${i}`,      // 唯一 ID，用于拾取
+      id: `pointdot::${trackId}::${i}`,
       position: _scratchCartesian,
       pixelSize: pointDotPixelSize,
       color,
@@ -617,10 +246,7 @@ function rebuildPointDotsForTrack(trackId: string) {
   viewer.scene.requestRender()
 }
 
-/** 
- * 移除单个航迹的所有点迹
- * @param trackId - 航迹唯一标识
- */
+/** Remove PointPrimitive objects for a single track */
 function removePointDotsForTrack(trackId: string) {
   if (!pointDotsCollection) return
   const primitives = pointDotEntityMap.get(trackId)
@@ -632,15 +258,7 @@ function removePointDotsForTrack(trackId: string) {
   }
 }
 
-/** 
- * 手动显示某个航迹的点迹（右键菜单操作）
- * @param trackId - 航迹唯一标识
- * 
- * 操作：
- * 1. 将该航迹加入 manualPointDotsTrackIds
- * 2. 从 globalHiddenTrackKeys 中移除（如果在其中）
- * 3. 重建点迹
- */
+/** Show point dots for a single track (right-click manual operation) */
 function showManualPointDots(trackId: string) {
   const nextManual = new Set(manualPointDotsTrackIds.value)
   nextManual.add(trackId)
@@ -653,15 +271,7 @@ function showManualPointDots(trackId: string) {
   rebuildPointDotsForTrack(trackId)
 }
 
-/** 
- * 隐藏某个航迹的点迹（右键菜单操作）
- * @param trackId - 航迹唯一标识
- * 
- * 操作：
- * 1. 从 manualPointDotsTrackIds 中移除
- * 2. 如果处于全局模式，加入 globalHiddenTrackKeys
- * 3. 移除点迹
- */
+/** Hide point dots for a specific track (right-click manual operation) */
 function hidePointDotsForTrack(trackId: string) {
   const nextManual = new Set(manualPointDotsTrackIds.value)
   nextManual.delete(trackId)
@@ -676,8 +286,6 @@ function hidePointDotsForTrack(trackId: string) {
   removePointDotsForTrack(trackId)
   viewer?.scene.requestRender()
 }
-
-
 
 /** Sync global point dots: apply showAllPointDots + manual overrides + hidden list */
 function syncGlobalPointDots() {
@@ -779,7 +387,7 @@ const BOUNDARY_LAYERS = [
 interface TrackEntities {
   /** Entity API polyline — stored in viewer.entities for full picking/interaction support */
   entity: Cesium.Entity | undefined
-  /** P2: PolylineCollection polyline for replay trail ONLY */
+  /** P2: PolylineCollection polyline for replay trail ONLY — hidden during non-replay */
   trailLine: Cesium.Polyline | undefined
   /** P1: Label in LabelCollection — GPU-instanced, one draw call for all labels */
   label: Cesium.Label | undefined
@@ -787,15 +395,14 @@ interface TrackEntities {
   pointPrimitive: Cesium.PointPrimitive | undefined
   source: string
   labelText: string
-  /** Mutable holder for replay trail positions — updated each replay frame */
+  /** Mutable holder for full track positions — used to restore after replay */
   trailRef: { positions: Cesium.Cartesian3[] }
+  /** Current trail positions during replay (incrementally built), assigned to entity.polyline.positions */
+  trailPositions: Cesium.Cartesian3[]
   /** Last lo index from binary search — replay trail only updated when this advances */
   lastTrailLo: number
-
-  // ---- 新增缓存字段 ----
-  cachedPositions: Cesium.Cartesian3[]   // 预转换的完整航迹笛卡尔坐标
-  lastInterpPos?: Cesium.Cartesian3      // 上次插值位置（用于增量更新判断）
-  trailMaterial?: Cesium.Material        // 缓存的 Material，避免重复创建
+  /** 预转换的 Cartesian3 坐标缓存（仅在 syncEntities 时转换一次，回放时直接复用） */
+  cachedPositions: Cesium.Cartesian3[]
 }
 
 const entityMap = new Map<string, TrackEntities>()
@@ -1786,13 +1393,20 @@ function isFinitePoint(p: TrackPoint): boolean {
     p.latitude >= -90 && p.latitude <= 90
 }
 
-/** Convert track positions to a flat Cartesian3 array for polyline rendering */
+/** Convert track positions to a flat Cartesian3 array for polyline rendering.
+ *  Always produces the same length as input to keep indices aligned with binary search results. */
 function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
   const flat: number[] = []
+  let lastLng = 0, lastLat = 0
   for (let i = 0; i < positions.length; i++) {
     const p = positions[i]
-    if (!isFinitePoint(p)) continue
-    flat.push(p.longitude, p.latitude, FLAT_ALTITUDE)
+    if (isFinitePoint(p)) {
+      flat.push(p.longitude, p.latitude, FLAT_ALTITUDE)
+      lastLng = p.longitude; lastLat = p.latitude
+    } else {
+      // Keep index alignment: repeat last valid position to avoid cache/positions length mismatch
+      flat.push(lastLng, lastLat, FLAT_ALTITUDE)
+    }
   }
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
 }
@@ -1802,32 +1416,19 @@ function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
 /** Remove a trail polyline and destroy its Material to free the GPU shader program.
  *  PolylineCollection.remove() does NOT destroy the Material, so we must do it manually.
  *  IMPORTANT: remove first, THEN destroy — otherwise render may access destroyed Material. */
-function removeTrailLine(trailLine: Cesium.Polyline | undefined) {
-  if (!trailLine || !trackLines) return
-  const mat = (trailLine as any).material as Cesium.Material | undefined
-  trackLines.remove(trailLine)
-  // Now safe to destroy — polyline is no longer in the collection, won't be rendered
-  if (mat && !mat.isDestroyed()) {
-    mat.destroy()
-  }
-}
-
 function createTrackEntities(track: Track) {
   if (!viewer || track.positions.length === 0) return
   if (!trackLabels) return
 
-// 在函数开头，预转换整条航迹（若已有缓存则复用，但创建时一定没有）
-  const cachedPositions = toCartesianArray(track.positions)
   const color = getLineColor(track.source)
-
   const tKey = trackKey(track.id, track.source)
   const isSelected = tKey === props.selectedId
   const isRaw = track.source === 'radar_raw'
   const replaying = props.replayTime !== null
 
-  // Mutable holder for polyline positions — during active replay, starts empty;
-  // updateReplayPositions will fill the correct partial trail.
-  const trailRef = { positions: replaying ? [] : toCartesianArray(track.positions) }
+  // Mutable holder for full polyline positions — always stores full track, never modified during replay.
+  // Entity polyline is hidden during replay; trail is rendered via PolylineCollection instead.
+  const trailRef = { positions: toCartesianArray(track.positions) }
 
   // Entity API: main polyline in viewer.entities — full picking/interaction support
   let entity: Cesium.Entity | undefined
@@ -1883,11 +1484,19 @@ function createTrackEntities(track: Track) {
   entityMap.set(tKey, {
     entity, trailLine: undefined, label: lbl, pointPrimitive,
     source: track.source, labelText: label || track.id, trailRef,
+    trailPositions: [],
     lastTrailLo: track.positions.length - 1,
-    cachedPositions,                      // <-- 新增
-    lastInterpPos: undefined,             // <-- 新增
-    trailMaterial: undefined,             // <-- 新增
+    cachedPositions: toCartesianArray(track.positions),
   })
+}
+
+/** Remove a trailLine from the shared PolylineCollection and destroy its Material.
+ *  PolylineCollection.remove() does NOT destroy the Material, so we must do it manually. */
+function removeTrailLine(trailLine: Cesium.Polyline | undefined) {
+  if (!trailLine || !trackLines) return
+  const mat = (trailLine as any).material as Cesium.Material | undefined
+  trackLines.remove(trailLine)
+  if (mat && !mat.isDestroyed()) mat.destroy()
 }
 
 function removeTrackEntities(id: string) {
@@ -1929,9 +1538,12 @@ function clearAllEntities() {
  *  Must be called after syncEntities / replay restore / any operation
  *  that may have overwritten entity.show without consulting visibility state. */
 function reapplyVisibility() {
+  const replaying = props.replayTime !== null
   for (const [, entities] of entityMap) {
     const vis = visibility.value[entities.source as keyof typeof visibility.value]
-    if (entities.entity) entities.entity.show = vis
+    // During replay, entity is hidden — trailLine in PolylineCollection handles display
+    if (entities.entity) entities.entity.show = replaying ? false : vis
+    if (entities.trailLine) entities.trailLine.show = vis
     if (entities.label) entities.label.show = vis
     if (entities.pointPrimitive) entities.pointPrimitive.show = vis
   }
@@ -1967,7 +1579,10 @@ function syncEntities(newTracks: Track[]) {
       const isRaw = track.source === 'radar_raw'
       const tSel = trackKey(track.id, track.source) === props.selectedId
       const replaying = props.replayTime !== null
-      existing.lastTrailLo = track.positions.length - 1
+      // Don't corrupt lastTrailLo during replay — updateReplayPositions owns it
+      if (!replaying) {
+        existing.lastTrailLo = track.positions.length - 1
+      }
       const vis = visibility.value[track.source as keyof typeof visibility.value] !== false
 
       if (existing.entity) {
@@ -1976,8 +1591,8 @@ function syncEntities(newTracks: Track[]) {
           if (!replaying) {
             const newPositions = toCartesianArray(track.positions)
             existing.trailRef.positions = newPositions
+            existing.cachedPositions = newPositions
             // Update Entity polyline positions directly
-            //existing.cachedPositions = newPositions
             if (existing.entity.polyline) {
               ;(existing.entity.polyline as any).positions = newPositions
             }
@@ -1997,7 +1612,9 @@ function syncEntities(newTracks: Track[]) {
         const color = getLineColor(track.source)
         const tKey = trackKey(track.id, track.source)
         if (!replaying) {
-          existing.trailRef.positions = toCartesianArray(track.positions)
+          const pos = toCartesianArray(track.positions)
+          existing.trailRef.positions = pos
+          existing.cachedPositions = pos
         }
         existing.entity = viewer.entities.add({
           id: tKey,
@@ -2062,583 +1679,179 @@ watch(
   { deep: false },
 )
 
-// ============================================================
-// 35. 回放位置更新函数（核心性能优化模块）
-// ============================================================
+/** 重建 LabelCollection 和 PointPrimitiveCollection，释放回放期间膨胀的 GPU 缓存。
+ *  Cesium 的 LabelCollection 字形图集在大量 position 更新后会膨胀且不自动收缩，
+ *  必须销毁并重建才能恢复初始帧率。 */
+function rebuildLabelAndPointCollections() {
+  if (!viewer) return
 
-/**
- * 更新回放模式下所有航迹的位置和轨迹线
- * 
- * 这是一个高性能函数，采用多种优化策略：
- * 1. 二分查找快速定位时间点
- * 2. 线性插值计算平滑位置
- * 3. 隔帧更新几何体（减少 CPU 开销）
- * 4. 增量更新（仅当 lo 或位置变化时才更新）
- * 5. 点迹渐进显示（随回放进度逐步显示）
- * 
- * 调用频率：每秒 60 次（与浏览器刷新率同步）
- * 
- * @param time - 当前回放时间戳（毫秒）
- */
+  // ── LabelCollection 重建 ──
+  if (trackLabels && viewer.scene.primitives.contains(trackLabels)) {
+    const oldLabels = trackLabels
+    const newLabels = viewer.scene.primitives.add(new Cesium.LabelCollection())
+    trackLabels = newLabels
+    for (const [, entry] of entityMap) {
+      if (!entry.label) continue
+      const o = entry.label
+      entry.label = newLabels.add({
+        id: o.id, show: o.show, position: o.position, text: o.text,
+        font: o.font, fillColor: o.fillColor, outlineColor: o.outlineColor,
+        outlineWidth: o.outlineWidth, style: o.style,
+        verticalOrigin: o.verticalOrigin, pixelOffset: o.pixelOffset,
+      })
+    }
+    viewer.scene.primitives.remove(oldLabels)
+    if (!oldLabels.isDestroyed()) oldLabels.destroy()
+  }
+
+  // ── PointPrimitiveCollection 重建 ──
+  if (pointPrimitives && viewer.scene.primitives.contains(pointPrimitives)) {
+    const oldPts = pointPrimitives
+    const newPts = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection())
+    pointPrimitives = newPts
+    for (const [, entry] of entityMap) {
+      if (!entry.pointPrimitive) continue
+      const o = entry.pointPrimitive
+      entry.pointPrimitive = newPts.add({
+        id: o.id, show: o.show, position: o.position,
+        color: o.color, pixelSize: o.pixelSize,
+      })
+    }
+    viewer.scene.primitives.remove(oldPts)
+    if (!oldPts.isDestroyed()) oldPts.destroy()
+  }
+}
+
 function updateReplayPositions(time: number) {
-  // ── 前置检查 ──
-  if (!viewer || !trackLines) return
-  
-  // 性能调试日志（仅用于开发阶段）
-  console.log('[perf] 隔振计数器启动')
+  if (!viewer) return
 
-  // ============================================================
-  // 优化策略 1：隔帧更新（Frame-skipping）
-  // ============================================================
-  /**
-   * 隔帧计数器（0/1 交替）
-   * 
-   * 原理：每帧都更新位置（标签/端点），但几何体（轨迹线）隔帧更新
-   * - 偶数帧（counter=0）：更新几何体（轨迹线 positions）
-   * - 奇数帧（counter=1）：只更新位置（不更新几何体）
-   * 
-   * 效果：CPU 开销降低 50%，肉眼几乎无感知（60fps → 30fps 几何更新）
-   */
-  replayCounter = (replayCounter + 1) % 3
-  const shouldUpdateGeometry = replayCounter === 0  // 只有偶数帧才更新几何
-  let geometryUpdated = false                        // 标记是否有几何变化
+  const tStart = performance.now()
 
-  // ============================================================
-  // 遍历所有航迹
-  // ============================================================
+  // ── 诊断计数器 ──
+  let diagTrailUpdated = 0
+  let diagTrailSkipped = 0
+  let diagTrailNoCache = 0
+
   for (const track of props.tracks) {
     const tKey = trackKey(track.id, track.source)
     const entities = entityMap.get(tKey)
     if (!entities || track.positions.length === 0) continue
 
-    // ── 检查图层可见性 ──
-    const vis = visibility.value[entities.source as keyof typeof visibility.value] !== false
-    if (!vis) {
-      // 不可见：隐藏轨迹线（但不移除，保留资源）
-      if (entities.trailLine) entities.trailLine.show = false
+    const pts = track.positions
+    const cache = entities.cachedPositions
+
+    // 诊断：检查 cache 是否有效
+    if (!cache || cache.length === 0) {
+      diagTrailNoCache++
+      if (entities.label) entities.label.position = undefined as any
+      if (entities.pointPrimitive) entities.pointPrimitive.position = undefined as any
       continue
     }
 
-    const pts = track.positions  // 航迹点数组（按时间升序）
-
-    // ============================================================
-    // 优化策略 2：二分查找（O(log n)）
-    // ============================================================
-    /**
-     * 在当前航迹点数组中查找 time 所在的区间 [lo, hi]
-     * 
-     * 目标：找到两个相邻点 pts[lo] 和 pts[hi]，使得：
-     *   pts[lo].timestamp <= time <= pts[hi].timestamp
-     * 
-     * 特殊情况：
-     * - time <= 第一个点：lo=0, hi=1（从起点开始）
-     * - time >= 最后一个点：lo=hi=last（停在终点）
-     */
+    // Inline binary search — with boundary checks for edge cases
     let lo: number, hi: number
     if (time <= pts[0].timestamp) {
-      // 回放时间早于或等于第一个点：从起点开始
       lo = 0; hi = 1
     } else if (time >= pts[pts.length - 1].timestamp) {
-      // 回放时间晚于或等于最后一个点：停在终点
       lo = pts.length - 1; hi = pts.length - 1
     } else {
-      // 正常情况：二分查找
       lo = 0; hi = pts.length - 1
       while (lo < hi - 1) {
-        const mid = (lo + hi) >> 1  // 位运算：等同于 Math.floor((lo+hi)/2)
-        if (pts[mid].timestamp <= time) {
-          lo = mid   // 目标在右半区
-        } else {
-          hi = mid   // 目标在左半区
-        }
+        const mid = (lo + hi) >> 1
+        if (pts[mid].timestamp <= time) lo = mid; else hi = mid
       }
-      // 循环结束后：lo 和 hi 是相邻的两个索引
     }
 
-    // ── 特殊情况：回放时间早于第一个点 ──
     if (time < pts[0].timestamp) {
-      // 时间还没到：隐藏该航迹的所有元素
       if (entities.entity) entities.entity.show = false
-      if (entities.trailLine) {
-        removeTrailLine(entities.trailLine)  // 销毁轨迹线释放资源
-        entities.trailLine = undefined
-        entities.trailMaterial = undefined
-      }
-      continue  // 跳过后续处理
+      if (entities.trailLine) { removeTrailLine(entities.trailLine); entities.trailLine = undefined }
+      continue
     }
 
-    // ============================================================
-    // 优化策略 3：线性插值（平滑位置）
-    // ============================================================
-    /**
-     * 在 pts[lo] 和 pts[hi] 之间线性插值，计算当前位置
-     * 
-     * 公式：
-     *   t = (time - pts[lo].timestamp) / (pts[hi].timestamp - pts[lo].timestamp)
-     *   position = pts[lo] + (pts[hi] - pts[lo]) * t
-     * 
-     * 结果：连续的平滑运动，而不是点之间的跳跃
-     */
+    const vis = visibility.value[entities.source as keyof typeof visibility.value] !== false
+
+    // Interpolate current position
     const dt = pts[hi].timestamp - pts[lo].timestamp
-    const t = dt > 0 ? (time - pts[lo].timestamp) / dt : 0  // 插值因子 [0, 1]
-    
-    // 插值计算经纬度
+    const t = dt > 0 ? (time - pts[lo].timestamp) / dt : 0
     const cpLat = pts[lo].latitude + (pts[hi].latitude - pts[lo].latitude) * t
     const cpLng = pts[lo].longitude + (pts[hi].longitude - pts[lo].longitude) * t
-    
-    // 转换为 Cesium 笛卡尔坐标（固定高度 FLAT_ALTITUDE）
-    const cpPos = Cesium.Cartesian3.fromDegrees(cpLng, cpLat, FLAT_ALTITUDE)
 
-    // ── 每帧更新标签和端点位置（轻量级操作） ──
+    const cpPos = Cesium.Cartesian3.fromDegrees(cpLng, cpLat, FLAT_ALTITUDE)
     if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
 
-    // ============================================================
-    // 优化策略 4：增量几何更新（隔帧执行）
-    // ============================================================
-    /**
-     * 以下代码只在偶数帧执行（shouldUpdateGeometry === true）
-     * 奇数帧跳过，节省 CPU
-     */
-    if (shouldUpdateGeometry) {
-      /**
-       * 判断是否需要更新几何体
-       * 
-       * 条件 1：lo 发生了变化（从一段移动到下一段）
-       *   例如：之前 lo=5，现在 lo=6 → 需要增加新点
-       * 
-       * 条件 2：插值位置发生了明显变化
-       *   防止浮点数精度问题导致的不必要更新
-       */
-      const loChanged = lo !== entities.lastTrailLo
-      const posChanged = !entities.lastInterpPos ||
-        !Cesium.Cartesian3.equals(cpPos, entities.lastInterpPos)
+    // Build progressive trail: points up to lo + interpolated current
+    const trailPts: number[] = []
+    for (let i = 0; i <= lo; i++) {
+      trailPts.push(pts[i].longitude, pts[i].latitude, FLAT_ALTITUDE)
+    }
+    const lastPast = pts[lo]
+    if (Math.abs(cpLat - lastPast.latitude) > 1e-7 || Math.abs(cpLng - lastPast.longitude) > 1e-7) {
+      trailPts.push(cpLng, cpLat, FLAT_ALTITUDE)
+    }
+    const trailPositions = Cesium.Cartesian3.fromDegreesArrayHeights(trailPts)
 
-      // ── 只有真正变化时才更新几何体 ──
-      if (loChanged || posChanged) {
-        geometryUpdated = true  // 标记需要重新渲染
+    // Hide full entity line, show trail in PolylineCollection
+    if (entities.entity) entities.entity.show = false
 
-        /**
-         * 构建轨迹线点数组
-         * 
-         * 结构：[pts[0], pts[1], ..., pts[lo], cpPos]
-         * 
-         * 解释：
-         * - 前 lo+1 个点：来自原始航迹数据（已缓存）
-         * - 最后一个点：插值位置（当前帧位置）
-         * - 这样轨迹线就显示了"从起点到当前位置"的完整路径
-         * 
-         * 优化：使用 cachedPositions 避免重复转换
-         */
-        const prefix = entities.cachedPositions.slice(0, lo + 1)  // 取前 lo+1 个点
-        let trailPositions: Cesium.Cartesian3[]
-        
-        if (lo === pts.length - 1) {
-          // 已到终点：只有原始点，不追加插值点
-          trailPositions = prefix
-        } else {
-          // 未到终点：追加插值点
-          const lastCached = prefix[prefix.length - 1]
-          // 防抖：如果插值点与最后一个缓存点距离太近，不追加（避免闪烁）
-          if (Cesium.Cartesian3.distance(lastCached, cpPos) > 1e-6) {
-            trailPositions = prefix.concat(cpPos)
-          } else {
-            trailPositions = prefix
-          }
-        }
+    if (entities.trailLine) {
+      entities.trailLine.positions = trailPositions
+      entities.trailLine.show = trailPositions.length >= 2 && vis
+      diagTrailUpdated++
+    } else if (trailPositions.length >= 2) {
+      const color = getLineColor(track.source)
+      const isSel = tKey === props.selectedId
+      const isRaw = track.source === 'radar_raw'
+      entities.trailLine = trackLines!.add({
+        id: `trail::${tKey}`,
+        show: vis,
+        positions: trailPositions,
+        width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
+        material: Cesium.Material.fromType('Color', {
+          color: color.withAlpha(isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)),
+        }),
+      })
+      diagTrailUpdated++
+    } else {
+      diagTrailSkipped++
+    }
 
-        // ── 回放模式下隐藏主 Entity（避免重叠） ──
-        if (entities.entity) entities.entity.show = false
-
-        // ── 确定航迹样式 ──
-        const isSel = tKey === props.selectedId
-        const isRaw = track.source === 'radar_raw'
-        const color = getLineColor(track.source)
-        const alpha = isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)
-
-        // ── 更新或创建 trailLine ──
-        if (entities.trailLine) {
-          /**
-           * 已有轨迹线：更新属性（复用对象，避免创建销毁）
-           * 
-           * 优势：不产生新的 GPU 对象，性能最优
-           */
-          entities.trailLine.positions = trailPositions
-          entities.trailLine.show = trailPositions.length >= 2
-          entities.trailLine.width = isSel ? SELECTED_WIDTH : baseWidth(track.source)
-          // 更新材质颜色（复用 Material 对象）
-          if (entities.trailMaterial) {
-            (entities.trailMaterial as any).uniforms.color = color.withAlpha(alpha)
-          }
-        } else if (trailPositions.length >= 2) {
-          /**
-           * 没有轨迹线且点数足够：创建新的
-           * 
-           * 注意：首次创建时分配 Material，后续复用
-           */
-          const material = Cesium.Material.fromType('Color', {
-            color: color.withAlpha(alpha),
-          })
-          entities.trailLine = trackLines.add({
-            id: `trail::${tKey}`,           // 用于拾取识别
-            show: true,
-            positions: trailPositions,
-            width: isSel ? SELECTED_WIDTH : baseWidth(track.source),
-            material: material,
-          })
-          entities.trailMaterial = material
-        }
-
-        // ── 更新状态（用于下次增量判断） ──
-        entities.lastTrailLo = lo
-        entities.lastInterpPos = cpPos.clone()  // 克隆保存，避免引用污染
-      }
-
-      // ============================================================
-      // 优化策略 5：点迹渐进显示
-      // ============================================================
-      /**
-       * 随着回放进度，逐步显示点迹
-       * 
-       * 原理：
-       * - 每个点迹都有 show 属性（true/false）
-       * - 当 lo 增加时，将索引 <= lo 的点迹设为可见
-       * - 效果：点迹像"画线"一样逐个出现
-       * 
-       * 优化：使用 pointDotLastLo 记录上次显示的 lo
-       * 只有 lo 变化时才更新，避免重复操作
-       */
-      const dotPrimitives = pointDotEntityMap.get(tKey)
-      if (dotPrimitives && dotPrimitives.length > 0) {
-        const prevLo = pointDotLastLo.get(tKey) ?? -1
-        if (lo !== prevLo) {
-          pointDotLastLo.set(tKey, lo)  // 更新状态
-          // 遍历所有点迹：索引 <= lo 的显示，> lo 的隐藏
-          for (let i = 0; i < dotPrimitives.length; i++) {
-            dotPrimitives[i].show = i <= lo
-          }
+    // ── 渐进点迹 ──
+    const dotPrimitives = pointDotEntityMap.get(tKey)
+    if (dotPrimitives && dotPrimitives.length > 0) {
+      const prevDotLo = pointDotLastLo.get(tKey) ?? -1
+      if (lo !== prevDotLo) {
+        pointDotLastLo.set(tKey, lo)
+        for (let i = 0; i < dotPrimitives.length; i++) {
+          dotPrimitives[i].show = i <= lo
         }
       }
     }
-    // ── 结束 shouldUpdateGeometry ──
   }
 
-  // ============================================================
-  // 优化策略 6：按需渲染（RequestRender）
-  // ============================================================
-  /**
-   * 只有几何体发生变化时才请求重新渲染
-   * 
-   * Cesium 的 requestRenderMode 模式下：
-   * - 不调用 requestRender() 则不会渲染新帧
-   * - 这样可以大幅节省 GPU 资源
-   * 
-   * 位置更新（标签/端点）不需要重新渲染几何体，
-   * Cesium 会自动处理这些属性的更新
-   */
-  if (geometryUpdated) {
-    viewer.scene.requestRender()
+  // ── 诊断输出：每 60 帧打印一次 ──
+  if ((window as any).__diagFrameCount === undefined) (window as any).__diagFrameCount = 0
+  ;(window as any).__diagFrameCount++
+  const diagFc = (window as any).__diagFrameCount
+  if (diagFc % 60 === 0) {
+    const tMs = (performance.now() - tStart).toFixed(1)
+    console.log(
+      `[REPLAY-DIAG] frame#${diagFc} ${tMs}ms | tracks=${props.tracks.length} ` +
+      `trails=${diagTrailUpdated} skipped=${diagTrailSkipped} noCache=${diagTrailNoCache} | ` +
+      `total=${diagTrailUpdated + diagTrailSkipped + diagTrailNoCache}`
+    )
   }
+
+  viewer.scene.requestRender()
 }
-
-
-
-// ============================================================
-// 在 CesiumMap.vue 中，找到以下位置：
-// 1. 状态声明区域（约第 100-200 行）
-// 2. watch(replayTime) 区域（约第 800-900 行）
-// ============================================================
-
-// ──────────────────────────────────────────────────────────────
-// 第一部分：状态声明（替换原有的 let wasReplaying = false）
-// ──────────────────────────────────────────────────────────────
 
 let wasReplaying = false
-
-// 🆕 新增：Worker 相关状态
-let replayWorker: Worker | null = null
-let isWorkerReady = false
-let pendingResults: Map<string, { lat: number; lng: number; lo: number; altitude?: number }> | null = null
-let lastRequestedTime = -1
-let isProcessingResults = false
-let processScheduled = false
-let workerInitPromise: Promise<void> | null = null
-
-
-// ──────────────────────────────────────────────────────────────
-// 第二部分：Worker 相关函数（新增，放在 watch 之前）
-// ──────────────────────────────────────────────────────────────
-
-/**
- * 初始化 Replay Worker
- */
-function initReplayWorker(): Promise<void> {
-  if (replayWorker && isWorkerReady) return Promise.resolve()
-  if (workerInitPromise) return workerInitPromise
-
-  workerInitPromise = new Promise((resolve, reject) => {
-    try {
-      // 使用 Vite 的 Worker 导入
-      replayWorker = new Worker(
-        new URL('../workers/replay.worker.ts', import.meta.url),
-        { type: 'module' }
-      )
-
-      replayWorker.onmessage = (e) => {
-        const data = e.data
-        if (data.type === 'result') {
-          // 只处理最新的请求（丢弃过期数据）
-          if (data.timestamp >= lastRequestedTime) {
-            pendingResults = new Map()
-            for (const item of data.results) {
-              pendingResults.set(item.key, {
-                lat: item.lat,
-                lng: item.lng,
-                lo: item.lo,
-                altitude: item.altitude
-              })
-            }
-            // 在主线程空闲时处理结果
-            scheduleProcessResults()
-          }
-        }
-      }
-
-      replayWorker.onerror = (e) => {
-        console.warn('[Replay Worker] 错误，降级到同步模式:', e)
-        isWorkerReady = false
-        workerInitPromise = null
-        reject(e)
-      }
-
-      // 发送初始化数据
-      const serializedTracks = props.tracks.map(track => ({
-        timestamps: new Float64Array(track.positions.map(p => p.timestamp)),
-        lats: new Float64Array(track.positions.map(p => p.latitude)),
-        lngs: new Float64Array(track.positions.map(p => p.longitude)),
-        altitudes: new Float64Array(track.positions.map(p => p.altitude || 0))
-      }))
-
-      replayWorker.postMessage({
-        type: 'init',
-        tracks: serializedTracks,
-        trackKeys: props.tracks.map(t => trackKey(t.id, t.source)),
-        flatAltitude: FLAT_ALTITUDE
-      })
-
-      isWorkerReady = true
-      resolve()
-    } catch (err) {
-      console.warn('[Replay Worker] 初始化失败，降级到同步模式:', err)
-      isWorkerReady = false
-      workerInitPromise = null
-      reject(err)
-    }
-  })
-
-  return workerInitPromise
-}
-
-/**
- * 调度处理 Worker 结果（使用 requestIdleCallback）
- */
-function scheduleProcessResults() {
-  if (processScheduled) return
-  processScheduled = true
-
-  const doProcess = () => {
-    processScheduled = false
-    if (pendingResults) {
-      processWorkerResults(pendingResults)
-      pendingResults = null
-    }
-  }
-
-  if ('requestIdleCallback' in window) {
-    requestIdleCallback(doProcess, { timeout: 16 })
-  } else {
-    requestAnimationFrame(doProcess)
-  }
-}
-
-/**
- * 处理 Worker 计算结果（批量更新 Cesium）
- */
-function processWorkerResults(results: Map<string, { lat: number; lng: number; lo: number; altitude?: number }>) {
-  console.log('[Main] processWorkerResults 被调用，结果数量:', results.size)
-  if (isProcessingResults) return
-  isProcessingResults = true
-
-  try {
-    const tempPos = new Cesium.Cartesian3()
-    let geometryUpdated = false
-    let trailCount = 0  // ← 添加
-
-    for (const [tKey, data] of results) {
-      const entities = entityMap.get(tKey)
-      if (!entities) 
-      {
-        console.warn('[Main] 未找到实体:', tKey)  // 可选
-        continue
-      }
-
-      // 更新位置
-      Cesium.Cartesian3.fromDegrees(data.lng, data.lat, FLAT_ALTITUDE, undefined, tempPos)
-
-      // 批量更新标签和端点
-      if (entities.label) {
-        entities.label.position = tempPos
-      }
-      if (entities.pointPrimitive) {
-        entities.pointPrimitive.position = tempPos
-      }
-
-      // 更新轨迹线（仅当 lo 变化时）
-      if (data.lo !== entities.lastTrailLo) {
-        updateTrailLineFromWorker(entities, data.lo, tempPos)
-        entities.lastTrailLo = data.lo
-        geometryUpdated = true
-        trailCount++  // ← 添加
-      }
-
-      // 更新点迹渐进显示
-      updatePointDotsFromWorker(tKey, data.lo)
-    }
-
-    console.log('[Main] 更新了', trailCount, '条轨迹线')  // ← 添加
-
-    // 仅在更新了轨迹线时才请求渲染
-    if (geometryUpdated) {
-      viewer?.scene.requestRender()
-    }
-  } finally {
-    isProcessingResults = false
-  }
-}
-
-/**
- * 从 Worker 结果更新轨迹线
- *
- * 
- */
-function updateTrailLineFromWorker(
-  entities: TrackEntities,
-  lo: number,
-  pos: Cesium.Cartesian3
-) {
-  if (!trackLines) return
-
-  const cache = (entities as any).cachedPositions
-  if (!cache || lo >= cache.length) return
-
-  if (!entities.trailLine) {
-    // ── 创建新的 trailLine ──
-    const tKey = entities.entity?.id as string
-    const isSel = tKey === props.selectedId
-    const isRaw = entities.source === 'radar_raw'
-    const color = getLineColor(entities.source as DataSource)
-    const alpha = isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)
-
-    const trailPositions = cache.slice(0, lo + 1)
-    trailPositions.push(pos)
-
-    const material = Cesium.Material.fromType('Color', {
-      color: color.withAlpha(alpha),
-    })
-
-    entities.trailLine = trackLines.add({
-      id: `trail::${tKey}`,
-      show: true,
-      positions: trailPositions,
-      width: isSel ? SELECTED_WIDTH : baseWidth(entities.source as DataSource),
-      material: material,
-    })
-    entities.trailMaterial = material
-    return
-  }
-
-  // ── 更新已有 trailLine（复用数组，避免重新分配） ──
-  const positions = entities.trailLine.positions as Cesium.Cartesian3[]
-  const targetLen = lo + 2
-
-  if (positions.length !== targetLen) {
-    positions.length = targetLen
-  }
-
-  for (let i = 0; i <= lo; i++) {
-    positions[i] = cache[i]
-  }
-  positions[lo + 1] = pos
-
-  entities.trailLine.show = true
-
-  // 更新宽度（选中状态变化时）
-  const tKey = entities.entity?.id as string
-  const isSel = tKey === props.selectedId
-  entities.trailLine.width = isSel ? SELECTED_WIDTH : baseWidth(entities.source as DataSource)
-}
-
-/**
- * 从 Worker 结果更新点迹
- */
-function updatePointDotsFromWorker(tKey: string, lo: number) {
-  const primitives = pointDotEntityMap.get(tKey)
-  if (!primitives || primitives.length === 0) return
-
-  const prevLo = pointDotLastLo.get(tKey) ?? -1
-  if (lo !== prevLo) {
-    pointDotLastLo.set(tKey, lo)
-    for (let i = 0; i < primitives.length; i++) {
-      primitives[i].show = i <= lo
-    }
-  }
-}
-
-/**
- * 同步计算（降级方案）- 保留原始逻辑
- */
-function updateReplayPositionsSync(time: number) {
-  // ⚠️ 这里放原始的 updateReplayPositions 函数代码
-  // 为了简洁，省略，但实际使用时需要复制原始函数内容
-  // 或者直接调用原始函数（如果保留的话）
-  // 建议：将原始 updateReplayPositions 重命名为 updateReplayPositionsSync
-}
-
-/**
- * 销毁 Worker
- */
-function destroyReplayWorker() {
-  if (replayWorker) {
-    replayWorker.terminate()
-    replayWorker = null
-  }
-  isWorkerReady = false
-  workerInitPromise = null
-  pendingResults = null
-  processScheduled = false
-  isProcessingResults = false
-  lastRequestedTime = -1
-}
-
-// ──────────────────────────────────────────────────────────────
-// 第三部分：替换原有的 watch(replayTime)
-// ──────────────────────────────────────────────────────────────
-
 watch(
   () => props.replayTime,
   (time) => {
     if (time !== null) {
-      // ── 进入回放模式 ──
       if (!wasReplaying) {
-        // 初始化 Worker
-        if (!replayWorker) {
-          initReplayWorker().catch(() => {
-            // Worker 初始化失败，使用同步模式
-            isWorkerReady = false
-          })
-        }
-
-        // 隐藏所有 Entity polylines
+        // REPLAY START: Hide all Entity polylines, clear any leftover trail lines
         for (const [, entities] of entityMap) {
           if (entities.entity) entities.entity.show = false
           if (entities.trailLine) {
@@ -2646,119 +1859,58 @@ watch(
             entities.trailLine = undefined
           }
         }
-
-        // 隐藏所有点迹
         if (pointDotEntityMap.size > 0) {
           pointDotLastLo.clear()
           for (const primitives of pointDotEntityMap.values()) {
             for (const p of primitives) p.show = false
           }
         }
-
-        wasReplaying = true
       }
-
-      // ── 每帧更新位置 ──
-      if (isWorkerReady && replayWorker) {
-        // 🚀 使用 Worker 异步计算（不阻塞主线程）
-        lastRequestedTime = time
-        replayWorker.postMessage({
-          type: 'compute',
-          time: time
-        })
-      } else {
-        // ⬇️ 降级：使用同步计算
-        updateReplayPositionsSync(time)
-      }
-
+      updateReplayPositions(time)
+      wasReplaying = true
     } else if (wasReplaying) {
-      // ── 退出回放模式 ──
       wasReplaying = false
-
-      // 1. 移除 trail 线并恢复实体可见性
+      // REPLAY STOP: Remove trail lines, unhide entities (positions were never changed)
       for (const track of props.tracks) {
         const entities = entityMap.get(trackKey(track.id, track.source))
         if (!entities || track.positions.length === 0) continue
-
         if (entities.trailLine) {
           removeTrailLine(entities.trailLine)
           entities.trailLine = undefined
-          entities.trailMaterial = undefined
         }
-
         if (entities.entity) {
           entities.entity.show = visibility.value[entities.source as keyof typeof visibility.value] !== false
         }
-
+        // Label & dot to last position
         const last = track.positions[track.positions.length - 1]
         const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
         if (entities.label) entities.label.position = lastPos
         if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
       }
-
-      // 2. 清空点迹缓存
       pointDotLastLo.clear()
-
-      // 3. 重建 trackLines
-      if (trackLines && viewer) {
-        const old = trackLines
-        trackLines = viewer.scene.primitives.add(new Cesium.PolylineCollection())
-        viewer.scene.primitives.remove(old)
-        if (!old.isDestroyed()) old.destroy()
-        if (hoverOverlayLines) {
-          viewer.scene.primitives.raiseToTop(hoverOverlayLines as any)
-        }
-        for (const [, ent] of entityMap) {
-          ent.trailLine = undefined
-          ent.trailMaterial = undefined
-        }
+      for (const primitives of pointDotEntityMap.values()) {
+        for (const p of primitives) p.show = true
       }
-
-      // 4. 清除点迹集合
-      if (pointDotsCollection) {
-        pointDotsCollection.removeAll()
-      }
-      pointDotEntityMap.clear()
-      pointDotLastLo.clear()
-      manualPointDotsTrackIds.value = new Set()
-      globalHiddenTrackKeys.value = new Set()
       syncGlobalPointDots()
-
-      // 5. 销毁所有主实体并重建
-      for (const [id] of entityMap) {
-        removeTrackEntities(id)
-      }
-      entityMap.clear()
-
-      console.log('[CesiumMap] ⭐ 销毁所有主实体（核心修复）')
-
-      // 6. 重新创建所有实体
-      syncEntities(props.tracks)
       reapplyVisibility()
       if (previousSelectedId) applyHighlight(previousSelectedId)
-
-      // 7. 重置计数器
-      replayCounter = 0
-
-      // 8. 清理 Worker 结果缓存
-      pendingResults = null
-      lastRequestedTime = -1
-
+      // 重建 LabelCollection 和 PointPrimitiveCollection，清空回放期间膨胀的 GPU 缓存
+      rebuildLabelAndPointCollections()
+      labelRebuildCounter = 0
       viewer?.scene.requestRender()
     }
-  }
+  },
 )
-
-
-
-
 
 watch(
   visibility,
   () => {
+    const replaying = props.replayTime !== null
     for (const [, entities] of entityMap) {
       const vis = visibility.value[entities.source as keyof typeof visibility.value]
-      if (entities.entity) entities.entity.show = vis
+      // During replay, entity is hidden — let updateReplayPositions control trailLine visibility
+      if (entities.entity) entities.entity.show = replaying ? false : vis
+      if (entities.trailLine) entities.trailLine.show = vis
       if (entities.label) entities.label.show = vis
       if (entities.pointPrimitive) entities.pointPrimitive.show = vis
     }
@@ -2873,7 +2025,7 @@ watch(lineColors, () => {
 // Highlight selected track
 let previousSelectedId: string | null = null
 
-function applyHighlight(trackId: string | null) {
+function applyHighlight(_trackId: string | null) {
  return
 }
 
@@ -2912,10 +2064,6 @@ function pointPrimSize(dotBase: number, source: string): number {
 
 function baseWidth(source: DataSource): number {
   return props.lineWidths[source] ?? 2.0
-}
-
-function baseAlpha(source: string): number {
-  return source === 'radar_raw' ? 0.6 : NORMAL_ALPHA
 }
 
 function applyHoverHighlight(trackId: string) {
@@ -3545,10 +2693,11 @@ onMounted(async () => {
   )
   // P1: PointPrimitiveCollection for fast endpoint dots (one draw call for all tracks)
   pointPrimitives = viewer.scene.primitives.add(new Cesium.PointPrimitiveCollection()) as Cesium.PointPrimitiveCollection
-  // P2: PolylineCollection for replay trail lines ONLY
-  trackLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
-  // Lower endpoint dots and trail lines to the bottom
+  // Lower endpoint dots to the bottom
   viewer.scene.primitives.lowerToBottom(pointPrimitives as any)
+  // P2: PolylineCollection for replay trail lines — shared VBO, efficient progressive trail rendering
+  trackLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
+  // Lower trail lines to bottom so they don't occlude other elements
   viewer.scene.primitives.lowerToBottom(trackLines as any)
   // P2: Separate PolylineCollection for hover overlay at elevated altitude (11500m)
   hoverOverlayLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
@@ -3873,10 +3022,6 @@ onUnmounted(() => {
   clearCityLayer()
   removeCityHover()
   removePointDotHover()
-
-  destroyReplayWorker()
-
-
   if (cityLayerDebounce) {
     clearTimeout(cityLayerDebounce)
     cityLayerDebounce = null
@@ -3933,11 +3078,15 @@ onUnmounted(() => {
   }
   if (viewer) {
     pointPrimitives = null
-    trackLines = null
     if (hoverOverlayLines) {
       viewer.scene.primitives.remove(hoverOverlayLines)
       if (!hoverOverlayLines.isDestroyed()) hoverOverlayLines.destroy()
       hoverOverlayLines = null
+    }
+    if (trackLines) {
+      viewer.scene.primitives.remove(trackLines)
+      if (!trackLines.isDestroyed()) trackLines.destroy()
+      trackLines = null
     }
     activeOverlayLine = null
     if (trackLabels) {
