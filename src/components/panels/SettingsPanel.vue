@@ -53,210 +53,6 @@
       </div>
     </div>
 
-    <!-- ═══ 行政边界 ═══ -->
-    <div class="settings-group">
-      <div class="group-header" @click="toggleSection('boundary')">
-        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('boundary') }" />
-        <Map :size="13" class="group-icon" />
-        <span>行政边界</span>
-      </div>
-      <div class="group-body" v-show="!isCollapsed('boundary')">
-        <!-- 边界线独立显示/隐藏开关 -->
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="admin0">国界</span>
-          <label class="toggle-switch" title="切换国界线显示">
-            <input type="checkbox" :checked="boundaryVisible.admin0" @change="setBoundaryVisible('admin0', ($event.target as HTMLInputElement).checked)" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="switch-label">{{ boundaryVisible.admin0 ? '开' : '关' }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="coastline">海岸</span>
-          <label class="toggle-switch" title="切换海岸线显示">
-            <input type="checkbox" :checked="boundaryVisible.coastline" @change="setBoundaryVisible('coastline', ($event.target as HTMLInputElement).checked)" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="switch-label">{{ boundaryVisible.coastline ? '开' : '关' }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="admin1">省界</span>
-          <label class="toggle-switch" title="切换省界线显示">
-            <input type="checkbox" :checked="boundaryVisible.admin1" @change="setBoundaryVisible('admin1', ($event.target as HTMLInputElement).checked)" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="switch-label">{{ boundaryVisible.admin1 ? '开' : '关' }}</span>
-        </div>
-        <!-- 边界线宽 -->
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="admin0">国界</span>
-          <input type="range" class="row-slider" min="0.2" max="5.0" step="0.1"
-            :value="boundaryWidths.admin0"
-            @input="setBoundaryWidth('admin0', Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ boundaryWidths.admin0.toFixed(1) }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="coastline">海岸</span>
-          <input type="range" class="row-slider" min="0.2" max="5.0" step="0.1"
-            :value="boundaryWidths.coastline"
-            @input="setBoundaryWidth('coastline', Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ boundaryWidths.coastline.toFixed(1) }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="admin1">省界</span>
-          <input type="range" class="row-slider" min="0.2" max="5.0" step="0.1"
-            :value="boundaryWidths.admin1"
-            @input="setBoundaryWidth('admin1', Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ boundaryWidths.admin1.toFixed(1) }}</span>
-        </div>
-        <!-- 边界颜色 -->
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="admin0">国界色</span>
-          <div class="color-control">
-            <input type="color" class="color-input" :value="boundaryColors.admin0"
-              @input="setBoundaryColor('admin0', ($event.target as HTMLInputElement).value)" />
-            <span class="color-hex">{{ boundaryColors.admin0 }}</span>
-          </div>
-          <div class="reset-slot"></div>
-        </div>
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="coastline">海岸色</span>
-          <div class="color-control">
-            <input type="color" class="color-input" :value="boundaryColors.coastline"
-              @input="setBoundaryColor('coastline', ($event.target as HTMLInputElement).value)" />
-            <span class="color-hex">{{ boundaryColors.coastline }}</span>
-          </div>
-          <div class="reset-slot"></div>
-        </div>
-        <div class="setting-row">
-          <span class="row-label boundary-label" data-type="admin1">省界色</span>
-          <div class="color-control">
-            <input type="color" class="color-input" :value="boundaryColors.admin1"
-              @input="setBoundaryColor('admin1', ($event.target as HTMLInputElement).value)" />
-            <span class="color-hex">{{ boundaryColors.admin1 }}</span>
-          </div>
-          <div class="reset-slot"></div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═══ 瓦片来源 ═══ -->
-    <div class="settings-group">
-      <div class="group-header" @click="toggleSection('cities')">
-        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('cities') }" />
-        <MapPin :size="13" class="group-icon" />
-        <span>城市标注</span>
-      </div>
-      <div class="group-body" v-show="!isCollapsed('cities')">
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">城市图层</span>
-          <label class="toggle-switch" title="切换城市点和标签显示">
-            <input type="checkbox" :checked="cityLayer.visible" @change="setCityVisible(($event.target as HTMLInputElement).checked)" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="switch-label">{{ cityLayer.visible ? '开' : '关' }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">中文标签</span>
-          <label class="toggle-switch" title="切换城市中文标签显示">
-            <input type="checkbox" :checked="cityLayer.labels" @change="setCityLabels(($event.target as HTMLInputElement).checked)" />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="switch-label">{{ cityLayer.labels ? '开' : '关' }}</span>
-        </div>
-        <div v-for="level in cityLevelRows" :key="level.key" class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">{{ level.label }}</span>
-          <label class="toggle-switch" :title="`切换${level.label}显示`">
-            <input
-              type="checkbox"
-              :checked="cityLayer.levels[level.key]"
-              @change="setCityLevelVisible(level.key, ($event.target as HTMLInputElement).checked)"
-            />
-            <span class="toggle-slider"></span>
-          </label>
-          <span class="switch-label">{{ cityLayer.levels[level.key] ? '开' : '关' }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">主要人口</span>
-          <input type="range" class="row-slider" min="0" max="10000000" step="100000"
-            :value="cityLayer.minPopulation"
-            @input="setCityMinPopulation(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ cityPopulationLabel }}</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">圆点大小</span>
-          <input type="range" class="row-slider" min="2" max="12" step="1"
-            :value="cityLayer.pointSize"
-            @input="setCityPointSize(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ cityLayer.pointSize }}px</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">标签字号</span>
-          <input type="range" class="row-slider" min="9" max="24" step="1"
-            :value="cityLayer.fontSize"
-            @input="setCityFontSize(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ cityLayer.fontSize }}px</span>
-        </div>
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">圆点颜色</span>
-          <div class="color-control">
-            <input type="color" class="color-input" :value="cityLayer.color"
-              @input="setCityColor(($event.target as HTMLInputElement).value)" />
-            <span class="color-hex">{{ cityLayer.color }}</span>
-          </div>
-          <div class="reset-slot"></div>
-        </div>
-        <div class="setting-row">
-          <span class="row-label" style="color: var(--accent-primary)">标签颜色</span>
-          <div class="color-control">
-            <input type="color" class="color-input" :value="cityLayer.labelColor"
-              @input="setCityLabelColor(($event.target as HTMLInputElement).value)" />
-            <span class="color-hex">{{ cityLayer.labelColor }}</span>
-          </div>
-          <div class="reset-slot"></div>
-        </div>
-        <div class="setting-row advanced-toggle" @click="toggleSection('cityAdvanced')">
-          <span class="row-label" style="color: var(--accent-primary)">高级</span>
-          <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('cityAdvanced') }" />
-          <span class="advanced-summary">显示阈值</span>
-          <button class="reset-btn show" title="恢复默认城市显示阈值" @click.stop="resetCityLod">
-            <RotateCcw :size="12" />
-          </button>
-        </div>
-        <div class="advanced-body" v-show="!isCollapsed('cityAdvanced')">
-          <div v-for="level in cityLodRows" :key="`city-point-${level.key}`" class="setting-row">
-            <span class="row-label" style="color: var(--accent-primary)">{{ level.short }}点高</span>
-            <input type="range" class="row-slider" min="100000" max="40000000" step="100000"
-              :value="cityLayer.lod.pointMaxHeight[level.key]"
-              @input="setCityPointMaxHeight(level.key, Number(($event.target as HTMLInputElement).value))" />
-            <span class="row-value lod-value">{{ formatCityHeight(cityLayer.lod.pointMaxHeight[level.key]) }}</span>
-          </div>
-          <div v-for="level in cityLodRows" :key="`city-label-${level.key}`" class="setting-row">
-            <span class="row-label" style="color: var(--accent-primary)">{{ level.short }}标高</span>
-            <input type="range" class="row-slider" min="100000" max="40000000" step="100000"
-              :value="cityLayer.lod.labelMaxHeight[level.key]"
-              @input="setCityLabelMaxHeight(level.key, Number(($event.target as HTMLInputElement).value))" />
-            <span class="row-value lod-value">{{ formatCityHeight(cityLayer.lod.labelMaxHeight[level.key]) }}</span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <div class="group-header" @click="toggleSection('tiles')">
-        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('tiles') }" />
-        <Globe :size="13" class="group-icon" />
-        <span>瓦片来源</span>
-      </div>
-      <div class="group-body" v-show="!isCollapsed('tiles')">
-        <div class="setting-row">
-          <select class="tile-select" :value="activeSource"
-            @change="$emit('switchTileSource', ($event.target as HTMLSelectElement).value)">
-            <option v-for="ts in tileSources" :key="ts.file_name" :value="ts.file_name">{{ ts.display_name }}</option>
-          </select>
-        </div>
-      </div>
-    </div>
-
     <!-- ═══ 圆球直径 ═══ -->
     <div class="settings-group">
       <div class="group-header" @click="toggleSection('dotScale')">
@@ -399,76 +195,21 @@
       </div>
     </div>
 
-    <!-- ═══ 高级 ═══ -->
-    <div class="settings-group">
-      <div class="group-header" @click="toggleSection('advanced')">
-        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('advanced') }" />
-        <Settings2 :size="13" class="group-icon" />
-        <span>高级</span>
-      </div>
-      <div class="group-body" v-show="!isCollapsed('advanced')">
-        <!-- 分段阈值 -->
-        <div class="subsection-label">航迹分段</div>
-        <div class="setting-row">
-          <span class="row-label">倍数</span>
-          <input type="range" class="row-slider" min="2" max="20" step="1"
-            :value="segMultiplier"
-            @input="setSegMultiplier(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ segMultiplier }}×</span>
-          <button class="reset-btn" :class="{ show: segMultiplier !== 10 }"
-            @click="setSegMultiplier(10)"><RotateCcw :size="12" /></button>
-        </div>
-        <div class="setting-row">
-          <span class="row-label">下限</span>
-          <input type="range" class="row-slider" min="1" max="30" step="1"
-            :value="segMinThresholdMin"
-            @input="setSegMinThresholdMin(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ segMinThresholdMin }}min</span>
-          <button class="reset-btn" :class="{ show: segMinThresholdMin !== 5 }"
-            @click="setSegMinThresholdMin(5)"><RotateCcw :size="12" /></button>
-        </div>
-
-        <!-- 桥接线样式 -->
-        <div class="subsection-label">间隙桥接线</div>
-        <div class="setting-row">
-          <span class="row-label">线宽比</span>
-          <input type="range" class="row-slider" min="0.05" max="1.0" step="0.05"
-            :value="bridgeWidthRatio"
-            @input="setBridgeWidthRatio(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ bridgeWidthRatio.toFixed(2) }}</span>
-          <button class="reset-btn" :class="{ show: bridgeWidthRatio !== 0.3 }"
-            @click="setBridgeWidthRatio(0.3)"><RotateCcw :size="12" /></button>
-        </div>
-        <div class="setting-row">
-          <span class="row-label">透明度</span>
-          <input type="range" class="row-slider" min="0.05" max="0.5" step="0.05"
-            :value="bridgeAlpha"
-            @input="setBridgeAlpha(Number(($event.target as HTMLInputElement).value))" />
-          <span class="row-value">{{ bridgeAlpha.toFixed(2) }}</span>
-          <button class="reset-btn" :class="{ show: bridgeAlpha !== 0.15 }"
-            @click="setBridgeAlpha(0.15)"><RotateCcw :size="12" /></button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch, onMounted } from 'vue'
 import type { DataSource } from '../../types/track'
-import type { TileSourceInfo } from '../../composables/useTileSource'
 import { useFlagScale } from '../../composables/useFlagScale'
 import { useFontSize } from '../../composables/useFontSize'
 import { useLineColor } from '../../composables/useLineColor'
 import { useTrackPointDots } from '../../composables/useTrackPointDots'
-import { useBoundaryLayers } from '../../composables/useBoundaryLayers'
-import { useCityLayer, type CityLevel, type CityLodLevel } from '../../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../../composables/useSettingsPersistence'
-import { useSegmentationSettings } from '../../composables/useSegmentationSettings'
 import {
-  Palette, GripHorizontal, Map, Globe, CircleDot, Flag,
+  Palette, GripHorizontal, CircleDot, Flag,
   Type, Eraser, PaintBucket, Wrench, Database, Eye,
-  Maximize2, Trash2, RotateCcw, Dot, ChevronDown, MapPin, Settings2,
+  Maximize2, Trash2, RotateCcw, Dot, ChevronDown,
 } from '@lucide/vue'
 
 defineProps<{
@@ -476,8 +217,6 @@ defineProps<{
   dotScale: Record<DataSource, number>
   batchCount: number
   trackCount: number
-  tileSources: TileSourceInfo[]
-  activeSource: string
 }>()
 
 defineEmits<{
@@ -487,7 +226,6 @@ defineEmits<{
   toggleLabels: []
   resetView: []
   clearAll: []
-  switchTileSource: [fileName: string]
 }>()
 
 const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
@@ -496,52 +234,13 @@ const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
 const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
-const { boundaryVisible, boundaryWidths, boundaryColors, setBoundaryVisible, setBoundaryWidth, setBoundaryColor } = useBoundaryLayers()
-const {
-  cityLayer,
-  setCityVisible,
-  setCityLabels,
-  setCityMinPopulation,
-  setCityLevelVisible,
-  setCityPointMaxHeight,
-  setCityLabelMaxHeight,
-  resetCityLod,
-  setCityPointSize,
-  setCityFontSize,
-  setCityColor,
-  setCityLabelColor,
-} = useCityLayer()
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
 
-const {
-  segMultiplier, segMinThresholdMin, bridgeWidthRatio, bridgeAlpha,
-  setSegMultiplier, setSegMinThresholdMin, setBridgeWidthRatio, setBridgeAlpha,
-} = useSegmentationSettings()
 const trackPointDotScaleVal = computed(() => trackPointDotScale.value)
-const cityLevelRows: { key: CityLevel; label: string }[] = [
-  { key: 'capital', label: '首都' },
-  { key: 'regional', label: '省会/直辖' },
-  { key: 'prefecture', label: '地级市' },
-  { key: 'major', label: '主要城市' },
-]
-const cityLodRows: { key: CityLodLevel; short: string }[] = [
-  { key: 'regional', short: '省会' },
-  { key: 'prefecture', short: '地级' },
-  { key: 'major', short: '主要' },
-]
-const cityPopulationLabel = computed(() => {
-  const value = cityLayer.minPopulation
-  if (value <= 0) return '全部'
-  if (value >= 10000) return `${Math.round(value / 10000)}万`
-  return String(value)
-})
 
 // ── Collapsible sections (persisted) ──
-function formatCityHeight(value: number) {
-  return `${Math.round(value / 1000)}km`
-}
 
 const SETTINGS_COLLAPSE_KEY = 'settings.collapsed_sections'
 const collapsedSections = ref<Set<string>>(new Set(['pointDots', 'pointDotColors', 'fontSize', 'flagScale', 'dotScale']))
@@ -705,42 +404,6 @@ function onResetPointDotColor(src: DataSource) {
 }
 
 /* ── Slider ── */
-.advanced-toggle {
-  margin-top: 4px;
-  cursor: pointer;
-  color: var(--text-secondary);
-}
-
-.advanced-summary {
-  flex: 1;
-  font-size: 0.714rem;
-  color: var(--text-tertiary);
-}
-
-.advanced-body {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 2px 0 4px 0;
-}
-
-.lod-value {
-  min-width: 46px;
-}
-
-.subsection-label {
-  font-size: 0.714rem;
-  color: var(--text-tertiary);
-  padding: 4px 0 0 0;
-  margin-top: 4px;
-  border-top: 1px solid var(--border-secondary);
-}
-.subsection-label:first-child {
-  margin-top: 0;
-  border-top: none;
-  padding-top: 0;
-}
-
 .row-slider {
   flex: 1;
   height: 4px;
@@ -869,24 +532,6 @@ function onResetPointDotColor(src: DataSource) {
   transform: translateX(14px);
   background: #fff;
 }
-
-/* ── Tile source select ── */
-.tile-select {
-  flex: 1;
-  padding: 3px 6px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border-secondary);
-  border-radius: 2px;
-  font-size: 0.786rem;
-  cursor: pointer;
-  outline: none;
-  font-family: inherit;
-  transition: border-color 0.15s;
-}
-.tile-select:hover { border-color: var(--accent-primary); }
-.tile-select:focus { border-color: var(--accent-primary); }
-.tile-select option { background: var(--bg-secondary); color: var(--text-primary); }
 
 /* ── Action button ── */
 .action-btn {

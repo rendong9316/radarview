@@ -17,7 +17,12 @@
         @clear-isolation="emit('clearIsolation')"
       />
       <ManagePanel v-else-if="activePanel === 'manage'" />
-      <LayerControl v-else-if="activePanel === 'layers'" />
+      <LayerControl
+        v-else-if="activePanel === 'layers'"
+        :tile-sources="tileSources"
+        :active-source="activeSource"
+        @switch-tile-source="(fileName: string) => emit('switchTileSource', fileName)"
+      />
       <FlagPanel v-else-if="activePanel === 'flags'" />
       <TimeFilterPanel
         v-else-if="activePanel === 'timeFilter'"
@@ -32,15 +37,12 @@
         :dot-scale="dotScale"
         :batch-count="batchCount"
         :track-count="trackCount"
-        :tile-sources="tileSources"
-        :active-source="activeSource"
         @set-line-width="(src: DataSource, v: number) => emit('setLineWidth', src, v)"
         @set-dot-scale="(src: DataSource, v: number) => emit('setDotScale', src, v)"
         @toggle-batch-panel="emit('toggleBatchPanel')"
         @toggle-labels="emit('toggleLabels')"
         @reset-view="emit('resetView')"
         @clear-all="emit('clearAll')"
-        @switch-tile-source="(fileName: string) => emit('switchTileSource', fileName)"
       />
     </div>
 
