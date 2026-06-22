@@ -72,7 +72,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import type { DataSource } from '../types/track'
 import { useTrackFilter } from '../composables/useTrackFilter'
 import { Circle } from '@lucide/vue'
@@ -87,11 +87,27 @@ const emit = defineEmits<{
   clear: []
 }>()
 
-const { pointCountFilters, setPointCountFilter } = useTrackFilter()
+const { pointCountFilters, setPointCountFilter, activeMin, activeMax } = useTrackFilter()
 
 const startInput = ref('')
 const endInput = ref('')
 const errorMsg = ref('')
+
+function msToDatetimeLocal(ms: number): string {
+  const d = new Date(ms)
+  const pad = (n: number) => n.toString().padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+// 组件挂载时从全局筛选状态同步时间输入框，避免切换面板后显示空白占位符
+onMounted(() => {
+  if (activeMin.value != null) {
+    startInput.value = msToDatetimeLocal(activeMin.value)
+  }
+  if (activeMax.value != null) {
+    endInput.value = msToDatetimeLocal(activeMax.value)
+  }
+})
 
 const hasPointCountFilter = computed(() =>
   (['adsb', 'radar', 'radar_raw'] as DataSource[]).some(s => pointCountFilters.value[s].enabled)
