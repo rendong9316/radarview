@@ -228,6 +228,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
     trailPositions: [],
     lastTrailLo: track.positions.length - 1,
     cachedPositions: toCartesianArray(track.positions),
+    _trailCache: [],
   })
 }
 
@@ -450,14 +451,6 @@ export function rebuildLabelAndPointCollections() {
 // 回放逐帧更新
 // ═══════════════════════════════════════════
 
-/**
- * 预分配 trail 构建缓冲区（Float64Array）。
- * 2900 条航迹每帧一条 new Array + push 会产生巨大的 GC 压力。
- * 单条航迹最大点数 20000 → 60000 个 float64 → ~480KB 复用。
- */
-const MAX_TRAIL_PTS = 20000
-const _trailBuf = new Float64Array(MAX_TRAIL_PTS * 3)
-
 export function updateReplayPositions(
   time: number,
   tracks: Track[],
@@ -524,44 +517,51 @@ export function updateReplayPositions(
     // Hide full entity line, show trail in PolylineCollection
     if (entities.entity) entities.entity.show = false
 
-    // ── Trail geometry: only rebuild when lo advances ──
-    // 2900 tracks × 每帧 rebuild trail (0→lo 遍历 + fromDegreesArrayHeights + VBO 上传)
-    // 是回放卡顿的根因。数据点间隔通常远大于帧间隔，大部分帧 lo 不变。
+    // ── Trail geometry: 增量追加 ──
+    // 原来每帧 0→lo 全量重建（O(lo) 迭代 + fromDegreesArrayHeights + VBO 上传），
+    // lo 随回放推进从 0 涨到 1000+，是帧率持续下降的根因。
+    // 改进：lo 前进时只追加新点（prevLo+1 → lo），复用缓存数组，O(Δlo) ≈ O(1)。
     const prevLo = entities.lastTrailLo
+    const MAX_TRAIL = 300 // 滑动窗口上限，超出后丢弃旧点
+
     if (lo !== prevLo) {
+      // 处理跳帧（seek 后 lo 可能跳跃很大）：跳过全量重建，从头开始
+      let cache = entities._trailCache
+      if (lo < prevLo || !cache) {
+        cache = []
+        entities._trailCache = cache
+        entities.lastTrailLo = -1
+      }
+
+      // 追加新数据点（prevLo+1 → lo），lastTrailLo 已在上面可能是 -1
+      const start = entities.lastTrailLo + 1
+      for (let i = start; i <= lo; i++) {
+        cache.push(Cesium.Cartesian3.fromDegrees(pts[i].longitude, pts[i].latitude, FLAT_ALTITUDE))
+      }
+      // 追加插值尾点
+      const lastPast = pts[lo]
+      if (Math.abs(cpLat - lastPast.latitude) > 1e-7 || Math.abs(cpLng - lastPast.longitude) > 1e-7) {
+        cache.push(cpPos)
+      }
+      // 滑动窗口：超出上限则丢弃头部
+      if (cache.length > MAX_TRAIL) {
+        cache.splice(0, cache.length - MAX_TRAIL)
+      }
+
       entities.lastTrailLo = lo
 
-      // Build progressive trail using pre-allocated buffer
-      let bufIdx = 0
-      const maxBuf = MAX_TRAIL_PTS * 3
-      for (let i = 0; i <= lo && bufIdx + 3 <= maxBuf; i++) {
-        _trailBuf[bufIdx++] = pts[i].longitude
-        _trailBuf[bufIdx++] = pts[i].latitude
-        _trailBuf[bufIdx++] = FLAT_ALTITUDE
-      }
-      const lastPast = pts[lo]
-      if (bufIdx + 3 <= maxBuf &&
-        (Math.abs(cpLat - lastPast.latitude) > 1e-7 || Math.abs(cpLng - lastPast.longitude) > 1e-7)) {
-        _trailBuf[bufIdx++] = cpLng
-        _trailBuf[bufIdx++] = cpLat
-        _trailBuf[bufIdx++] = FLAT_ALTITUDE
-      }
-      const trailPositions = Cesium.Cartesian3.fromDegreesArrayHeights(
-        new Float64Array(_trailBuf.buffer, 0, bufIdx) as unknown as number[],
-      )
-
       if (entities.trailLine) {
-        entities.trailLine.positions = trailPositions
-        entities.trailLine.show = trailPositions.length >= 2 && vis
+        entities.trailLine.positions = cache
+        entities.trailLine.show = cache.length >= 2 && vis
         diagTrailUpdated++
-      } else if (trailPositions.length >= 2) {
+      } else if (cache.length >= 2) {
         const color = state.getLineColor(track.source)
         const isSel = tKey === state.selectedId
         const isRaw = track.source === 'radar_raw'
         entities.trailLine = ctx.trackLines!.add({
           id: `trail::${tKey}`,
           show: vis,
-          positions: trailPositions,
+          positions: cache,
           width: isSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths),
           material: Cesium.Material.fromType('Color', {
             color: color.withAlpha(isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)),
@@ -686,6 +686,7 @@ export function removeHoverHighlight(
 export function clearTrailLineRefs() {
   for (const [, entry] of entityMap) {
     entry.trailLine = undefined
+    entry._trailCache = []
   }
 }
 
@@ -726,6 +727,7 @@ export function onReplayStart(
       removeTrailLine(entities.trailLine)
       entities.trailLine = undefined
     }
+    entities._trailCache = []
   }
   if (pointDotEntityMap.size > 0) {
     pointDotLastLo.clear()

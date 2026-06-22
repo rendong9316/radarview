@@ -50,6 +50,8 @@ export interface TrackEntities {
   lastTrailLo: number
   /** 预转换的 Cartesian3 坐标缓存（仅在 syncEntities 时转换一次，回放时直接复用） */
   cachedPositions: Cesium.Cartesian3[]
+  /** 回放期间 trail 的 Cartesian3 增量缓存，lo 前进时只追加新点，不再 0→lo 全量重建 */
+  _trailCache: Cesium.Cartesian3[]
 }
 
 // ═══════════════════════════════════════════
