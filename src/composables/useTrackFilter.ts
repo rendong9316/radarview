@@ -76,7 +76,7 @@ export function useTrackFilter() {
   watch(activeMax, _saveFilter, { immediate: false })
   watch(pointCountFilters, _saveFilter, { deep: true, immediate: false })
 
-  /** Filtered tracks using metadata for O(N) pre-filter, plus point-level time filtering */
+  /** Filtered tracks — time filter and point-count filter are independent (mirrors management panel SQL semantics) */
   const filteredTracks = computed<Track[]>(() => {
     let result = tracks.value
 
@@ -87,7 +87,21 @@ export function useTrackFilter() {
           t.maxTimestamp >= activeMin.value! &&
           t.minTimestamp <= activeMax.value!,
       )
-      // Step 2: Point-level time filter (only for tracks that passed pre-filter)
+    }
+
+    // Step 2: Per-source point count filter (uses ORIGINAL total pointCount, independent of time window)
+    if (hasPointCountFilter.value) {
+      result = result.filter((t) => {
+        const pf = pointCountFilters.value[t.source]
+        if (!pf || !pf.enabled) return true
+        if (pf.min != null && t.pointCount < pf.min) return false
+        if (pf.max != null && t.pointCount > pf.max) return false
+        return true
+      })
+    }
+
+    // Step 3: Point-level time filter — trim positions to the time window (after point-count check)
+    if (hasActiveFilter.value && activeMin.value != null && activeMax.value != null) {
       result = result
         .map((track) => {
           const filtered = track.positions.filter(
@@ -97,17 +111,6 @@ export function useTrackFilter() {
           return { ...track, positions: filtered, pointCount: filtered.length }
         })
         .filter((t): t is Track => t !== null)
-    }
-
-    // Step 3: Per-source point count filter
-    if (hasPointCountFilter.value) {
-      result = result.filter((t) => {
-        const pf = pointCountFilters.value[t.source]
-        if (!pf || !pf.enabled) return true
-        if (pf.min != null && t.pointCount < pf.min) return false
-        if (pf.max != null && t.pointCount > pf.max) return false
-        return true
-      })
     }
 
     return result
