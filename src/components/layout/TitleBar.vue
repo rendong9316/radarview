@@ -42,10 +42,6 @@ import MenuBar from './MenuBar.vue'
 
 const appIcon = '/icon.png'
 
-defineEmits<{
-  menuAction: [id: string]
-}>()
-
 const appWindow = getCurrentWindow()
 const isMaximized = ref(false)
 
@@ -67,9 +63,14 @@ async function onMaximize(e: PointerEvent) {
   await updateMaximizedState()
 }
 
+const emit = defineEmits<{
+  menuAction: [id: string]
+  requestClose: []
+}>()
+
 function onClose(e: PointerEvent) {
   e.preventDefault()
-  appWindow.close()
+  emit('requestClose')
 }
 
 async function onDblClick() {

@@ -1,7 +1,7 @@
 <template>
   <div class="app-root" @dragover.prevent="dragOver = true" @dragleave="onDragLeave">
     <!-- Title bar -->
-    <TitleBar @menu-action="onMenuAction" />
+    <TitleBar @menu-action="onMenuAction" @request-close="onRequestClose" />
 
     <!-- Main area: ActivityBar + SideBar + Editor -->
     <div class="app-main">
@@ -117,6 +117,9 @@
     <ShortcutsDialog v-if="showShortcuts" @close="showShortcuts = false" />
     <DocsDialog v-if="showDocs" @close="showDocs = false" />
     <TrackPointDialog v-if="viewingTrack" :track="viewingTrack" :loading="viewingTrackLoading" @close="closeTrackPointViewer" />
+
+    <!-- Confirm dialog (used for close confirmation and other confirmations) -->
+    <ConfirmDialog />
   </div>
 </template>
 
@@ -135,6 +138,8 @@ import AboutDialog from './components/dialogs/AboutDialog.vue'
 import ShortcutsDialog from './components/dialogs/ShortcutsDialog.vue'
 import DocsDialog from './components/dialogs/DocsDialog.vue'
 import TrackPointDialog from './components/dialogs/TrackPointDialog.vue'
+import ConfirmDialog from './components/dialogs/ConfirmDialog.vue'
+import { useConfirmDialog } from './composables/useConfirmDialog'
 import { viewingTrack, viewingTrackLoading, closeTrackPointViewer, openTrackPointViewer } from './composables/useTrackPointViewer'
 import { deletedTrackKeys } from './composables/useTrackManagement'
 import { useTrackLoader } from './composables/useTrackLoader'
@@ -179,6 +184,7 @@ const deletingBatchId = ref<number | null>(null)
 const showAbout = ref(false)
 const showShortcuts = ref(false)
 const showDocs = ref(false)
+const confirmDialog = useConfirmDialog()
 
 // Replay speed is restored from settings in onMounted after loadAllSettings()
 
@@ -246,13 +252,28 @@ function onMapViewStatus(payload: { cameraHeightKm: number; longitude: number; l
   currentFps.value = payload.fps
 }
 
+// ── Close confirmation ──
+async function onRequestClose() {
+  const confirmed = await confirmDialog.show({
+    title: '关闭 RadarView',
+    message: '确定要关闭 RadarView 吗？\n\n用户做出的一切操作都已存储在记忆中。',
+    confirmText: '关闭',
+    cancelText: '取消',
+    variant: 'default',
+  })
+  if (confirmed) {
+    await flushSaves()
+    getCurrentWindow().close()
+  }
+}
+
 // ── Menu action handler ──
 function onMenuAction(action: string) {
   switch (action) {
     case 'import-adsb': handleImportAdsb(); break
     case 'import-radar': handleImportRadar(); break
     case 'import-radar-raw': handleImportRadarRaw(); break
-    case 'exit': getCurrentWindow().close(); break
+    case 'exit': onRequestClose(); break
     case 'clear-selection': clearIsolation(); break
     case 'open-settings': activatePanel('settings'); break
     case 'toggle-track-panel': activatePanel('tracks'); break
