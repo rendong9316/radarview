@@ -3,7 +3,7 @@
  *
  * 负责：
  * 1. 城市 GeoJSON 加载与解析
- * 2. LOD 多级渲染（双缓冲原子交换，无闪烁）
+ * 2. LOD 增量渲染（持久化集合 + diff 增删，无闪烁）
  * 3. 悬停标签管理
  *
  * 使用方式：在 onMounted 中调用 init(ctx)，之后即可使用所有函数。
@@ -20,31 +20,34 @@ import { type CesiumContext, type CityFeature } from './types'
 
 let ctx: CesiumContext | null = null
 
-/** 当前活跃的城市 PointPrimitiveCollection */
+/** 持久化的城市 PointPrimitiveCollection（点每次全量重建，集合引用保持） */
 let cityPointCollection: Cesium.PointPrimitiveCollection | undefined
 
-/** 当前活跃的城市 LabelCollection */
+/** 持久化的城市 LabelCollection（标签增量更新，复用集合） */
 let cityLabelCollection: Cesium.LabelCollection | undefined
 
 /** 已解析的城市要素 */
 let cityFeatures: CityFeature[] = []
 
-/** pick ID → CityFeature 映射 */
+/** pick ID → CityFeature 映射（点/标签每次渲染重建） */
 const cityPickMap = new Map<string, CityFeature>()
+
+/** 活跃标签追踪：cityId → { label, city }，用于增量更新 */
+interface ActiveLabelEntry {
+  label: Cesium.Label
+  city: CityFeature
+}
+const activeLabels = new Map<string, ActiveLabelEntry>()
 
 /** 城市悬停标签 Entity */
 let cityHoverEntity: Cesium.Entity | undefined
 
-/** 延迟清理回调（双缓冲旧集合移除） */
-let pendingCityCleanup: (() => void) | null = null
-let pendingOldCityPoints: Cesium.PointPrimitiveCollection | null = null
-let pendingOldCityLabels: Cesium.LabelCollection | null = null
-
 /** 城市层 debounce 计时器 */
 let cityLayerDebounce: ReturnType<typeof setTimeout> | null = null
 
-/** 上次城市层渲染时的相机高度（LOD 阈值追踪） */
-let lastCityRenderHeight = 0
+/** 存储最近一次传入的 cityLayer 状态，供 debounced render 使用 */
+let _lastCityState: CityLayerState | null = null
+
 
 // ═══════════════════════════════════════════
 // 初始化
@@ -63,7 +66,7 @@ export function reset() {
     clearTimeout(cityLayerDebounce)
     cityLayerDebounce = null
   }
-  lastCityRenderHeight = 0
+  _lastCityState = null
   ctx = null
 }
 
@@ -77,14 +80,6 @@ export function getCityFeatures(): readonly CityFeature[] {
 
 export function getCityPickMap(): ReadonlyMap<string, CityFeature> {
   return cityPickMap
-}
-
-export function getLastCityRenderHeight(): number {
-  return lastCityRenderHeight
-}
-
-export function setLastCityRenderHeight(h: number) {
-  lastCityRenderHeight = h
 }
 
 // ═══════════════════════════════════════════
@@ -127,26 +122,6 @@ export function cityLabelMaxHeight(level: CityLevel, lod: { labelMaxHeight: Reco
     case 'prefecture': return lod.labelMaxHeight.prefecture
     case 'major': return lod.labelMaxHeight.major
   }
-}
-
-export function maxCityLabelsForHeight(height: number) {
-  if (height > 12_000_000) return 80
-  if (height > 6_000_000) return 140
-  if (height > 2_000_000) return 220
-  if (height > 800_000) return 340
-  return 520
-}
-
-export function cityLabelGridSize(height: number) {
-  if (height > 12_000_000) return { width: 120, height: 54 }
-  if (height > 6_000_000) return { width: 104, height: 48 }
-  if (height > 2_000_000) return { width: 92, height: 42 }
-  if (height > 800_000) return { width: 82, height: 36 }
-  return { width: 72, height: 32 }
-}
-
-export function shouldAvoidCityLabels(height: number) {
-  return height > 800_000
 }
 
 export function cityPickId(city: CityFeature) {
@@ -248,15 +223,11 @@ export async function loadCityLayer() {
 }
 
 export function clearCityLayer() {
-  // Cancel any pending deferred cleanup
-  if (pendingCityCleanup && ctx?.viewer) {
-    ctx.viewer.scene.preRender.removeEventListener(pendingCityCleanup)
-    pendingCityCleanup = null
-  }
   if (!ctx?.viewer) {
     cityPointCollection = undefined
     cityLabelCollection = undefined
     cityPickMap.clear()
+    activeLabels.clear()
     return
   }
   if (cityPointCollection) {
@@ -270,6 +241,7 @@ export function clearCityLayer() {
     cityLabelCollection = undefined
   }
   cityPickMap.clear()
+  activeLabels.clear()
 }
 
 // ═══════════════════════════════════════════
@@ -363,9 +335,6 @@ export function pickedCity(picked: any): CityFeature | null {
 // 调度
 // ═══════════════════════════════════════════
 
-/** 存储最近一次传入的 cityLayer 状态，供 debounced render 使用 */
-let _lastCityState: CityLayerState | null = null
-
 export function scheduleCityLayerRender(delay = 120, state?: CityLayerState) {
   if (state) _lastCityState = state
   if (cityLayerDebounce) clearTimeout(cityLayerDebounce)
@@ -375,7 +344,6 @@ export function scheduleCityLayerRender(delay = 120, state?: CityLayerState) {
   }, delay)
 }
 
-/** 暴露底层 debounce 引用供外部 cancel */
 export function cancelCityLayerDebounce() {
   if (cityLayerDebounce) {
     clearTimeout(cityLayerDebounce)
@@ -384,7 +352,7 @@ export function cancelCityLayerDebounce() {
 }
 
 // ═══════════════════════════════════════════
-// 主渲染
+// 主渲染（增量 diff）
 // ═══════════════════════════════════════════
 
 export function renderCityLayer(state: CityLayerState) {
@@ -402,137 +370,110 @@ export function renderCityLayer(state: CityLayerState) {
   const cities = enabledCities(state)
   const canvas = ctx.viewer.scene.canvas
 
-  // Double-buffer: build new collections first, then swap in atomically
-  const newPoints = new Cesium.PointPrimitiveCollection()
-  const newLabels = new Cesium.LabelCollection()
+  // ═══════════════════════════════════════
+  // POINTS — 全量重建（PointPrimitiveCollection 不支持可靠的单体 remove）
+  // ═══════════════════════════════════════
 
-  const labelCandidates: Array<{
-    city: CityFeature
-    position: Cesium.Cartesian3
-    window: Cesium.Cartesian2
-    pointSize: number
-  }> = []
+  const newPoints = new Cesium.PointPrimitiveCollection()
 
   for (const city of cities) {
-    const showPoint = height <= cityPointMaxHeight(city.level, state.lod)
-    const showLabel = state.labels && height <= cityLabelMaxHeight(city.level, state.lod)
-    if (!showPoint && !showLabel) continue
+    if (height > cityPointMaxHeight(city.level, state.lod)) continue
 
     const position = Cesium.Cartesian3.fromDegrees(city.longitude, city.latitude, 1200)
     if (!isFrontSidePosition(position)) continue
 
-    const pSize = cityPointSize(city, state.pointSize)
     const id = cityPickId(city)
+    const pSize = cityPointSize(city, state.pointSize)
     cityPickMap.set(id, city)
 
-    if (showPoint) {
-      newPoints.add({
-        id,
-        position,
-        pixelSize: pSize,
-        color: pointColor,
-        outlineColor: Cesium.Color.BLACK.withAlpha(0.75),
-        outlineWidth: 1,
-      })
-    }
-
-    if (showLabel) {
-      const window = Cesium.SceneTransforms.worldToWindowCoordinates(ctx.viewer.scene, position)
-      if (
-        window &&
-        window.x >= -120 &&
-        window.y >= -80 &&
-        window.x <= canvas.clientWidth + 120 &&
-        window.y <= canvas.clientHeight + 80
-      ) {
-        labelCandidates.push({ city, position, window, pointSize: pSize })
-      }
-    }
-  }
-
-  labelCandidates.sort((a, b) =>
-    cityLevelRank(a.city.level) - cityLevelRank(b.city.level) ||
-    b.city.population - a.city.population ||
-    a.city.nameEn.localeCompare(b.city.nameEn),
-  )
-
-  const avoidLabels = shouldAvoidCityLabels(height)
-  const grid = cityLabelGridSize(height)
-  const occupied = new Set<string>()
-  const maxLabels = avoidLabels ? maxCityLabelsForHeight(height) : Number.POSITIVE_INFINITY
-  let labelCount = 0
-
-  for (const item of labelCandidates) {
-    if (labelCount >= maxLabels) break
-    if (avoidLabels) {
-      const key = `${Math.floor(item.window.x / grid.width)}:${Math.floor(item.window.y / grid.height)}`
-      if (occupied.has(key)) continue
-      occupied.add(key)
-    }
-    labelCount++
-
-    const id = cityPickId(item.city)
-    cityPickMap.set(id, item.city)
-    newLabels.add({
+    newPoints.add({
       id,
-      position: item.position,
-      text: item.city.nameZh,
-      font: `${isAdministrativeCity(item.city) ? state.fontSize + 1 : state.fontSize}px sans-serif`,
-      fillColor: labelColor,
-      outlineColor: Cesium.Color.BLACK.withAlpha(0.85),
-      outlineWidth: 2,
-      style: Cesium.LabelStyle.FILL_AND_OUTLINE,
-      horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
-      verticalOrigin: Cesium.VerticalOrigin.CENTER,
-      pixelOffset: new Cesium.Cartesian2(item.pointSize + 4, 0),
+      position,
+      pixelSize: pSize,
+      color: pointColor,
+      outlineColor: Cesium.Color.BLACK.withAlpha(0.75),
+      outlineWidth: 1,
     })
   }
 
-  // Atomically swap: add new collections first
+  // 原子替换：先移除旧的再添加新的
   const oldPoints = cityPointCollection
-  const oldLabels = cityLabelCollection
+  if (oldPoints) ctx.viewer.scene.primitives.remove(oldPoints)
   ctx.viewer.scene.primitives.add(newPoints)
-  ctx.viewer.scene.primitives.add(newLabels)
   cityPointCollection = newPoints
-  cityLabelCollection = newLabels
-
-  // Cancel any pending cleanup from a previous swap
-  if (pendingCityCleanup) {
-    ctx.viewer.scene.preRender.removeEventListener(pendingCityCleanup)
-    pendingCityCleanup = null
-    if (pendingOldCityPoints) {
-      ctx.viewer.scene.primitives.remove(pendingOldCityPoints)
-      if (!pendingOldCityPoints.isDestroyed()) pendingOldCityPoints.destroy()
-      pendingOldCityPoints = null
+  // 延迟一帧销毁旧集合
+  if (oldPoints) {
+    const cleanup = () => {
+      ctx!.viewer.scene.preRender.removeEventListener(cleanup)
+      if (!oldPoints.isDestroyed()) oldPoints.destroy()
     }
-    if (pendingOldCityLabels) {
-      ctx.viewer.scene.primitives.remove(pendingOldCityLabels)
-      if (!pendingOldCityLabels.isDestroyed()) pendingOldCityLabels.destroy()
-      pendingOldCityLabels = null
+    ctx.viewer.scene.preRender.addEventListener(cleanup)
+  }
+
+  // ═══════════════════════════════════════
+  // LABELS — 增量更新（LabelCollection.remove 可正常工作）
+  // ═══════════════════════════════════════
+
+  if (!cityLabelCollection) {
+    cityLabelCollection = new Cesium.LabelCollection()
+    ctx.viewer.scene.primitives.add(cityLabelCollection)
+  }
+
+  const shouldHaveLabel = new Set<string>()
+
+  for (const city of cities) {
+    if (!state.labels || height > cityLabelMaxHeight(city.level, state.lod)) continue
+
+    const position = Cesium.Cartesian3.fromDegrees(city.longitude, city.latitude, 1200)
+    if (!isFrontSidePosition(position)) continue
+
+    const window = Cesium.SceneTransforms.worldToWindowCoordinates(ctx.viewer.scene, position)
+    if (
+      !window ||
+      window.x < -120 || window.y < -80 ||
+      window.x > canvas.clientWidth + 120 || window.y > canvas.clientHeight + 80
+    ) continue
+
+    const id = cityPickId(city)
+    shouldHaveLabel.add(id)
+    cityPickMap.set(id, city)
+
+    const existing = activeLabels.get(id)
+    const pSize = cityPointSize(city, state.pointSize)
+
+    if (existing) {
+      // 已有 → 更新外观
+      existing.label.position = position
+      existing.label.text = city.nameZh
+      existing.label.font = `${isAdministrativeCity(city) ? state.fontSize + 1 : state.fontSize}px sans-serif`
+      existing.label.fillColor = labelColor
+      existing.label.outlineColor = Cesium.Color.BLACK.withAlpha(0.85)
+      existing.label.pixelOffset = new Cesium.Cartesian2(pSize + 4, 0)
+    } else {
+      // 新增
+      const label = cityLabelCollection.add({
+        id,
+        position,
+        text: city.nameZh,
+        font: `${isAdministrativeCity(city) ? state.fontSize + 1 : state.fontSize}px sans-serif`,
+        fillColor: labelColor,
+        outlineColor: Cesium.Color.BLACK.withAlpha(0.85),
+        outlineWidth: 2,
+        style: Cesium.LabelStyle.FILL_AND_OUTLINE,
+        horizontalOrigin: Cesium.HorizontalOrigin.LEFT,
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        pixelOffset: new Cesium.Cartesian2(pSize + 4, 0),
+      })
+      activeLabels.set(id, { label, city })
     }
   }
 
-  // Delay removal of old collections by one preRender frame
-  if (oldPoints || oldLabels) {
-    pendingOldCityPoints = oldPoints ?? null
-    pendingOldCityLabels = oldLabels ?? null
-    const cleanup = () => {
-      ctx!.viewer.scene.preRender.removeEventListener(cleanup)
-      pendingCityCleanup = null
-      if (oldPoints) {
-        ctx!.viewer.scene.primitives.remove(oldPoints)
-        if (!oldPoints.isDestroyed()) oldPoints.destroy()
-      }
-      if (oldLabels) {
-        ctx!.viewer.scene.primitives.remove(oldLabels)
-        if (!oldLabels.isDestroyed()) oldLabels.destroy()
-      }
-      pendingOldCityPoints = null
-      pendingOldCityLabels = null
-      ctx!.viewer.scene.requestRender()
+  // 移除不再需要的标签
+  for (const [id, entry] of activeLabels) {
+    if (!shouldHaveLabel.has(id)) {
+      cityLabelCollection.remove(entry.label)
+      activeLabels.delete(id)
     }
-    pendingCityCleanup = cleanup
-    ctx.viewer.scene.preRender.addEventListener(cleanup)
   }
 
   ctx.viewer.scene.requestRender()

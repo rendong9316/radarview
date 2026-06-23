@@ -417,23 +417,11 @@ onMounted(async () => {
   // 10. 无极缩放
   zoomCleanup = ViewerCore.setupSteplessZoom(cesiumCtx)
 
-  // 11. 相机 moveEnd
-  const CITY_LOD_THRESHOLDS = [1_000_000, 1_300_000, 1_500_000, 2_400_000]
-  const lastCityHeight = CityR.getLastCityRenderHeight()
+  // 11. 相机 moveEnd — 增量渲染极轻量，每次 moveEnd 直接触发
   cesiumCtx.viewer.camera.moveEnd.addEventListener(() => {
     ViewerCore.scheduleCameraSave(cesiumCtx!)
     if (cityLayer.visible) {
-      const h = ViewerCore.currentCameraHeight(cesiumCtx!)
-      let crossed = false
-      for (const t of CITY_LOD_THRESHOLDS) {
-        if ((lastCityHeight < t && h >= t) || (lastCityHeight >= t && h < t)) {
-          crossed = true; break
-        }
-      }
-      if (crossed || lastCityHeight === 0) {
-        CityR.setLastCityRenderHeight(h)
-        CityR.scheduleCityLayerRender(100, cityLayer as any)
-      }
+      CityR.scheduleCityLayerRender(0, cityLayer as any)
     }
   })
 
