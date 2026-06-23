@@ -414,7 +414,7 @@ pub fn run() {
                 "splash",
                 WebviewUrl::App("splash.html".into()),
             )
-            .inner_size(760.0, 500.0)
+            .inner_size(700.0, 450.0)
             .decorations(false)
             .resizable(false)
             .center()
