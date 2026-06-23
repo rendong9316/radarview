@@ -158,6 +158,7 @@ import { useTheme } from './composables/useTheme'
 import { useTileSource } from './composables/useTileSource'
 import { loadAllSettings, getRawSetting, flushSaves, scheduleSave } from './composables/useSettingsPersistence'
 import { useTracks as useTracksModule } from './composables/useTracks'
+import { useRuler } from './composables/useRuler'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -186,6 +187,7 @@ const showShortcuts = ref(false)
 const showDocs = ref(false)
 const confirmDialog = useConfirmDialog()
 const closeConfirmEnabled = ref(true)
+const ruler = useRuler()
 
 // Replay speed is restored from settings in onMounted after loadAllSettings()
 
@@ -448,7 +450,11 @@ onMounted(async () => {
     else if (ctrl && shift && e.key === 'F') { e.preventDefault(); activatePanel('flags') }
     else if (ctrl && shift && e.key === 'E') { e.preventDefault(); activatePanel('timeFilter') }
     else if (ctrl && !shift && e.key === ',') { e.preventDefault(); activatePanel('settings') }
-    else if (!ctrl && !shift && e.key === 'Escape') { clearIsolation() }
+    else if (!ctrl && !shift && e.key === 'Escape') {
+      if (ruler.active.value) { ruler.deactivate() }
+      else { clearIsolation() }
+    }
+    else if (ctrl && shift && e.key === 'R') { e.preventDefault(); ruler.toggle() }
     else if (!ctrl && !shift && e.key === 'F12') { e.preventDefault(); /* Dev tools handled by Tauri natively */ }
   })
 

@@ -29,39 +29,100 @@
         <div class="geo-line">方位角: {{ geoResult.bearing }}° ({{ geoResult.cardinal }})</div>
       </div>
 
-      <div v-if="flags.length === 0" class="empty-text">暂无旗标，双击地图放置</div>
-      <div v-else class="flag-list">
-        <button v-if="flags.length" class="clear-all-btn" @click="onClearAll"><Trash2 :size="13" /> 清除全部旗标</button>
-        <div v-for="flag in flags" :key="flag.id" class="flag-row">
-          <label class="flag-check-wrap" @click.stop>
-            <input
-              type="checkbox"
-              class="flag-check"
-              :checked="selectedFlagIds.includes(flag.id)"
-              @change="toggleSelectFlag(flag.id)"
-            />
-            <span class="flag-check-box"></span>
-          </label>
-          <div class="flag-info">
-            <template v-if="editingFlagId === flag.id">
+      <div v-if="flags.length === 0 && !ruler.active.value" class="empty-text">暂无旗标，双击地图放置</div>
+
+      <!-- Scrollable area: flags + ruler share the remaining space -->
+      <div class="panel-scroll">
+        <div v-if="flags.length > 0" class="flag-list">
+          <button class="clear-all-btn" @click="onClearAll"><Trash2 :size="13" /> 清除全部旗标</button>
+          <div v-for="flag in flags" :key="flag.id" class="flag-row">
+            <label class="flag-check-wrap" @click.stop>
               <input
-                v-model="editLabel"
-                class="rename-input"
-                @keydown.enter="commitRename"
-                @keydown.escape="cancelRename"
-                @blur="commitRename"
-                @click.stop
-                ref="renameInput"
+                type="checkbox"
+                class="flag-check"
+                :checked="selectedFlagIds.includes(flag.id)"
+                @change="toggleSelectFlag(flag.id)"
               />
-            </template>
-            <template v-else>
-              <span class="flag-label" @click="startRename(flag)" title="点击重命名"><Pencil :size="11" class="flag-label-icon" /> {{ flag.label }}</span>
-            </template>
-            <span class="flag-coords">{{ fmt(flag.latitude) }}, {{ fmt(flag.longitude) }}</span>
+              <span class="flag-check-box"></span>
+            </label>
+            <div class="flag-info">
+              <template v-if="editingFlagId === flag.id">
+                <input
+                  v-model="editLabel"
+                  class="rename-input"
+                  @keydown.enter="commitRename"
+                  @keydown.escape="cancelRename"
+                  @blur="commitRename"
+                  @click.stop
+                  ref="renameInput"
+                />
+              </template>
+              <template v-else>
+                <span class="flag-label" @click="startRename(flag)" title="点击重命名"><Pencil :size="11" class="flag-label-icon" /> {{ flag.label }}</span>
+              </template>
+              <span class="flag-coords">{{ fmt(flag.latitude) }}, {{ fmt(flag.longitude) }}</span>
+            </div>
+            <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标"><X :size="13" /></button>
           </div>
-          <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标"><X :size="13" /></button>
         </div>
-      </div>
+
+        <!-- ── 航线标尺 ── -->
+        <div class="ruler-section">
+          <div class="ruler-header">
+            <span class="ruler-title">📏 航线标尺</span>
+            <button
+              class="ruler-toggle"
+              :class="{ active: ruler.active.value }"
+              @click="ruler.toggle()"
+            >
+              {{ ruler.active.value ? '关闭标尺' : '启用标尺' }}
+            </button>
+          </div>
+
+          <template v-if="ruler.active.value">
+            <p class="ruler-hint">单击地图添加航点，Esc 退出</p>
+
+            <!-- Waypoint list -->
+            <div v-if="ruler.waypoints.value.length === 0" class="empty-text ruler-empty">
+              点击地图放置第一个航点
+            </div>
+            <div v-else class="ruler-list">
+              <div v-for="(wp, i) in ruler.waypoints.value" :key="wp.id" class="ruler-row">
+                <span class="ruler-index">{{ i + 1 }}</span>
+                <span class="ruler-coords">{{ wp.latitude.toFixed(4) }}, {{ wp.longitude.toFixed(4) }}</span>
+                <button class="ruler-del" @click="ruler.removeWaypoint(wp.id)" title="删除此航点"><X :size="12" /></button>
+              </div>
+            </div>
+
+            <!-- Segments -->
+            <div v-if="ruler.segments.value.length > 0" class="ruler-segments">
+              <div v-for="seg in ruler.segments.value" :key="seg.index" class="ruler-seg">
+                <span class="ruler-seg-label">{{ seg.index + 1 }} → {{ seg.index + 2 }}</span>
+                <span class="ruler-seg-dist">{{ seg.distanceKm >= 1 ? seg.distanceKm.toFixed(1) + ' km' : (seg.distanceKm * 1000).toFixed(0) + ' m' }}</span>
+                <span class="ruler-seg-bearing">{{ seg.bearingDeg.toFixed(0) }}° {{ seg.cardinal }}</span>
+              </div>
+            </div>
+
+            <!-- Total -->
+            <div v-if="ruler.segments.value.length > 0" class="ruler-total">
+              <span class="ruler-total-label">总距离</span>
+              <span class="ruler-total-val">{{ ruler.totalDistance.value >= 1 ? ruler.totalDistance.value.toFixed(1) + ' km' : (ruler.totalDistance.value * 1000).toFixed(0) + ' m' }}</span>
+            </div>
+
+            <!-- Direct bearing -->
+            <div v-if="ruler.directBearing.value" class="ruler-direct">
+              <span class="ruler-total-label">首尾方位</span>
+              <span class="ruler-total-val">{{ ruler.directBearing.value.deg.toFixed(0) }}° {{ ruler.directBearing.value.cardinal }}</span>
+            </div>
+
+            <!-- Actions -->
+            <div class="ruler-actions">
+              <button class="ruler-action-btn" @click="ruler.undo()" :disabled="ruler.waypoints.value.length === 0">↩ 撤销</button>
+              <button class="ruler-action-btn ruler-action-danger" @click="ruler.clearAll()" :disabled="ruler.waypoints.value.length === 0">清空</button>
+            </div>
+          </template>
+        </div>
+      </div><!-- .panel-scroll -->
     </div>
   </div>
 </template>
@@ -69,10 +130,12 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
+import { useRuler } from '../composables/useRuler'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
 import { Trash2, Pencil, X } from '@lucide/vue'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
+const ruler = useRuler()
 const inputLat = ref<number | null>(null)
 const inputLng = ref<number | null>(null)
 const coordError = ref('')
@@ -161,6 +224,15 @@ const geoResult = computed(() => {
   overflow: hidden;
 }
 
+.panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
 .input-row {
   display: flex;
   gap: 4px;
@@ -234,9 +306,6 @@ const geoResult = computed(() => {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
 }
 
 .flag-row {
@@ -368,5 +437,204 @@ const geoResult = computed(() => {
 }
 .clear-all-btn:hover {
   background: rgba(244, 71, 71, 0.25);
+}
+
+/* ── Ruler Section ── */
+.ruler-section {
+  margin-top: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-primary);
+}
+
+.ruler-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.ruler-title {
+  font-size: 0.857rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ruler-toggle {
+  padding: 3px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 3px;
+  background: var(--button-secondary);
+  color: var(--text-secondary);
+  font-size: 0.714rem;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ruler-toggle:hover {
+  background: var(--button-hover);
+  color: var(--text-primary);
+}
+.ruler-toggle.active {
+  background: #f59e0b;
+  border-color: #f59e0b;
+  color: #000;
+  font-weight: 600;
+}
+
+.ruler-hint {
+  font-size: 0.714rem;
+  color: var(--text-tertiary);
+  text-align: center;
+  margin: 4px 0;
+}
+
+.ruler-empty {
+  margin-top: 0;
+}
+
+.ruler-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ruler-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+.ruler-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #f59e0b;
+  color: #000;
+  font-size: 0.643rem;
+  font-weight: 700;
+}
+
+.ruler-coords {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.714rem;
+  color: var(--text-secondary);
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+}
+
+.ruler-del {
+  padding: 0 2px;
+  background: none;
+  border: none;
+  color: var(--error);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.ruler-del:hover {
+  opacity: 0.7;
+}
+
+.ruler-segments {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ruler-seg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  font-size: 0.714rem;
+}
+
+.ruler-seg-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.ruler-seg-dist {
+  color: var(--accent-primary);
+  font-weight: 600;
+  flex: 1;
+}
+
+.ruler-seg-bearing {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.ruler-total {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 6px;
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: 3px;
+}
+
+.ruler-total-label {
+  font-size: 0.714rem;
+  color: var(--text-secondary);
+}
+
+.ruler-total-val {
+  font-size: 0.857rem;
+  font-weight: 700;
+  color: #f59e0b;
+}
+
+.ruler-direct {
+  margin-top: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 6px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+}
+
+.ruler-actions {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+}
+
+.ruler-action-btn {
+  flex: 1;
+  padding: 4px 0;
+  border: 1px solid var(--border-primary);
+  border-radius: 2px;
+  background: var(--button-secondary);
+  color: var(--text-secondary);
+  font-size: 0.714rem;
+  cursor: pointer;
+  text-align: center;
+}
+.ruler-action-btn:hover:not(:disabled) {
+  background: var(--button-hover);
+  color: var(--text-primary);
+}
+.ruler-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ruler-action-danger {
+  color: var(--error);
+  border-color: var(--error);
+}
+.ruler-action-danger:hover:not(:disabled) {
+  background: var(--error-bg);
 }
 </style>

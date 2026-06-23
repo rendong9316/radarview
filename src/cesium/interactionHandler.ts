@@ -117,6 +117,11 @@ export interface InteractionCallbacks {
   // 选中标识
   addHighlight: (trackKey: string) => void
 
+  // 标尺模式
+  isRulerActive?: () => boolean
+  addRulerWaypoint?: (lat: number, lng: number) => void
+  setRulerMouseGround?: (lat: number | null, lng: number | null) => void
+
   // 右键菜单
   openContextMenu: (menu: {
     visible: boolean
@@ -303,6 +308,22 @@ export function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent
   const status = cb.getViewStatus(lastMousePosition)
   cb.onViewStatus(status)
 
+  // ── Ruler preview: compute ground position for preview line ──
+  if (cb.isRulerActive?.() && ctx?.viewer) {
+    const cartesian = ctx.viewer.camera.pickEllipsoid(
+      movement.endPosition, ctx.viewer.scene.globe.ellipsoid,
+    )
+    if (Cesium.defined(cartesian)) {
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian!)
+      cb.setRulerMouseGround?.(
+        Cesium.Math.toDegrees(cartographic.latitude),
+        Cesium.Math.toDegrees(cartographic.longitude),
+      )
+    } else {
+      cb.setRulerMouseGround?.(null, null)
+    }
+  }
+
   if (!pickScheduled) {
     pickScheduled = true
     requestAnimationFrame(() => {
@@ -329,6 +350,20 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   // LEFT_CLICK handler for track picking
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    // ── Ruler mode: left-click adds a waypoint instead of picking tracks ──
+    if (cb.isRulerActive?.()) {
+      const cartesian = viewer.camera.pickEllipsoid(
+        movement.position, viewer.scene.globe.ellipsoid,
+      )
+      if (Cesium.defined(cartesian)) {
+        const cartographic = Cesium.Cartographic.fromCartesian(cartesian!)
+        const lat = Cesium.Math.toDegrees(cartographic.latitude)
+        const lng = Cesium.Math.toDegrees(cartographic.longitude)
+        cb.addRulerWaypoint?.(lat, lng)
+      }
+      return
+    }
+
     const picked = viewer.scene.pick(movement.position)
     if (!Cesium.defined(picked) || !picked.id) {
       if (pendingClearTimeout) clearTimeout(pendingClearTimeout)
@@ -421,6 +456,11 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   const canvas = viewer.scene.canvas
   rightClickHandler = new Cesium.ScreenSpaceEventHandler(canvas)
   rightClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    // ── Ruler mode: suppress right-click context menu ──
+    if (cb.isRulerActive?.()) {
+      return
+    }
+
     const picked = viewer.scene.pick(movement.position)
     if (Cesium.defined(picked) && picked.id) {
       let effectivePicked = picked

@@ -65,6 +65,7 @@ import { useTrackPointDots } from '../composables/useTrackPointDots'
 import { useTheme } from '../composables/useTheme'
 import { useBoundaryLayers } from '../composables/useBoundaryLayers'
 import { useCityLayer } from '../composables/useCityLayer'
+import { useRuler } from '../composables/useRuler'
 import { trackKey } from '../composables/useTracks'
 import { whenSettingsLoaded } from '../composables/useSettingsPersistence'
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon } from '@lucide/vue'
@@ -115,6 +116,7 @@ const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } 
 const { activeTheme, getThemeVar } = useTheme()
 const { boundaryVisible, boundaryWidths, boundaryColors } = useBoundaryLayers()
 const { cityLayer } = useCityLayer()
+const ruler = useRuler()
 
 // ═══════════════════════════════════════════
 // 本地响应式状态
@@ -231,6 +233,12 @@ function buildInteractionCallbacks(): Interaction.InteractionCallbacks {
     onViewTrackPoints: (track) => emit('view-track-points', track),
     onViewStatus: (status) => emit('view-status', status ?? { cameraHeightKm: 0, longitude: 0, latitude: 0, fps: 0 }),
     addFlag, removeFlag,
+
+    // ── Ruler mode callbacks ──
+    isRulerActive: () => ruler.active.value,
+    addRulerWaypoint: (lat, lng) => ruler.addWaypoint(lat, lng),
+    setRulerMouseGround: (lat, lng) => ruler.setMouseGround(lat, lng),
+
     showCityHover: (city) => CityR.showCityHover(city, cityLayer as any),
     hideCityHover: () => CityR.hideCityHover(),
     showPointDotHover: (trackId, index) => DotR.showPointDotHover(trackId, index, props.tracks, pointDotPixelSize),
@@ -363,6 +371,119 @@ defineExpose({
 })
 
 // ═══════════════════════════════════════════
+// 标尺渲染
+// ═══════════════════════════════════════════
+
+const RULER_LINE_COLOR = Cesium.Color.fromCssColorString('#f59e0b') // amber-500
+const RULER_PREVIEW_COLOR = Cesium.Color.fromCssColorString('#f59e0b').withAlpha(0.45)
+
+/** Build a tiny circle canvas for waypoint markers */
+function buildWaypointCanvas(index: number): string {
+  const size = 32
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  // Orange circle
+  ctx.beginPath()
+  ctx.arc(size / 2, size / 2, 11, 0, Math.PI * 2)
+  ctx.fillStyle = '#f59e0b'
+  ctx.fill()
+  ctx.strokeStyle = '#000'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  // White number
+  ctx.fillStyle = '#fff'
+  ctx.font = 'bold 12px sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(String(index + 1), size / 2, size / 2)
+  return canvas.toDataURL()
+}
+
+function syncRulerEntities() {
+  if (!cesiumCtx?.viewer) return
+  const viewer = cesiumCtx.viewer
+
+  // Remove old ruler entities
+  viewer.entities.values
+    .filter(e => e.id && typeof e.id === 'string' && (e.id.startsWith('ruler-line-') || e.id.startsWith('ruler-pt-')))
+    .forEach(e => viewer.entities.remove(e))
+  // Remove old preview
+  const oldPreview = viewer.entities.getById('ruler-preview')
+  if (oldPreview) viewer.entities.remove(oldPreview)
+
+  if (!ruler.active.value || ruler.waypoints.value.length === 0) return
+
+  const wpts = ruler.waypoints.value
+
+  // ── Waypoint markers ──
+  for (let i = 0; i < wpts.length; i++) {
+    const w = wpts[i]
+    viewer.entities.add({
+      id: `ruler-pt-${w.id}`,
+      position: Cesium.Cartesian3.fromDegrees(w.longitude, w.latitude, 0),
+      billboard: {
+        image: buildWaypointCanvas(i),
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        eyeOffset: new Cesium.Cartesian3(0, 0, -50), // keep above ground
+      },
+    })
+  }
+
+  // ── Segment lines ──
+  for (let i = 0; i < wpts.length - 1; i++) {
+    const a = wpts[i]
+    const b = wpts[i + 1]
+    viewer.entities.add({
+      id: `ruler-line-${a.id}-${b.id}`,
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([a.longitude, a.latitude, b.longitude, b.latitude]),
+        width: 2,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: RULER_LINE_COLOR,
+          dashLength: 12,
+        }),
+        clampToGround: true,
+      },
+    })
+  }
+
+  // ── Preview line (last waypoint → mouse) ──
+  const preview = ruler.previewSegment.value
+  if (preview && preview.toLat != null && preview.toLng != null) {
+    viewer.entities.add({
+      id: 'ruler-preview',
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([
+          preview.from.longitude, preview.from.latitude,
+          preview.toLng, preview.toLat,
+        ]),
+        width: 1.5,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: RULER_PREVIEW_COLOR,
+          dashLength: 8,
+        }),
+        clampToGround: true,
+      },
+    })
+  }
+}
+
+// Watch waypoints for structural changes
+watch(
+  () => ruler.waypoints.value,
+  () => syncRulerEntities(),
+  { deep: true },
+)
+// Watch preview for mouse-move updates
+watch(
+  () => ruler.previewSegment.value,
+  () => syncRulerEntities(),
+)
+
+// ═══════════════════════════════════════════
 // onMounted — 初始化一切
 // ═══════════════════════════════════════════
 
@@ -460,6 +581,14 @@ onUnmounted(() => {
   if (arcEntity && cesiumCtx?.viewer) {
     cesiumCtx.viewer.entities.remove(arcEntity)
     arcEntity = undefined
+  }
+
+  // 清理标尺实体
+  if (cesiumCtx?.viewer) {
+    cesiumCtx.viewer.entities.values
+      .filter(e => e.id && typeof e.id === 'string' &&
+        (e.id.startsWith('ruler-line-') || e.id.startsWith('ruler-pt-') || e.id === 'ruler-preview'))
+      .forEach(e => cesiumCtx!.viewer.entities.remove(e))
   }
 
   // 清理计时器
