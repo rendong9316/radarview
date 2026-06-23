@@ -156,7 +156,7 @@ import { useFlags } from './composables/useFlags'
 import { useActivityBar } from './composables/useActivityBar'
 import { useTheme } from './composables/useTheme'
 import { useTileSource } from './composables/useTileSource'
-import { loadAllSettings, getRawSetting, flushSaves } from './composables/useSettingsPersistence'
+import { loadAllSettings, getRawSetting, flushSaves, scheduleSave } from './composables/useSettingsPersistence'
 import { useTracks as useTracksModule } from './composables/useTracks'
 import type { DataSource } from './types/track'
 
@@ -185,6 +185,7 @@ const showAbout = ref(false)
 const showShortcuts = ref(false)
 const showDocs = ref(false)
 const confirmDialog = useConfirmDialog()
+const closeConfirmEnabled = ref(true)
 
 // Replay speed is restored from settings in onMounted after loadAllSettings()
 
@@ -254,14 +255,26 @@ function onMapViewStatus(payload: { cameraHeightKm: number; longitude: number; l
 
 // ── Close confirmation ──
 async function onRequestClose() {
+  // Skip dialog if user previously chose "don't show again"
+  if (!closeConfirmEnabled.value) {
+    await flushSaves()
+    getCurrentWindow().close()
+    return
+  }
+
   const confirmed = await confirmDialog.show({
     title: '关闭 RadarView',
     message: '确定要关闭 RadarView 吗？\n\n用户做出的一切操作都已存储在记忆中。',
     confirmText: '关闭',
     cancelText: '取消',
     variant: 'default',
+    checkboxLabel: '不再提醒',
   })
   if (confirmed) {
+    if (confirmDialog.dontShowAgain.value) {
+      closeConfirmEnabled.value = false
+      scheduleSave('close.confirm_enabled', JSON.stringify(false))
+    }
     await flushSaves()
     getCurrentWindow().close()
   }
@@ -307,6 +320,12 @@ onMounted(async () => {
       const v = JSON.parse(savedSpeedRaw)
       if (typeof v === 'number' && v > 0) replay.setSpeed(v)
     } catch { /* keep default */ }
+  }
+
+  // Restore "don't show close confirmation again" preference
+  const closeConfirmRaw = getRawSetting('close.confirm_enabled')
+  if (closeConfirmRaw !== undefined) {
+    try { closeConfirmEnabled.value = JSON.parse(closeConfirmRaw) } catch { /* keep default */ }
   }
 
   // ── Initialize tile sources ──

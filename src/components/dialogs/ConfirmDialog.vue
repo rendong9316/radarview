@@ -8,6 +8,10 @@
         </div>
         <h3 class="dialog-title">{{ title }}</h3>
         <p class="dialog-message">{{ message }}</p>
+        <label v-if="checkboxLabel" class="dialog-checkbox">
+          <input v-model="dontShowAgain" type="checkbox" />
+          <span>{{ checkboxLabel }}</span>
+        </label>
         <div class="dialog-actions">
           <button class="dialog-btn dialog-btn-cancel" @click="onCancel">{{ cancelText }}</button>
           <button
@@ -27,7 +31,7 @@
 import { useConfirmDialog } from '../../composables/useConfirmDialog'
 import { AlertTriangle, Info } from '@lucide/vue'
 
-const { visible, title, message, confirmText, cancelText, variant, onConfirm, onCancel } =
+const { visible, title, message, confirmText, cancelText, variant, checkboxLabel, dontShowAgain, onConfirm, onCancel } =
   useConfirmDialog()
 </script>
 
@@ -83,6 +87,23 @@ const { visible, title, message, confirmText, cancelText, variant, onConfirm, on
   margin-bottom: 20px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.dialog-checkbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 0.786rem;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.dialog-checkbox input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  cursor: pointer;
 }
 
 .dialog-actions {
