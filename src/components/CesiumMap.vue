@@ -66,6 +66,7 @@ import { useTheme } from '../composables/useTheme'
 import { useBoundaryLayers } from '../composables/useBoundaryLayers'
 import { useCityLayer } from '../composables/useCityLayer'
 import { useRuler } from '../composables/useRuler'
+import { useSpatialLasso } from '../composables/useSpatialLasso'
 import { trackKey } from '../composables/useTracks'
 import { whenSettingsLoaded } from '../composables/useSettingsPersistence'
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon } from '@lucide/vue'
@@ -117,6 +118,7 @@ const { activeTheme, getThemeVar } = useTheme()
 const { boundaryVisible, boundaryWidths, boundaryColors } = useBoundaryLayers()
 const { cityLayer } = useCityLayer()
 const ruler = useRuler()
+const lasso = useSpatialLasso()
 
 // ═══════════════════════════════════════════
 // 本地响应式状态
@@ -238,6 +240,12 @@ function buildInteractionCallbacks(): Interaction.InteractionCallbacks {
     isRulerActive: () => ruler.active.value,
     addRulerWaypoint: (lat, lng) => ruler.addWaypoint(lat, lng),
     setRulerMouseGround: (lat, lng) => ruler.setMouseGround(lat, lng),
+
+    // ── Lasso mode callbacks ──
+    isLassoActive: () => lasso.active.value,
+    addLassoVertex: (lat, lng) => lasso.addVertex(lat, lng),
+    closeLassoPolygon: () => lasso.closePolygon(),
+    setLassoMouseGround: (lat, lng) => lasso.setMouseGround(lat, lng),
 
     showCityHover: (city) => CityR.showCityHover(city, cityLayer as any),
     hideCityHover: () => CityR.hideCityHover(),
@@ -484,6 +492,149 @@ watch(
 )
 
 // ═══════════════════════════════════════════
+// 套索渲染
+// ═══════════════════════════════════════════
+
+const LASSO_LINE_COLOR = Cesium.Color.fromCssColorString('#10b981') // emerald-500
+const LASSO_FILL_COLOR = Cesium.Color.fromCssColorString('#10b981').withAlpha(0.15)
+const LASSO_PREVIEW_COLOR = Cesium.Color.fromCssColorString('#10b981').withAlpha(0.45)
+
+function buildLassoVertexCanvas(index: number): string {
+  const size = 28
+  const canvas = document.createElement('canvas')
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.beginPath()
+  ctx.arc(size / 2, size / 2, 10, 0, Math.PI * 2)
+  ctx.fillStyle = '#10b981'
+  ctx.fill()
+  ctx.strokeStyle = '#000'
+  ctx.lineWidth = 1.5
+  ctx.stroke()
+  ctx.fillStyle = '#fff'
+  ctx.font = 'bold 11px sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'middle'
+  ctx.fillText(String(index + 1), size / 2, size / 2)
+  return canvas.toDataURL()
+}
+
+function syncLassoEntities() {
+  if (!cesiumCtx?.viewer) return
+  const viewer = cesiumCtx.viewer
+
+  // Remove old lasso entities
+  viewer.entities.values
+    .filter(e => e.id && typeof e.id === 'string' &&
+      (e.id.startsWith('lasso-') || e.id === 'lasso-preview' || e.id === 'lasso-preview-close'))
+    .forEach(e => viewer.entities.remove(e))
+
+  if (!lasso.active.value || lasso.vertices.value.length === 0) return
+
+  const verts = lasso.vertices.value
+  const closed = lasso.isClosed.value
+
+  // ── Vertex markers ──
+  for (let i = 0; i < verts.length; i++) {
+    const v = verts[i]
+    viewer.entities.add({
+      id: `lasso-vt-${v.id}`,
+      position: Cesium.Cartesian3.fromDegrees(v.longitude, v.latitude, 0),
+      billboard: {
+        image: buildLassoVertexCanvas(i),
+        verticalOrigin: Cesium.VerticalOrigin.CENTER,
+        horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+        eyeOffset: new Cesium.Cartesian3(0, 0, -50),
+      },
+    })
+  }
+
+  // ── Edge lines ──
+  const edgePositions: number[] = []
+  for (const v of verts) {
+    edgePositions.push(v.longitude, v.latitude)
+  }
+  if (closed && verts.length >= 3) {
+    // Close back to first
+    edgePositions.push(verts[0].longitude, verts[0].latitude)
+    // ── Filled polygon ──
+    viewer.entities.add({
+      id: 'lasso-fill',
+      polygon: {
+        hierarchy: Cesium.Cartesian3.fromDegreesArray(edgePositions),
+        material: LASSO_FILL_COLOR,
+      },
+    })
+  }
+  viewer.entities.add({
+    id: 'lasso-edges',
+    polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray(edgePositions),
+      width: 2,
+      material: closed
+        ? LASSO_LINE_COLOR
+        : new Cesium.PolylineDashMaterialProperty({ color: LASSO_LINE_COLOR, dashLength: 12 }),
+      clampToGround: true,
+    },
+  })
+
+  // ── Preview line (last vertex → mouse) ──
+  const preview = lasso.previewSegment.value
+  if (preview && !closed) {
+    viewer.entities.add({
+      id: 'lasso-preview',
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([
+          preview.fromLng, preview.fromLat,
+          preview.toLng, preview.toLat,
+        ]),
+        width: 1.5,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: LASSO_PREVIEW_COLOR,
+          dashLength: 8,
+        }),
+        clampToGround: true,
+      },
+    })
+  }
+
+  // ── Preview close hint (mouse → first vertex when 2+ vertices) ──
+  const previewClose = lasso.previewClose.value
+  if (previewClose && verts.length >= 2 && !closed) {
+    viewer.entities.add({
+      id: 'lasso-preview-close',
+      polyline: {
+        positions: Cesium.Cartesian3.fromDegreesArray([
+          previewClose.fromLng, previewClose.fromLat,
+          previewClose.toLng, previewClose.toLat,
+        ]),
+        width: 2,
+        material: new Cesium.PolylineDashMaterialProperty({
+          color: Cesium.Color.fromCssColorString('#10b981').withAlpha(0.7),
+          dashLength: 6,
+        }),
+        clampToGround: true,
+      },
+    })
+  }
+}
+
+watch(
+  () => [lasso.vertices.value, lasso.isClosed.value] as const,
+  () => syncLassoEntities(),
+  { deep: true },
+)
+watch(
+  () => lasso.previewSegment.value,
+  () => syncLassoEntities(),
+)
+watch(
+  () => lasso.previewClose.value,
+  () => syncLassoEntities(),
+)
+
+// ═══════════════════════════════════════════
 // onMounted — 初始化一切
 // ═══════════════════════════════════════════
 
@@ -588,6 +739,14 @@ onUnmounted(() => {
     cesiumCtx.viewer.entities.values
       .filter(e => e.id && typeof e.id === 'string' &&
         (e.id.startsWith('ruler-line-') || e.id.startsWith('ruler-pt-') || e.id === 'ruler-preview'))
+      .forEach(e => cesiumCtx!.viewer.entities.remove(e))
+  }
+
+  // 清理套索实体
+  if (cesiumCtx?.viewer) {
+    cesiumCtx.viewer.entities.values
+      .filter(e => e.id && typeof e.id === 'string' &&
+        (e.id.startsWith('lasso-') || e.id === 'lasso-preview' || e.id === 'lasso-preview-close'))
       .forEach(e => cesiumCtx!.viewer.entities.remove(e))
   }
 

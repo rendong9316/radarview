@@ -122,6 +122,12 @@ export interface InteractionCallbacks {
   addRulerWaypoint?: (lat: number, lng: number) => void
   setRulerMouseGround?: (lat: number | null, lng: number | null) => void
 
+  // 空间套索模式
+  isLassoActive?: () => boolean
+  addLassoVertex?: (lat: number, lng: number) => void
+  closeLassoPolygon?: () => void
+  setLassoMouseGround?: (lat: number | null, lng: number | null) => void
+
   // 右键菜单
   openContextMenu: (menu: {
     visible: boolean
@@ -308,6 +314,22 @@ export function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent
   const status = cb.getViewStatus(lastMousePosition)
   cb.onViewStatus(status)
 
+  // ── Lasso preview: compute ground position for preview line ──
+  if (cb.isLassoActive?.() && ctx?.viewer) {
+    const cartesian = ctx.viewer.camera.pickEllipsoid(
+      movement.endPosition, ctx.viewer.scene.globe.ellipsoid,
+    )
+    if (Cesium.defined(cartesian)) {
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian!)
+      cb.setLassoMouseGround?.(
+        Cesium.Math.toDegrees(cartographic.latitude),
+        Cesium.Math.toDegrees(cartographic.longitude),
+      )
+    } else {
+      cb.setLassoMouseGround?.(null, null)
+    }
+  }
+
   // ── Ruler preview: compute ground position for preview line ──
   if (cb.isRulerActive?.() && ctx?.viewer) {
     const cartesian = ctx.viewer.camera.pickEllipsoid(
@@ -350,6 +372,20 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   // LEFT_CLICK handler for track picking
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    // ── Lasso mode: left-click adds a vertex ──
+    if (cb.isLassoActive?.()) {
+      const cartesian = viewer.camera.pickEllipsoid(
+        movement.position, viewer.scene.globe.ellipsoid,
+      )
+      if (Cesium.defined(cartesian)) {
+        const cartographic = Cesium.Cartographic.fromCartesian(cartesian!)
+        const lat = Cesium.Math.toDegrees(cartographic.latitude)
+        const lng = Cesium.Math.toDegrees(cartographic.longitude)
+        cb.addLassoVertex?.(lat, lng)
+      }
+      return
+    }
+
     // ── Ruler mode: left-click adds a waypoint instead of picking tracks ──
     if (cb.isRulerActive?.()) {
       const cartesian = viewer.camera.pickEllipsoid(
@@ -430,6 +466,12 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   )
   dblClickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   dblClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    // ── Lasso mode: double-click closes the polygon ──
+    if (cb.isLassoActive?.()) {
+      cb.closeLassoPolygon?.()
+      return
+    }
+
     if (pendingClearTimeout) {
       clearTimeout(pendingClearTimeout)
       pendingClearTimeout = null
@@ -456,8 +498,8 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   const canvas = viewer.scene.canvas
   rightClickHandler = new Cesium.ScreenSpaceEventHandler(canvas)
   rightClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-    // ── Ruler mode: suppress right-click context menu ──
-    if (cb.isRulerActive?.()) {
+    // ── Lasso / Ruler mode: suppress right-click context menu ──
+    if (cb.isLassoActive?.() || cb.isRulerActive?.()) {
       return
     }
 
