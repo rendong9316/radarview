@@ -79,6 +79,13 @@ const lastMouseLng = ref<number | null>(null)
 /** Set of selected result track keys for batch operations */
 const selectedResultKeys = ref(new Set<string>())
 
+/** Lasso mode: vertex = click-to-place, freehand = hold-and-draw */
+const lassoMode = ref<'vertex' | 'freehand'>('vertex')
+/** Currently dragging a vertex id (null = not dragging) */
+const draggingVertexId = ref<string | null>(null)
+/** Whether a freehand draw stroke is in progress */
+const freehandDrawing = ref(false)
+
 /** Snapshot of the polygon vertices when spatial filter is applied */
 const filterPolygon = ref<LassoVertex[] | null>(null)
 /** Whether a spatial filter is currently active */
@@ -260,6 +267,8 @@ export function useSpatialLasso() {
     selectedResultKeys.value.clear()
     filterPolygon.value = null
     hasSpatialFilter.value = false
+    draggingVertexId.value = null
+    freehandDrawing.value = false
   }
 
   function setMouseGround(lat: number | null, lng: number | null) {
@@ -313,6 +322,68 @@ export function useSpatialLasso() {
     return matching
   }
 
+  // ── Mode / Drag / Freehand ──
+
+  function setMode(mode: 'vertex' | 'freehand') {
+    if (lassoMode.value !== mode && !isClosed.value) {
+      lassoMode.value = mode
+      vertices.value = []
+    } else {
+      lassoMode.value = mode
+    }
+  }
+
+  /** Move an existing vertex to a new position */
+  function moveVertex(id: string, lat: number, lng: number) {
+    const idx = vertices.value.findIndex(v => v.id === id)
+    if (idx === -1) return
+    const updated = [...vertices.value]
+    updated[idx] = { ...updated[idx], latitude: lat, longitude: lng }
+    vertices.value = updated
+  }
+
+  function startVertexDrag(id: string) {
+    draggingVertexId.value = id
+  }
+
+  function endVertexDrag() {
+    draggingVertexId.value = null
+  }
+
+  /** Begin a freehand draw stroke — clears any existing vertices */
+  function beginFreehand(lat: number, lng: number) {
+    clearAll()
+    active.value = true
+    freehandDrawing.value = true
+    vertices.value = [{ id: `lasso-${_nextId++}`, latitude: lat, longitude: lng }]
+  }
+
+  /** Add a point during freehand drawing (skips if too close to last point) */
+  function addFreehandPoint(lat: number, lng: number) {
+    if (!freehandDrawing.value) return
+    const last = vertices.value[vertices.value.length - 1]
+    if (last) {
+      // Skip if very close to last point (~10m threshold)
+      const d = haversineDistance(last.latitude, last.longitude, lat, lng)
+      if (d < 10) return
+    }
+    vertices.value = [
+      ...vertices.value,
+      { id: `lasso-${_nextId++}`, latitude: lat, longitude: lng },
+    ]
+  }
+
+  /** End freehand draw stroke — close the polygon if enough vertices */
+  function endFreehand() {
+    freehandDrawing.value = false
+    if (vertices.value.length >= 3) {
+      closePolygon()
+    } else {
+      // Not enough points — discard
+      clearAll()
+    }
+  }
+
   // ── Polygon bounds ──
 
   const bounds = computed(() => {
@@ -337,6 +408,9 @@ export function useSpatialLasso() {
     selectedResultKeys,
     filterPolygon,
     hasSpatialFilter,
+    lassoMode,
+    draggingVertexId,
+    freehandDrawing,
     edgeLengths,
     polygonAreaSqKm,
     previewSegment,
@@ -346,6 +420,13 @@ export function useSpatialLasso() {
     removeVertex,
     closePolygon,
     clearAll,
+    setMode,
+    moveVertex,
+    startVertexDrag,
+    endVertexDrag,
+    beginFreehand,
+    addFreehandPoint,
+    endFreehand,
     setMouseGround,
     activate,
     deactivate,

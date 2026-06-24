@@ -28,6 +28,9 @@ let pickScheduled = false
 // 延迟清除隔离
 let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
 
+// 套索拖拽/自由绘制状态
+let lassoDragActive = false  // true while lasso drag or freehand draw is in progress
+
 // 事件处理器
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
@@ -124,9 +127,20 @@ export interface InteractionCallbacks {
 
   // 空间套索模式
   isLassoActive?: () => boolean
+  getLassoMode?: () => 'vertex' | 'freehand'
+  isLassoClosed?: () => boolean
   addLassoVertex?: (lat: number, lng: number) => void
   closeLassoPolygon?: () => void
   setLassoMouseGround?: (lat: number | null, lng: number | null) => void
+  // 套索顶点拖拽
+  pickLassoVertex?: (screenPos: Cesium.Cartesian2) => string | null
+  startLassoVertexDrag?: (vertexId: string) => void
+  updateLassoVertexDrag?: (vertexId: string, lat: number, lng: number) => void
+  endLassoVertexDrag?: () => void
+  // 自由绘制
+  beginFreehand?: (lat: number, lng: number) => void
+  addFreehandPoint?: (lat: number, lng: number) => void
+  endFreehand?: () => void
 
   // 右键菜单
   openContextMenu: (menu: {
@@ -314,17 +328,21 @@ export function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent
   const status = cb.getViewStatus(lastMousePosition)
   cb.onViewStatus(status)
 
-  // ── Lasso preview: compute ground position for preview line ──
+  // ── Lasso: freehand point / vertex drag / preview line ──
   if (cb.isLassoActive?.() && ctx?.viewer) {
     const cartesian = ctx.viewer.camera.pickEllipsoid(
       movement.endPosition, ctx.viewer.scene.globe.ellipsoid,
     )
     if (Cesium.defined(cartesian)) {
       const cartographic = Cesium.Cartographic.fromCartesian(cartesian!)
-      cb.setLassoMouseGround?.(
-        Cesium.Math.toDegrees(cartographic.latitude),
-        Cesium.Math.toDegrees(cartographic.longitude),
-      )
+      const lat = Cesium.Math.toDegrees(cartographic.latitude)
+      const lng = Cesium.Math.toDegrees(cartographic.longitude)
+      cb.setLassoMouseGround?.(lat, lng)
+
+      // Freehand draw: add points while mouse is held
+      if (cb.getLassoMode?.() === 'freehand') {
+        cb.addFreehandPoint?.(lat, lng)
+      }
     } else {
       cb.setLassoMouseGround?.(null, null)
     }
@@ -343,6 +361,18 @@ export function onMouseMove(movement: Cesium.ScreenSpaceEventHandler.MotionEvent
       )
     } else {
       cb.setRulerMouseGround?.(null, null)
+    }
+  }
+
+  // ── Lasso vertex drag: update vertex position during drag ──
+  if (lassoDragActive && cb.endLassoVertexDrag) {
+    // Vertex drag in progress (lasso may be inactive after close)
+    const cartesian = ctx?.viewer?.camera.pickEllipsoid(
+      movement.endPosition, ctx!.viewer.scene.globe.ellipsoid,
+    )
+    if (cartesian && Cesium.defined(cartesian)) {
+      const cartographic = Cesium.Cartographic.fromCartesian(cartesian)
+      cb.updateLassoVertexDrag?.('', Cesium.Math.toDegrees(cartographic.latitude), Cesium.Math.toDegrees(cartographic.longitude))
     }
   }
 
@@ -372,8 +402,10 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   // LEFT_CLICK handler for track picking
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-    // ── Lasso mode: left-click adds a vertex ──
-    if (cb.isLassoActive?.()) {
+    // ── Lasso mode: left-click adds a vertex (vertex mode only, skip if drag/freehand handled) ──
+    if (cb.isLassoActive?.() && cb.getLassoMode?.() === 'vertex') {
+      // If LEFT_DOWN started a drag/freehand, LEFT_UP already handled it — skip LEFT_CLICK
+      if (lassoDragActive) { lassoDragActive = false; return }
       const cartesian = viewer.camera.pickEllipsoid(
         movement.position, viewer.scene.globe.ellipsoid,
       )
@@ -452,6 +484,43 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
       cb.onTrackPick(null)
     }, 300)
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+
+  // LEFT_DOWN handler — lasso freehand start / vertex drag start
+  let downHandler: Cesium.ScreenSpaceEventHandler | null = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  downHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    const lassoActive = cb.isLassoActive?.() ?? false
+    const mode = cb.getLassoMode?.() ?? 'vertex'
+    const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid)
+    if (!Cesium.defined(cartesian)) return
+    const cartographic = Cesium.Cartographic.fromCartesian(cartesian!)
+    const lat = Cesium.Math.toDegrees(cartographic.latitude)
+    const lng = Cesium.Math.toDegrees(cartographic.longitude)
+
+    if (lassoActive && mode === 'freehand') {
+      lassoDragActive = true
+      cb.beginFreehand?.(lat, lng)
+    } else if (mode === 'vertex') {
+      // Vertex drag: works when polygon is closed (lasso may be inactive after auto-deactivate)
+      const vertexId = cb.pickLassoVertex?.(movement.position) ?? null
+      if (vertexId && cb.isLassoClosed?.()) {
+        lassoDragActive = true
+        cb.startLassoVertexDrag?.(vertexId)
+      }
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_DOWN)
+
+  // LEFT_UP handler — lasso freehand end / vertex drag end
+  let upHandler: Cesium.ScreenSpaceEventHandler | null = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
+  upHandler.setInputAction(() => {
+    if (!lassoDragActive) return
+    lassoDragActive = false
+
+    if (cb.isLassoActive?.() && cb.getLassoMode?.() === 'freehand') {
+      cb.endFreehand?.()
+    } else {
+      cb.endLassoVertexDrag?.()
+    }
+  }, Cesium.ScreenSpaceEventType.LEFT_UP)
 
   // MOUSE_MOVE handler for hover
   moveHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
@@ -606,6 +675,8 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
 
   return () => {
     if (clickHandler) { clickHandler.destroy(); clickHandler = null }
+    if (downHandler) { downHandler.destroy(); downHandler = null }
+    if (upHandler) { upHandler.destroy(); upHandler = null }
     if (dblClickHandler) { dblClickHandler.destroy(); dblClickHandler = null }
     if (rightClickHandler) { rightClickHandler.destroy(); rightClickHandler = null }
     if (moveHandler) { moveHandler.destroy(); moveHandler = null }

@@ -246,8 +246,41 @@ function buildInteractionCallbacks(): Interaction.InteractionCallbacks {
     addLassoVertex: (lat, lng) => lasso.addVertex(lat, lng),
     closeLassoPolygon: () => lasso.closePolygon(),
     setLassoMouseGround: (lat, lng) => lasso.setMouseGround(lat, lng),
+	    getLassoMode: () => lasso.lassoMode.value,
+	    isLassoClosed: () => lasso.isClosed.value,
+	    pickLassoVertex: (screenPos) => {
+	      if (!cesiumCtx?.viewer) return null
+	      const picked = cesiumCtx.viewer.scene.pick(screenPos)
+	      if (picked && picked.id && typeof picked.id === 'string' && picked.id.startsWith('lasso-vt-')) {
+	        return picked.id.slice('lasso-vt-'.length)
+	      }
+	      return null
+	    },
+	    startLassoVertexDrag: (id) => lasso.startVertexDrag(id),
+	    updateLassoVertexDrag: (_id, lat, lng) => {
+	      const vid = lasso.draggingVertexId.value
+	      if (vid) lasso.moveVertex(vid, lat, lng)
+	    },
+	    endLassoVertexDrag: () => lasso.endVertexDrag(),
+	    beginFreehand: (lat, lng) => {
+	      if (cesiumCtx?.viewer) {
+	        const c = cesiumCtx.viewer.scene.screenSpaceCameraController
+	        c.enableRotate = false
+	        c.enableTranslate = false
+	      }
+	      lasso.beginFreehand(lat, lng)
+	    },
+	    addFreehandPoint: (lat, lng) => lasso.addFreehandPoint(lat, lng),
+	    endFreehand: () => {
+	      lasso.endFreehand()
+	      if (cesiumCtx?.viewer) {
+	        const c = cesiumCtx.viewer.scene.screenSpaceCameraController
+	        c.enableRotate = true
+	        c.enableTranslate = true
+	      }
+	    },
 
-    showCityHover: (city) => CityR.showCityHover(city, cityLayer as any),
+	    showCityHover: (city) => CityR.showCityHover(city, cityLayer as any),
     hideCityHover: () => CityR.hideCityHover(),
     showPointDotHover: (trackId, index) => DotR.showPointDotHover(trackId, index, props.tracks, pointDotPixelSize),
     hidePointDotHover: () => DotR.hidePointDotHover(),
@@ -748,6 +781,8 @@ onUnmounted(() => {
       .filter(e => e.id && typeof e.id === 'string' &&
         (e.id.startsWith('lasso-') || e.id === 'lasso-preview' || e.id === 'lasso-preview-close'))
       .forEach(e => cesiumCtx!.viewer.entities.remove(e))
+    // 恢复相机平移（可能在自由绘制时被禁用）
+    cesiumCtx.viewer.scene.screenSpaceCameraController.enableTranslate = true
   }
 
   // 清理计时器

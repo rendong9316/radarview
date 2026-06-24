@@ -74,6 +74,20 @@
       <!-- 空间套索筛选 -->
       <div class="filter-section-label">空间套索</div>
       <div class="lasso-section">
+        <!-- Mode selector -->
+        <div v-if="!lasso.isClosed.value" class="lasso-mode-row">
+          <button
+            class="lasso-mode-btn"
+            :class="{ active: lasso.lassoMode.value === 'vertex' }"
+            @click="lasso.setMode('vertex')"
+          >顶点</button>
+          <button
+            class="lasso-mode-btn"
+            :class="{ active: lasso.lassoMode.value === 'freehand' }"
+            @click="lasso.setMode('freehand')"
+          >自由绘制</button>
+        </div>
+
         <button
           class="lasso-toggle"
           :class="{ active: lasso.active.value }"
@@ -84,7 +98,10 @@
 
         <!-- Drawing mode UI -->
         <template v-if="lasso.active.value && !lasso.isClosed.value">
-          <p class="lasso-hint">单击地图添加顶点，双击闭合多边形</p>
+          <p class="lasso-hint">
+            <template v-if="lasso.lassoMode.value === 'freehand'">按住左键拖动绘制，松手闭合</template>
+            <template v-else>单击地图添加顶点，双击闭合多边形</template>
+          </p>
           <div class="lasso-actions">
             <button class="lasso-clear-btn" @click="lasso.clearAll()" :disabled="lasso.vertices.value.length === 0">清除顶点</button>
           </div>
@@ -531,6 +548,32 @@ function fmtArea(sqKm: number): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* ── Lasso mode selector ── */
+.lasso-mode-row {
+  display: flex;
+  gap: 4px;
+}
+
+.lasso-mode-btn {
+  flex: 1;
+  padding: 3px 6px;
+  border: 1px solid var(--border-primary);
+  border-radius: 2px;
+  background: var(--input-bg);
+  color: var(--text-tertiary);
+  font-size: 0.714rem;
+  cursor: pointer;
+  text-align: center;
+}
+.lasso-mode-btn:hover {
+  color: var(--text-primary);
+}
+.lasso-mode-btn.active {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #fff;
 }
 
 .lasso-toggle {
