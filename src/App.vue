@@ -457,11 +457,11 @@ onMounted(async () => {
     else if (ctrl && shift && e.key === 'E') { e.preventDefault(); activatePanel('timeFilter') }
     else if (ctrl && !shift && e.key === ',') { e.preventDefault(); activatePanel('settings') }
     else if (!ctrl && !shift && e.key === 'Escape') {
-      if (lasso.active.value) { lasso.deactivate() }
+      if (lasso.active.value) { lasso.clearAll() }
       else if (ruler.active.value) { ruler.deactivate() }
       else { clearIsolation() }
     }
-    else if (ctrl && shift && e.key === 'L') { e.preventDefault(); lasso.toggle() }
+    else if (ctrl && shift && e.key === 'L') { e.preventDefault(); lasso.active.value ? lasso.clearAll() : lasso.activate() }
     else if (ctrl && shift && e.key === 'R') { e.preventDefault(); ruler.toggle() }
     else if (!ctrl && !shift && e.key === 'F12') { e.preventDefault(); /* Dev tools handled by Tauri natively */ }
   })

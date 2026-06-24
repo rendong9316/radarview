@@ -77,27 +77,25 @@
         <button
           class="lasso-toggle"
           :class="{ active: lasso.active.value }"
-          @click="lasso.toggle()"
+          @click="handleToggleLasso"
         >
-          {{ lasso.active.value ? '退出套索' : '启用套索' }}
+          {{ lassoToggleLabel }}
         </button>
 
-        <template v-if="lasso.active.value">
-          <p class="lasso-hint">
-            <template v-if="!lasso.isClosed.value">
-              单击地图添加顶点，双击闭合多边形
-            </template>
-            <template v-else>
-              多边形已闭合（{{ lasso.vertices.value.length }} 个顶点）
-            </template>
-          </p>
-
-          <div class="lasso-actions" v-if="lasso.isClosed.value">
-            <button class="lasso-apply-btn" @click="handleApplyLasso">{{ lasso.hasSpatialFilter.value ? '重新应用' : '应用空间筛选' }}</button>
-            <button class="lasso-clear-btn" @click="lasso.clearAll()">重新绘制</button>
-          </div>
-          <div class="lasso-actions" v-else>
+        <!-- Drawing mode UI -->
+        <template v-if="lasso.active.value && !lasso.isClosed.value">
+          <p class="lasso-hint">单击地图添加顶点，双击闭合多边形</p>
+          <div class="lasso-actions">
             <button class="lasso-clear-btn" @click="lasso.clearAll()" :disabled="lasso.vertices.value.length === 0">清除顶点</button>
+          </div>
+        </template>
+
+        <!-- Closed polygon UI (visible regardless of active state) -->
+        <template v-if="lasso.isClosed.value">
+          <p class="lasso-hint">多边形已闭合（{{ lasso.vertices.value.length }} 个顶点）</p>
+          <div class="lasso-actions">
+            <button class="lasso-apply-btn" @click="handleApplyLasso">{{ lasso.hasSpatialFilter.value ? '重新应用' : '应用空间筛选' }}</button>
+            <button class="lasso-clear-btn" @click="handleRedrawLasso">重新绘制</button>
           </div>
           <div v-if="lasso.hasSpatialFilter.value" class="lasso-actions">
             <button class="lasso-clear-filter-btn" @click="handleClearSpatialFilter">清除空间筛选</button>
@@ -259,6 +257,25 @@ function onPfMax(source: DataSource, val: string) {
 }
 
 // ── Lasso handlers ──
+
+const lassoToggleLabel = computed(() => {
+  if (lasso.active.value && !lasso.isClosed.value) return '取消绘制'
+  return '启用套索'
+})
+
+function handleToggleLasso() {
+  if (lasso.active.value && !lasso.isClosed.value) {
+    // Cancel drawing — clear partial vertices and deactivate
+    lasso.clearAll()
+  } else {
+    lasso.activate()
+  }
+}
+
+function handleRedrawLasso() {
+  lasso.clearAll()
+  lasso.activate()
+}
 
 function handleApplyLasso() {
   if (lasso.vertices.value.length < 3 || !lasso.isClosed.value) return

@@ -530,7 +530,7 @@ function syncLassoEntities() {
       (e.id.startsWith('lasso-') || e.id === 'lasso-preview' || e.id === 'lasso-preview-close'))
     .forEach(e => viewer.entities.remove(e))
 
-  if (!lasso.active.value || lasso.vertices.value.length === 0) return
+  if (lasso.vertices.value.length === 0) return
 
   const verts = lasso.vertices.value
   const closed = lasso.isClosed.value

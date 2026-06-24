@@ -498,8 +498,8 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   const canvas = viewer.scene.canvas
   rightClickHandler = new Cesium.ScreenSpaceEventHandler(canvas)
   rightClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
-    // ── Lasso / Ruler mode: suppress right-click context menu ──
-    if (cb.isLassoActive?.() || cb.isRulerActive?.()) {
+    // ── Ruler mode: suppress right-click context menu ──
+    if (cb.isRulerActive?.()) {
       return
     }
 

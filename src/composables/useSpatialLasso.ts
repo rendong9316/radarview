@@ -234,11 +234,26 @@ export function useSpatialLasso() {
   }
 
   function closePolygon() {
-    if (vertices.value.length < 3) return
+    const verts = vertices.value
+    if (verts.length < 3) return
+
+    // Deduplicate: if last two vertices coincide (double-click artifact), drop the duplicate
+    const last = verts[verts.length - 1]
+    const prev = verts[verts.length - 2]
+    const EPS = 1e-7 // ~1cm at the equator
+    if (Math.abs(last.latitude - prev.latitude) < EPS &&
+        Math.abs(last.longitude - prev.longitude) < EPS) {
+      vertices.value = verts.slice(0, -1)
+      if (vertices.value.length < 3) return
+    }
+
     isClosed.value = true
+    // Auto-deactivate — drawing is done, restore normal interactions
+    active.value = false
   }
 
   function clearAll() {
+    active.value = false
     vertices.value = []
     isClosed.value = false
     results.value = []
@@ -257,13 +272,12 @@ export function useSpatialLasso() {
   }
 
   function activate() {
-    active.value = true
     clearAll()
+    active.value = true
   }
 
   function deactivate() {
     active.value = false
-    clearAll()
     lastMouseLat.value = null
     lastMouseLng.value = null
   }
