@@ -319,6 +319,39 @@ async function applySettings(raw: Record<string, string>) {
     try { ab.activePanel.value = JSON.parse(raw['sidebar.active_panel']) } catch { /* keep default */ }
   }
 
+  // ── Lasso state ──
+  try {
+    const lassoRaw = raw['lasso.vertices']
+    const isClosedRaw = raw['lasso.is_closed']
+    if (lassoRaw !== undefined) {
+      const { useSpatialLasso } = await import('./useSpatialLasso')
+      const ls = useSpatialLasso()
+
+      // Vertex radius
+      if (raw['lasso.vertex_radius'] !== undefined) {
+        try { ls.lassoVertexRadius.value = JSON.parse(raw['lasso.vertex_radius']) } catch { /* keep default */ }
+      }
+
+      // Polygon shape — restore vertices + isClosed for map display
+      const verts = JSON.parse(lassoRaw)
+      if (Array.isArray(verts) && verts.length >= 3) {
+        ls.vertices.value = verts
+        if (isClosedRaw !== undefined) {
+          try { ls.isClosed.value = JSON.parse(isClosedRaw) } catch { /* keep default */ }
+        }
+        // Spatial filter — re-apply if it was active
+        if (raw['lasso.has_spatial_filter'] !== undefined) {
+          try {
+            if (JSON.parse(raw['lasso.has_spatial_filter'])) {
+              ls.filterPolygon.value = verts
+              ls.hasSpatialFilter.value = true
+            }
+          } catch { /* keep default */ }
+        }
+      }
+    }
+  } catch { /* keep default */ }
+
   // ── Manage panel: filter, sort, pageSize ──
   try {
     const manageModule = await import('./useTrackManagement')

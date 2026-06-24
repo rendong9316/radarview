@@ -532,24 +532,29 @@ const LASSO_LINE_COLOR = Cesium.Color.fromCssColorString('#10b981') // emerald-5
 const LASSO_FILL_COLOR = Cesium.Color.fromCssColorString('#10b981').withAlpha(0.15)
 const LASSO_PREVIEW_COLOR = Cesium.Color.fromCssColorString('#10b981').withAlpha(0.45)
 
-function buildLassoVertexCanvas(index: number): string {
-  const size = 28
+function buildLassoVertexCanvas(index: number, radius: number): string {
+  const padding = 4
+  const strokeWidth = 1.5
+  const diameter = radius * 2
+  const size = Math.ceil(diameter + padding * 2 + strokeWidth * 2)
+  const center = size / 2
   const canvas = document.createElement('canvas')
   canvas.width = size
   canvas.height = size
   const ctx = canvas.getContext('2d')!
   ctx.beginPath()
-  ctx.arc(size / 2, size / 2, 10, 0, Math.PI * 2)
+  ctx.arc(center, center, radius, 0, Math.PI * 2)
   ctx.fillStyle = '#10b981'
   ctx.fill()
   ctx.strokeStyle = '#000'
-  ctx.lineWidth = 1.5
+  ctx.lineWidth = strokeWidth
   ctx.stroke()
   ctx.fillStyle = '#fff'
-  ctx.font = 'bold 11px sans-serif'
+  const fontSize = Math.max(8, Math.round(radius * 1.1))
+  ctx.font = `bold ${fontSize}px sans-serif`
   ctx.textAlign = 'center'
   ctx.textBaseline = 'middle'
-  ctx.fillText(String(index + 1), size / 2, size / 2)
+  ctx.fillText(String(index + 1), center, center)
   return canvas.toDataURL()
 }
 
@@ -575,7 +580,7 @@ function syncLassoEntities() {
       id: `lasso-vt-${v.id}`,
       position: Cesium.Cartesian3.fromDegrees(v.longitude, v.latitude, 0),
       billboard: {
-        image: buildLassoVertexCanvas(i),
+        image: buildLassoVertexCanvas(i, lasso.lassoVertexRadius.value),
         verticalOrigin: Cesium.VerticalOrigin.CENTER,
         horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
         eyeOffset: new Cesium.Cartesian3(0, 0, -50),
@@ -654,7 +659,7 @@ function syncLassoEntities() {
 }
 
 watch(
-  () => [lasso.vertices.value, lasso.isClosed.value] as const,
+  () => [lasso.vertices.value, lasso.isClosed.value, lasso.lassoVertexRadius.value] as const,
   () => syncLassoEntities(),
   { deep: true },
 )

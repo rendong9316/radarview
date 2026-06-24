@@ -88,6 +88,21 @@
           >自由绘制</button>
         </div>
 
+        <!-- Vertex size slider -->
+        <div v-if="lasso.isClosed.value || lasso.vertices.value.length > 0" class="lasso-radius-row">
+          <span class="lasso-radius-label">顶点大小</span>
+          <input
+            type="range"
+            class="lasso-radius-slider"
+            :value="lasso.lassoVertexRadius.value"
+            @input="lasso.lassoVertexRadius.value = Number(($event.target as HTMLInputElement).value)"
+            min="2"
+            max="18"
+            step="1"
+          />
+          <span class="lasso-radius-val">{{ lasso.lassoVertexRadius.value }}px</span>
+        </div>
+
         <button
           class="lasso-toggle"
           :class="{ active: lasso.active.value }"
@@ -148,6 +163,11 @@
               </div>
             </div>
 
+            <!-- Polygon perimeter -->
+            <div v-if="lasso.polygonPerimeterM.value != null" class="lri-section">
+              <span class="lri-title">周长：</span>
+              <span class="lri-area-val">{{ fmtDist(lasso.polygonPerimeterM.value) }}</span>
+            </div>
             <!-- Polygon area -->
             <div v-if="lasso.polygonAreaSqKm.value != null" class="lri-section">
               <span class="lri-title">面积：</span>
@@ -660,6 +680,59 @@ function fmtArea(sqKm: number): string {
 .lasso-clear-filter-btn:hover {
   background: var(--error);
   color: #fff;
+}
+
+/* ── Vertex radius slider ── */
+.lasso-radius-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lasso-radius-label {
+  font-size: 0.714rem;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.lasso-radius-slider {
+  flex: 1;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border-primary);
+  outline: none;
+  cursor: pointer;
+}
+
+.lasso-radius-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 1px solid #059669;
+  cursor: pointer;
+}
+
+.lasso-radius-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #10b981;
+  border: 1px solid #059669;
+  cursor: pointer;
+}
+
+.lasso-radius-val {
+  font-size: 0.714rem;
+  color: var(--text-primary);
+  font-weight: 600;
+  min-width: 30px;
+  text-align: right;
 }
 
 /* ── Region info ── */

@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 
 // ── Types ──
 
@@ -90,6 +90,16 @@ const freehandDrawing = ref(false)
 const filterPolygon = ref<LassoVertex[] | null>(null)
 /** Whether a spatial filter is currently active */
 const hasSpatialFilter = ref(false)
+
+/** Vertex circle radius in pixels (adjustable via TimeFilterPanel slider) */
+const lassoVertexRadius = ref(10)
+
+// ── Persist lasso state ──
+watch(lassoVertexRadius, (v) => {
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave('lasso.vertex_radius', JSON.stringify(v))
+  })
+}, { immediate: false })
 
 // ── Ray casting: point in polygon ──
 
@@ -274,6 +284,13 @@ export function useSpatialLasso() {
     return sphericalPolygonArea(vertices.value) / 1_000_000
   })
 
+  /** Polygon perimeter in meters (sum of edge lengths) */
+  const polygonPerimeterM = computed<number | null>(() => {
+    const edges = edgeLengths.value
+    if (edges.length === 0) return null
+    return edges.reduce((sum, e) => sum + e.meters, 0)
+  })
+
   /**
    * Check whether a single track's positions intersect a polygon.
    * Accepts TrackPoint-like objects with .latitude / .longitude to avoid .map() allocation.
@@ -384,6 +401,16 @@ export function useSpatialLasso() {
     isClosed.value = true
     // Auto-deactivate — drawing is done, restore normal interactions
     active.value = false
+    persistLassoState()
+  }
+
+  /** Persist polygon shape + filter activation to DB */
+  function persistLassoState() {
+    import('./useSettingsPersistence').then(({ scheduleSave }) => {
+      scheduleSave('lasso.vertices', JSON.stringify(vertices.value))
+      scheduleSave('lasso.is_closed', JSON.stringify(isClosed.value))
+      scheduleSave('lasso.has_spatial_filter', JSON.stringify(hasSpatialFilter.value))
+    })
   }
 
   function clearAll() {
@@ -396,6 +423,7 @@ export function useSpatialLasso() {
     hasSpatialFilter.value = false
     draggingVertexId.value = null
     freehandDrawing.value = false
+    persistLassoState()
   }
 
   function setMouseGround(lat: number | null, lng: number | null) {
@@ -427,6 +455,7 @@ export function useSpatialLasso() {
     if (vertices.value.length < 3 || !isClosed.value) return
     filterPolygon.value = vertices.value.map(v => ({ ...v }))
     hasSpatialFilter.value = true
+    persistLassoState()
   }
 
   /**
@@ -535,11 +564,13 @@ export function useSpatialLasso() {
     selectedResultKeys,
     filterPolygon,
     hasSpatialFilter,
+    lassoVertexRadius,
     lassoMode,
     draggingVertexId,
     freehandDrawing,
     edgeLengths,
     polygonAreaSqKm,
+    polygonPerimeterM,
     previewSegment,
     previewClose,
     bounds,
