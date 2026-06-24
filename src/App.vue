@@ -227,7 +227,7 @@ const displayTracks = computed(() => {
     candidates = filteredTracks.value
     // Spatial lasso filter (re-evaluated on every filter change against current positions)
     if (lasso.hasSpatialFilter.value && lasso.filterPolygon.value) {
-      candidates = candidates.filter(tr => lasso.doesTrackIntersectPolygon(tr.positions.map(p => ({ lat: p.latitude, lng: p.longitude })), lasso.filterPolygon.value!))
+      candidates = candidates.filter(tr => lasso.doesTrackIntersectPolygon(tr.positions, lasso.filterPolygon.value!))
     }
   }
   // Filter out soft-deleted tracks

@@ -109,12 +109,24 @@ function pointInPolygon(lat: number, lng: number, polygon: LassoVertex[]): boole
   return inside
 }
 
-// ── Segment intersection ──
+// ── Segment intersection (with bbox quick-reject) ──
 
 function segmentsIntersect(
   ax: number, ay: number, bx: number, by: number,
   cx: number, cy: number, dx: number, dy: number,
 ): boolean {
+  // Bbox quick-reject: if the two segments' bounding boxes don't overlap, they can't intersect
+  const seg1MinX = ax < bx ? ax : bx
+  const seg1MaxX = ax > bx ? ax : bx
+  const seg1MinY = ay < by ? ay : by
+  const seg1MaxY = ay > by ? ay : by
+  const seg2MinX = cx < dx ? cx : dx
+  const seg2MaxX = cx > dx ? cx : dx
+  const seg2MinY = cy < dy ? cy : dy
+  const seg2MaxY = cy > dy ? cy : dy
+  if (seg1MaxX < seg2MinX || seg2MaxX < seg1MinX ||
+      seg1MaxY < seg2MinY || seg2MaxY < seg1MinY) return false
+
   function cross(ox: number, oy: number, ax2: number, ay2: number, bx2: number, by2: number): number {
     return (ax2 - ox) * (by2 - oy) - (ay2 - oy) * (bx2 - ox)
   }
@@ -136,6 +148,75 @@ function segmentsIntersect(
   if (d4 === 0 && bx >= Math.min(cx, dx) && bx <= Math.max(cx, dx) &&
       by >= Math.min(cy, dy) && by <= Math.max(cy, dy)) return true
   return false
+}
+
+// ── Douglas-Peucker polygon simplification ──
+
+/**
+ * Simplify polygon vertices using Douglas-Peucker algorithm.
+ * Uses equirectangular approximation for perpendicular distance
+ * (accurate enough for the typical lasso polygon scale).
+ * @param vertices  polygon vertices
+ * @param epsilonMeters  max perpendicular distance in meters (default 5m)
+ */
+function simplifyPolygon(vertices: LassoVertex[], epsilonMeters: number = 5): LassoVertex[] {
+  if (vertices.length <= 3) return [...vertices]
+
+  // Convert epsilon from meters to approximate degrees at the mean latitude
+  const meanLat = vertices.reduce((s, v) => s + v.latitude, 0) / vertices.length
+  const degPerMeter = 1 / (111_320 * Math.cos(meanLat * Math.PI / 180))
+  const epsilonDeg = epsilonMeters * degPerMeter
+
+  const simplified = douglasPeucker(vertices, epsilonDeg)
+
+  // Ensure at least 3 vertices for a valid polygon
+  if (simplified.length < 3) {
+    const sorted = [...vertices].sort((a, b) =>
+      (Math.abs(a.latitude - meanLat) + Math.abs(a.longitude - meanLat)) -
+      (Math.abs(b.latitude - meanLat) + Math.abs(b.longitude - meanLat))
+    )
+    return sorted.slice(-3)
+  }
+
+  return simplified
+}
+
+function douglasPeucker(pts: LassoVertex[], epsilon: number): LassoVertex[] {
+  if (pts.length <= 2) return [...pts]
+
+  const first = pts[0]
+  const last = pts[pts.length - 1]
+  const dx = last.longitude - first.longitude
+  const dy = last.latitude - first.latitude
+  const lenSq = dx * dx + dy * dy
+
+  let maxDistSq = 0
+  let maxIdx = 0
+
+  for (let i = 1; i < pts.length - 1; i++) {
+    let distSq: number
+    if (lenSq === 0) {
+      const ddx = pts[i].longitude - first.longitude
+      const ddy = pts[i].latitude - first.latitude
+      distSq = ddx * ddx + ddy * ddy
+    } else {
+      const cross = ((pts[i].longitude - first.longitude) * dy -
+                     (pts[i].latitude - first.latitude) * dx)
+      distSq = (cross * cross) / lenSq
+    }
+    if (distSq > maxDistSq) {
+      maxDistSq = distSq
+      maxIdx = i
+    }
+  }
+
+  if (maxDistSq > epsilon * epsilon) {
+    const left = douglasPeucker(pts.slice(0, maxIdx + 1), epsilon)
+    const right = douglasPeucker(pts.slice(maxIdx), epsilon)
+    return [...left.slice(0, -1), ...right]
+  }
+
+  return [first, last]
 }
 
 // ── Composable ──
@@ -195,28 +276,68 @@ export function useSpatialLasso() {
 
   /**
    * Check whether a single track's positions intersect a polygon.
-   * Used by displayTracks to re-evaluate on every filter change with current positions.
+   * Accepts TrackPoint-like objects with .latitude / .longitude to avoid .map() allocation.
+   * Optimized with polygon bbox pre-filter, track bbox early-reject, and segment bbox.
    */
   function doesTrackIntersectPolygon(
-    positions: Array<{ lat: number; lng: number }>,
+    positions: Array<{ latitude: number; longitude: number }>,
     polygon: LassoVertex[],
   ): boolean {
     if (positions.length === 0 || polygon.length < 3) return false
 
-    // Check point-in-polygon
-    for (const pos of positions) {
-      if (pointInPolygon(pos.lat, pos.lng, polygon)) return true
+    // ── Pre-compute polygon bbox (O(E) once) ──
+    let polyMinLat = Infinity, polyMaxLat = -Infinity
+    let polyMinLng = Infinity, polyMaxLng = -Infinity
+    for (const v of polygon) {
+      if (v.latitude < polyMinLat) polyMinLat = v.latitude
+      if (v.latitude > polyMaxLat) polyMaxLat = v.latitude
+      if (v.longitude < polyMinLng) polyMinLng = v.longitude
+      if (v.longitude > polyMaxLng) polyMaxLng = v.longitude
     }
 
-    // Check segment intersections
+    // ── Pass 1: check point-in-polygon (with bbox pre-filter) + compute track bbox ──
+    let trkMinLat = Infinity, trkMaxLat = -Infinity
+    let trkMinLng = Infinity, trkMaxLng = -Infinity
+
+    for (const pos of positions) {
+      const lat = pos.latitude, lng = pos.longitude
+
+      // Track bbox accumulation
+      if (lat < trkMinLat) trkMinLat = lat
+      if (lat > trkMaxLat) trkMaxLat = lat
+      if (lng < trkMinLng) trkMinLng = lng
+      if (lng > trkMaxLng) trkMaxLng = lng
+
+      // Polygon bbox pre-filter: skip expensive pointInPolygon for positions outside bbox
+      if (lat < polyMinLat || lat > polyMaxLat ||
+          lng < polyMinLng || lng > polyMaxLng) continue
+
+      if (pointInPolygon(lat, lng, polygon)) return true
+    }
+
+    // ── Track bbox early-reject: no overlap → skip segment check entirely ──
+    if (trkMaxLat < polyMinLat || trkMinLat > polyMaxLat ||
+        trkMaxLng < polyMinLng || trkMinLng > polyMaxLng) return false
+
+    // ── Pass 2: segment intersection (each segment pair bbox-checked inside segmentsIntersect) ──
+    const polyLen = polygon.length
     for (let i = 0; i < positions.length - 1; i++) {
       const a = positions[i]
       const b = positions[i + 1]
-      for (let j = 0; j < polygon.length; j++) {
+      const segMinLat = a.latitude < b.latitude ? a.latitude : b.latitude
+      const segMaxLat = a.latitude > b.latitude ? a.latitude : b.latitude
+      const segMinLng = a.longitude < b.longitude ? a.longitude : b.longitude
+      const segMaxLng = a.longitude > b.longitude ? a.longitude : b.longitude
+
+      // Track segment vs polygon bbox quick-reject
+      if (segMaxLat < polyMinLat || segMinLat > polyMaxLat ||
+          segMaxLng < polyMinLng || segMinLng > polyMaxLng) continue
+
+      for (let j = 0; j < polyLen; j++) {
         const p1 = polygon[j]
-        const p2 = polygon[(j + 1) % polygon.length]
+        const p2 = polygon[(j + 1) % polyLen]
         if (segmentsIntersect(
-          a.lng, a.lat, b.lng, b.lat,
+          a.longitude, a.latitude, b.longitude, b.latitude,
           p1.longitude, p1.latitude, p2.longitude, p2.latitude,
         )) return true
       }
@@ -241,7 +362,7 @@ export function useSpatialLasso() {
   }
 
   function closePolygon() {
-    const verts = vertices.value
+    let verts = vertices.value
     if (verts.length < 3) return
 
     // Deduplicate: if last two vertices coincide (double-click artifact), drop the duplicate
@@ -250,8 +371,14 @@ export function useSpatialLasso() {
     const EPS = 1e-7 // ~1cm at the equator
     if (Math.abs(last.latitude - prev.latitude) < EPS &&
         Math.abs(last.longitude - prev.longitude) < EPS) {
-      vertices.value = verts.slice(0, -1)
-      if (vertices.value.length < 3) return
+      verts = verts.slice(0, -1)
+      vertices.value = verts
+      if (verts.length < 3) return
+    }
+
+    // Simplify freehand-drawn polygons (>30 vertices) to keep spatial filter fast
+    if (verts.length > 30) {
+      vertices.value = simplifyPolygon(verts, 5)
     }
 
     isClosed.value = true
@@ -308,7 +435,7 @@ export function useSpatialLasso() {
    * for the displayTracks pipeline.
    */
   function applySpatialFilter(
-    trackPositions: Map<string, Array<{ lat: number; lng: number }>>,
+    trackPositions: Map<string, Array<{ latitude: number; longitude: number }>>,
   ): string[] {
     if (vertices.value.length < 3 || !isClosed.value) return []
     const poly = vertices.value
