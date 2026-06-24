@@ -135,43 +135,46 @@
 
           <!-- Region info (shown once polygon is closed) -->
           <div v-if="lasso.isClosed.value" class="lasso-region-info">
-            <!-- Vertex coordinates -->
-            <div class="lri-section">
-              <div class="lri-title">顶点坐标</div>
-              <table class="lri-table">
-                <thead>
-                  <tr><th>#</th><th>经度</th><th>纬度</th></tr>
-                </thead>
-                <tbody>
-                  <tr v-for="(v, i) in lasso.vertices.value" :key="v.id">
-                    <td class="lri-idx">V{{ i + 1 }}</td>
-                    <td class="lri-val">{{ v.longitude.toFixed(6) }}</td>
-                    <td class="lri-val">{{ v.latitude.toFixed(6) }}</td>
-                  </tr>
-                </tbody>
-              </table>
+            <!-- Perimeter & Area -->
+            <div v-if="lasso.polygonPerimeterM.value != null" class="lri-section lri-summary">
+              <div class="lri-summary-row">
+                <span class="lri-title">周长</span>
+                <span class="lri-area-val">{{ fmtDist(lasso.polygonPerimeterM.value) }}</span>
+              </div>
+              <div class="lri-summary-row">
+                <span class="lri-title">面积</span>
+                <span class="lri-area-val">{{ fmtArea(lasso.polygonAreaSqKm.value!) }}</span>
+              </div>
             </div>
 
-            <!-- Edge lengths -->
+            <!-- Vertex coordinates (scrollable, max 3 rows) -->
+            <div class="lri-section">
+              <div class="lri-title">顶点坐标</div>
+              <div class="lri-scroll">
+                <table class="lri-table">
+                  <thead>
+                    <tr><th>#</th><th>经度</th><th>纬度</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(v, i) in lasso.vertices.value" :key="v.id">
+                      <td class="lri-idx">V{{ i + 1 }}</td>
+                      <td class="lri-val">{{ v.longitude.toFixed(6) }}</td>
+                      <td class="lri-val">{{ v.latitude.toFixed(6) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Edge lengths (scrollable, max 3 rows) -->
             <div v-if="lasso.edgeLengths.value.length > 0" class="lri-section">
               <div class="lri-title">边长</div>
-              <div class="lri-edge-list">
+              <div class="lri-scroll">
                 <div v-for="e in lasso.edgeLengths.value" :key="`${e.fromIdx}-${e.toIdx}`" class="lri-edge-row">
                   <span class="lri-edge-label">{{ e.fromLabel }} → {{ e.toLabel }}</span>
                   <span class="lri-edge-val">{{ fmtDist(e.meters) }}</span>
                 </div>
               </div>
-            </div>
-
-            <!-- Polygon perimeter -->
-            <div v-if="lasso.polygonPerimeterM.value != null" class="lri-section">
-              <span class="lri-title">周长：</span>
-              <span class="lri-area-val">{{ fmtDist(lasso.polygonPerimeterM.value) }}</span>
-            </div>
-            <!-- Polygon area -->
-            <div v-if="lasso.polygonAreaSqKm.value != null" class="lri-section">
-              <span class="lri-title">面积：</span>
-              <span class="lri-area-val">{{ fmtArea(lasso.polygonAreaSqKm.value) }}</span>
             </div>
           </div>
         </template>
@@ -757,6 +760,30 @@ function fmtArea(sqKm: number): string {
   font-weight: 600;
   color: #10b981;
   margin-bottom: 4px;
+}
+
+/* ── Perimeter / Area summary ── */
+.lri-summary {
+  display: flex;
+  gap: 16px;
+}
+.lri-summary-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.lri-summary-row .lri-title {
+  color: var(--text-tertiary);
+  font-weight: 400;
+  margin-bottom: 0;
+}
+
+/* ── Scrollable list (max 3 items visible) ── */
+.lri-scroll {
+  max-height: calc(3 * 20px + 4px);
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-primary) transparent;
 }
 
 .lri-table {
