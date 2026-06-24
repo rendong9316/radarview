@@ -728,6 +728,12 @@ export function onReplayStart(
       entities.trailLine = undefined
     }
     entities._trailCache = []
+
+    // Reposition ball & label to track start (first position)
+    const first = track.positions[0]
+    const firstPos = Cesium.Cartesian3.fromDegrees(first.longitude, first.latitude, FLAT_ALTITUDE)
+    if (entities.label) entities.label.position = firstPos
+    if (entities.pointPrimitive) entities.pointPrimitive.position = firstPos
   }
   if (pointDotEntityMap.size > 0) {
     pointDotLastLo.clear()
