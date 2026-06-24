@@ -1,6 +1,6 @@
 <template>
   <div class="filter-panel">
-    <div v-if="props.hasActiveFilter || hasPointCountFilter" class="active-indicator"><Circle :size="10" class="ai-dot" /> 筛选器已激活</div>
+    <div v-if="props.hasActiveFilter || hasPointCountFilter || lasso.hasSpatialFilter.value" class="active-indicator"><Circle :size="10" class="ai-dot" /> 筛选器已激活</div>
     <div class="panel-body">
       <!-- 时间范围过滤 -->
       <div v-if="props.timeRange" class="range-info">
@@ -72,7 +72,7 @@
       <div class="filter-divider"></div>
 
       <!-- 空间套索筛选 -->
-      <div class="filter-section-label">🔍 空间套索</div>
+      <div class="filter-section-label">空间套索</div>
       <div class="lasso-section">
         <button
           class="lasso-toggle"
@@ -93,33 +93,50 @@
           </p>
 
           <div class="lasso-actions" v-if="lasso.isClosed.value">
-            <button class="lasso-apply-btn" @click="handleApplyLasso" :disabled="lasso.loading.value">
-              {{ lasso.loading.value ? '查询中...' : '应用空间筛选' }}
-            </button>
+            <button class="lasso-apply-btn" @click="handleApplyLasso">{{ lasso.hasSpatialFilter.value ? '重新应用' : '应用空间筛选' }}</button>
             <button class="lasso-clear-btn" @click="lasso.clearAll()">重新绘制</button>
           </div>
           <div class="lasso-actions" v-else>
             <button class="lasso-clear-btn" @click="lasso.clearAll()" :disabled="lasso.vertices.value.length === 0">清除顶点</button>
           </div>
+          <div v-if="lasso.hasSpatialFilter.value" class="lasso-actions">
+            <button class="lasso-clear-filter-btn" @click="handleClearSpatialFilter">清除空间筛选</button>
+          </div>
 
-          <!-- Results -->
-          <div v-if="lasso.results.value.length > 0" class="lasso-results">
-            <div class="lasso-result-header">
-              命中 {{ lasso.results.value.length }} 条航迹
-              <button class="lasso-clear-results" @click="lasso.results.value = []">✕</button>
+          <!-- Region info (shown once polygon is closed) -->
+          <div v-if="lasso.isClosed.value" class="lasso-region-info">
+            <!-- Vertex coordinates -->
+            <div class="lri-section">
+              <div class="lri-title">顶点坐标</div>
+              <table class="lri-table">
+                <thead>
+                  <tr><th>#</th><th>经度</th><th>纬度</th></tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(v, i) in lasso.vertices.value" :key="v.id">
+                    <td class="lri-idx">V{{ i + 1 }}</td>
+                    <td class="lri-val">{{ v.longitude.toFixed(6) }}</td>
+                    <td class="lri-val">{{ v.latitude.toFixed(6) }}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <div class="lasso-result-list">
-              <div
-                v-for="r in lasso.results.value"
-                :key="`${r.icao}::${r.source}`"
-                class="lasso-result-row"
-                @click="handleFlyToResult(r)"
-              >
-                <span class="lasso-result-src" :style="{ color: sourceColor(r.source) }">●</span>
-                <span class="lasso-result-icao">{{ r.icao }}</span>
-                <span class="lasso-result-meta" v-if="r.flightNumber">{{ r.flightNumber }}</span>
-                <span class="lasso-result-pts">{{ r.pointCount }}点</span>
+
+            <!-- Edge lengths -->
+            <div v-if="lasso.edgeLengths.value.length > 0" class="lri-section">
+              <div class="lri-title">边长</div>
+              <div class="lri-edge-list">
+                <div v-for="e in lasso.edgeLengths.value" :key="`${e.fromIdx}-${e.toIdx}`" class="lri-edge-row">
+                  <span class="lri-edge-label">{{ e.fromLabel }} → {{ e.toLabel }}</span>
+                  <span class="lri-edge-val">{{ fmtDist(e.meters) }}</span>
+                </div>
               </div>
+            </div>
+
+            <!-- Polygon area -->
+            <div v-if="lasso.polygonAreaSqKm.value != null" class="lri-section">
+              <span class="lri-title">面积：</span>
+              <span class="lri-area-val">{{ fmtArea(lasso.polygonAreaSqKm.value) }}</span>
             </div>
           </div>
         </template>
@@ -132,8 +149,8 @@
 import { ref, computed, onMounted } from 'vue'
 import type { DataSource } from '../types/track'
 import { useTrackFilter } from '../composables/useTrackFilter'
-import { useSpatialLasso, type LassoResult } from '../composables/useSpatialLasso'
-import { useTracks, trackKey } from '../composables/useTracks'
+import { useSpatialLasso } from '../composables/useSpatialLasso'
+
 import { Circle } from '@lucide/vue'
 
 const props = defineProps<{
@@ -148,7 +165,6 @@ const emit = defineEmits<{
 
 const { pointCountFilters, setPointCountFilter, activeMin, activeMax } = useTrackFilter()
 const lasso = useSpatialLasso()
-const { tracks, isolateTrack } = useTracks()
 
 const startInput = ref('')
 const endInput = ref('')
@@ -244,57 +260,25 @@ function onPfMax(source: DataSource, val: string) {
 
 // ── Lasso handlers ──
 
-function sourceColor(source: string): string {
-  switch (source) {
-    case 'ADS-B': return 'var(--source-adsb)'
-    case 'Radar': return 'var(--source-radar)'
-    case 'RadarRaw': return 'var(--source-radar_raw)'
-    default: return 'var(--text-tertiary)'
-  }
-}
-
 function handleApplyLasso() {
   if (lasso.vertices.value.length < 3 || !lasso.isClosed.value) return
-  lasso.loading.value = true
-
-  try {
-    // Build position map from loaded tracks
-    const posMap = new Map<string, Array<{ lat: number; lng: number }>>()
-    for (const track of tracks.value) {
-      const key = trackKey(track.id, track.source)
-      const positions = track.positions.map(p => ({ lat: p.latitude, lng: p.longitude }))
-      posMap.set(key, positions)
-    }
-
-    const matchingKeys = lasso.applySpatialFilter(posMap)
-
-    // Build result objects from track metadata
-    const results: LassoResult[] = []
-    for (const key of matchingKeys) {
-      const track = tracks.value.find(t => trackKey(t.id, t.source) === key)
-      if (track) {
-        results.push({
-          icao: track.id,
-          source: track.source,
-          flightNumber: track.metadata?.flightNumber ?? null,
-          aircraftType: track.metadata?.aircraftType ?? null,
-          airline: track.metadata?.airline ?? null,
-          origin: track.metadata?.origin ?? null,
-          destination: track.metadata?.destination ?? null,
-          pointCount: track.pointCount,
-          minTime: track.minTimestamp,
-          maxTime: track.maxTimestamp,
-        })
-      }
-    }
-    lasso.results.value = results
-  } finally {
-    lasso.loading.value = false
-  }
+  lasso.applyFilter()
 }
 
-function handleFlyToResult(result: LassoResult) {
-  isolateTrack(result.icao, result.source as any)
+function handleClearSpatialFilter() {
+  lasso.clearAll()
+}
+
+// ── Formatting helpers ──
+
+function fmtDist(meters: number): string {
+  if (meters >= 1000) return (meters / 1000).toFixed(2) + ' km'
+  return meters.toFixed(1) + ' m'
+}
+
+function fmtArea(sqKm: number): string {
+  if (sqKm >= 0.001) return sqKm.toFixed(3) + ' km²'
+  return (sqKm * 1_000_000).toFixed(1) + ' m²'
 }
 </script>
 
@@ -603,77 +587,97 @@ function handleFlyToResult(result: LassoResult) {
   cursor: not-allowed;
 }
 
-.lasso-results {
-  margin-top: 4px;
+.lasso-clear-filter-btn {
+  width: 100%;
+  padding: 4px 8px;
+  background: var(--button-bg);
+  color: var(--error);
+  border: 1px solid var(--error);
+  border-radius: 2px;
+  font-size: 0.786rem;
+  cursor: pointer;
+}
+.lasso-clear-filter-btn:hover {
+  background: var(--error);
+  color: #fff;
+}
+
+/* ── Region info ── */
+.lasso-region-info {
   border: 1px solid var(--border-primary);
   border-radius: 3px;
   overflow: hidden;
-}
-
-.lasso-result-header {
-  padding: 4px 8px;
-  font-size: 0.714rem;
-  font-weight: 600;
-  color: #10b981;
-  background: var(--bg-tertiary);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.lasso-clear-results {
-  background: none;
-  border: none;
-  color: var(--text-tertiary);
-  cursor: pointer;
-  font-size: 0.714rem;
-  padding: 0 2px;
-}
-.lasso-clear-results:hover {
-  color: var(--error);
-}
-
-.lasso-result-list {
-  max-height: 200px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
 }
 
-.lasso-result-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  cursor: pointer;
+.lri-section {
+  padding: 6px 8px;
   border-bottom: 1px solid var(--border-secondary);
+}
+.lri-section:last-child {
+  border-bottom: none;
+}
+
+.lri-title {
+  font-size: 0.714rem;
+  font-weight: 600;
+  color: #10b981;
+  margin-bottom: 4px;
+}
+
+.lri-table {
+  width: 100%;
+  border-collapse: collapse;
   font-size: 0.714rem;
 }
-.lasso-result-row:hover {
-  background: var(--button-hover);
+.lri-table th {
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-align: left;
+  padding: 1px 4px;
+}
+.lri-table td {
+  padding: 1px 4px;
+  color: var(--text-primary);
+}
+.lri-idx {
+  color: var(--text-tertiary) !important;
+  font-weight: 600;
+  width: 26px;
+}
+.lri-val {
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.714rem;
 }
 
-.lasso-result-src {
-  flex-shrink: 0;
+.lri-edge-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.lasso-result-icao {
+.lri-edge-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 0.714rem;
+}
+
+.lri-edge-label {
+  color: var(--text-secondary);
+}
+
+.lri-edge-val {
   color: var(--text-primary);
   font-weight: 600;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.714rem;
 }
 
-.lasso-result-meta {
-  color: var(--text-tertiary);
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.lasso-result-pts {
-  color: var(--text-tertiary);
-  font-size: 0.643rem;
-  flex-shrink: 0;
+.lri-area-val {
+  color: var(--text-primary);
+  font-weight: 600;
+  font-size: 0.857rem;
 }
 </style>

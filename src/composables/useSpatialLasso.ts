@@ -21,6 +21,50 @@ export interface LassoResult {
   maxTime: number
 }
 
+export interface EdgeLength {
+  fromIdx: number
+  toIdx: number
+  fromLabel: string
+  toLabel: string
+  meters: number
+}
+
+// ── Geodesic math ──
+
+const EARTH_RADIUS_M = 6_371_000
+
+function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const toRad = Math.PI / 180
+  const dLat = (lat2 - lat1) * toRad
+  const dLng = (lng2 - lng1) * toRad
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * toRad) * Math.cos(lat2 * toRad) * Math.sin(dLng / 2) ** 2
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+  return EARTH_RADIUS_M * c
+}
+
+/**
+ * Spherical polygon area via Green's theorem on the unit sphere.
+ * A = R² × |Σ λ_i (sin φ_{i+1} − sin φ_{i−1})| / 2
+ * Returns area in square meters.
+ */
+function sphericalPolygonArea(vertices: LassoVertex[]): number {
+  const n = vertices.length
+  if (n < 3) return 0
+  const toRad = Math.PI / 180
+  let sum = 0
+  for (let i = 0; i < n; i++) {
+    const prev = vertices[(i - 1 + n) % n]
+    const next = vertices[(i + 1) % n]
+    const lng = vertices[i].longitude * toRad
+    const sinPrev = Math.sin(prev.latitude * toRad)
+    const sinNext = Math.sin(next.latitude * toRad)
+    sum += lng * (sinNext - sinPrev)
+  }
+  return Math.abs(sum) * EARTH_RADIUS_M * EARTH_RADIUS_M / 2
+}
+
 // ── Module-level singleton ──
 
 let _nextId = 0
@@ -34,6 +78,11 @@ const lastMouseLat = ref<number | null>(null)
 const lastMouseLng = ref<number | null>(null)
 /** Set of selected result track keys for batch operations */
 const selectedResultKeys = ref(new Set<string>())
+
+/** Snapshot of the polygon vertices when spatial filter is applied */
+const filterPolygon = ref<LassoVertex[] | null>(null)
+/** Whether a spatial filter is currently active */
+const hasSpatialFilter = ref(false)
 
 // ── Ray casting: point in polygon ──
 
@@ -111,6 +160,64 @@ export function useSpatialLasso() {
     }
   })
 
+  /** Geodesic edge lengths (computed once polygon is closed) */
+  const edgeLengths = computed<EdgeLength[]>(() => {
+    const verts = vertices.value
+    if (verts.length < 2 || !isClosed.value) return []
+    const edges: EdgeLength[] = []
+    const n = verts.length
+    for (let i = 0; i < n; i++) {
+      const from = verts[i]
+      const to = verts[(i + 1) % n]
+      edges.push({
+        fromIdx: i,
+        toIdx: (i + 1) % n,
+        fromLabel: `V${i + 1}`,
+        toLabel: `V${((i + 1) % n) + 1}`,
+        meters: haversineDistance(from.latitude, from.longitude, to.latitude, to.longitude),
+      })
+    }
+    return edges
+  })
+
+  /** Polygon area in km² (computed once polygon is closed) */
+  const polygonAreaSqKm = computed<number | null>(() => {
+    if (vertices.value.length < 3 || !isClosed.value) return null
+    return sphericalPolygonArea(vertices.value) / 1_000_000
+  })
+
+  /**
+   * Check whether a single track's positions intersect a polygon.
+   * Used by displayTracks to re-evaluate on every filter change with current positions.
+   */
+  function doesTrackIntersectPolygon(
+    positions: Array<{ lat: number; lng: number }>,
+    polygon: LassoVertex[],
+  ): boolean {
+    if (positions.length === 0 || polygon.length < 3) return false
+
+    // Check point-in-polygon
+    for (const pos of positions) {
+      if (pointInPolygon(pos.lat, pos.lng, polygon)) return true
+    }
+
+    // Check segment intersections
+    for (let i = 0; i < positions.length - 1; i++) {
+      const a = positions[i]
+      const b = positions[i + 1]
+      for (let j = 0; j < polygon.length; j++) {
+        const p1 = polygon[j]
+        const p2 = polygon[(j + 1) % polygon.length]
+        if (segmentsIntersect(
+          a.lng, a.lat, b.lng, b.lat,
+          p1.longitude, p1.latitude, p2.longitude, p2.latitude,
+        )) return true
+      }
+    }
+
+    return false
+  }
+
   // ── Actions ──
 
   function addVertex(lat: number, lng: number) {
@@ -136,6 +243,8 @@ export function useSpatialLasso() {
     isClosed.value = false
     results.value = []
     selectedResultKeys.value.clear()
+    filterPolygon.value = null
+    hasSpatialFilter.value = false
   }
 
   function setMouseGround(lat: number | null, lng: number | null) {
@@ -163,10 +272,17 @@ export function useSpatialLasso() {
     if (active.value) { deactivate() } else { activate() }
   }
 
+  /** Snapshot the current polygon as the active spatial filter */
+  function applyFilter() {
+    if (vertices.value.length < 3 || !isClosed.value) return
+    filterPolygon.value = vertices.value.map(v => ({ ...v }))
+    hasSpatialFilter.value = true
+  }
+
   /**
-   * Frontend spatial filter: given position arrays per track, determine
-   * which tracks intersect the polygon.
-   * Each position is [ts, lat, lng, ...].
+   * Legacy batch filter: given position arrays per track, return matching keys.
+   * Pure function — does NOT store state. Use applyFilter() + doesTrackIntersectPolygon()
+   * for the displayTracks pipeline.
    */
   function applySpatialFilter(
     trackPositions: Map<string, Array<{ lat: number; lng: number }>>,
@@ -176,40 +292,9 @@ export function useSpatialLasso() {
 
     const matching: string[] = []
     for (const [key, positions] of trackPositions) {
-      if (positions.length === 0) continue
-      let matched = false
-
-      // Check each position point
-      for (const pos of positions) {
-        if (pointInPolygon(pos.lat, pos.lng, poly)) {
-          matched = true
-          break
-        }
+      if (doesTrackIntersectPolygon(positions, poly)) {
+        matching.push(key)
       }
-      if (matched) { matching.push(key); continue }
-
-      // Check line segments between consecutive positions
-      for (let i = 0; i < positions.length - 1; i++) {
-        const a = positions[i]
-        const b = positions[i + 1]
-        let segIntersects = false
-        for (let j = 0; j < poly.length; j++) {
-          const p1 = poly[j]
-          const p2 = poly[(j + 1) % poly.length]
-          if (segmentsIntersect(
-            a.lng, a.lat, b.lng, b.lat,
-            p1.longitude, p1.latitude, p2.longitude, p2.latitude,
-          )) {
-            segIntersects = true
-            break
-          }
-        }
-        if (segIntersects) {
-          matched = true
-          break
-        }
-      }
-      if (matched) matching.push(key)
     }
     return matching
   }
@@ -236,6 +321,10 @@ export function useSpatialLasso() {
     results,
     loading,
     selectedResultKeys,
+    filterPolygon,
+    hasSpatialFilter,
+    edgeLengths,
+    polygonAreaSqKm,
     previewSegment,
     previewClose,
     bounds,
@@ -247,7 +336,9 @@ export function useSpatialLasso() {
     activate,
     deactivate,
     toggle,
+    applyFilter,
     applySpatialFilter,
+    doesTrackIntersectPolygon,
     pointInPolygon,
   }
 }
