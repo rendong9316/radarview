@@ -5,7 +5,7 @@
       <div class="group-header" @click="toggleSection('visibility')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('visibility') }" />
         <Layers :size="13" class="group-icon" />
-        <span>数据源</span>
+        <span>数据源</span><HelpTip text="控制各数据源航迹在地图上的显示或隐藏。关闭后航迹线和终点圆球将不可见，数据仍在内存中。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('visibility')">
         <div
@@ -33,12 +33,12 @@
       <div class="group-header" @click="toggleSection('boundary')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('boundary') }" />
         <Map :size="13" class="group-icon" />
-        <span>行政边界</span>
+        <span>行政边界</span><HelpTip text="控制国界、海岸线、省界三种行政边界图层的显示、线宽和颜色。线宽在拖动滑块松手时生效，颜色即时切换。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('boundary')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">国界</span>
-          <label class="toggle-switch" title="切换国界线显示">
+          <label class="toggle-switch" title="显示或隐藏国界线图层">
             <input type="checkbox" :checked="boundaryVisible.admin0" @change="setBoundaryVisible('admin0', ($event.target as HTMLInputElement).checked)" />
             <span class="toggle-slider"></span>
           </label>
@@ -46,7 +46,7 @@
         </div>
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">海岸</span>
-          <label class="toggle-switch" title="切换海岸线显示">
+          <label class="toggle-switch" title="显示或隐藏海岸线图层">
             <input type="checkbox" :checked="boundaryVisible.coastline" @change="setBoundaryVisible('coastline', ($event.target as HTMLInputElement).checked)" />
             <span class="toggle-slider"></span>
           </label>
@@ -54,7 +54,7 @@
         </div>
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">省界</span>
-          <label class="toggle-switch" title="切换省界线显示">
+          <label class="toggle-switch" title="显示或隐藏省界线图层">
             <input type="checkbox" :checked="boundaryVisible.admin1" @change="setBoundaryVisible('admin1', ($event.target as HTMLInputElement).checked)" />
             <span class="toggle-slider"></span>
           </label>
@@ -118,12 +118,12 @@
       <div class="group-header" @click="toggleSection('cities')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('cities') }" />
         <MapPin :size="13" class="group-icon" />
-        <span>城市标注</span>
+        <span>城市标注</span><HelpTip text="控制城市标注图层的显示。可按城市等级（首都/省会/地级市/主要城市）分别开关，按人口数量过滤，调节圆点大小和标签字号。高级选项中可设置不同相机高度下的可见阈值。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('cities')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">城市图层</span>
-          <label class="toggle-switch" title="切换城市点和标签显示">
+          <label class="toggle-switch" title="显示或隐藏城市标注图层">
             <input type="checkbox" :checked="cityLayer.visible" @change="setCityVisible(($event.target as HTMLInputElement).checked)" />
             <span class="toggle-slider"></span>
           </label>
@@ -131,7 +131,7 @@
         </div>
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">中文标签</span>
-          <label class="toggle-switch" title="切换城市中文标签显示">
+          <label class="toggle-switch" title="显示或隐藏城市中文名称标签">
             <input type="checkbox" :checked="cityLayer.labels" @change="setCityLabels(($event.target as HTMLInputElement).checked)" />
             <span class="toggle-slider"></span>
           </label>
@@ -188,11 +188,11 @@
           </div>
           <div class="reset-slot"></div>
         </div>
-        <div class="setting-row advanced-toggle" @click="toggleSection('cityAdvanced')">
+        <div class="setting-row advanced-toggle" title="展开高级显示阈值设置" @click="toggleSection('cityAdvanced')">
           <span class="row-label" style="color: var(--accent-primary)">高级</span>
           <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('cityAdvanced') }" />
-          <span class="advanced-summary">显示阈值</span>
-          <button class="reset-btn show" title="恢复默认城市显示阈值" @click.stop="resetCityLod">
+          <span class="advanced-summary">显示阈值</span><HelpTip text="设置不同等级城市在特定相机高度下的可见范围。相机拉远时低等级城市自动隐藏以提升性能。" />
+          <button class="reset-btn show" title="恢复城市显示阈值到默认值" @click.stop="resetCityLod">
             <RotateCcw :size="12" />
           </button>
         </div>
@@ -220,11 +220,11 @@
       <div class="group-header" @click="toggleSection('tiles')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('tiles') }" />
         <Globe :size="13" class="group-icon" />
-        <span>瓦片来源</span>
+        <span>瓦片来源</span><HelpTip text="切换地图底图的瓦片数据源。支持在线瓦片（需联网）和离线 MBTiles 文件。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('tiles')">
         <div class="setting-row">
-          <select class="tile-select" :value="activeSource"
+          <select class="tile-select" title="切换地图瓦片数据源" :value="activeSource"
             @change="$emit('switchTileSource', ($event.target as HTMLSelectElement).value)">
             <option v-for="ts in tileSources" :key="ts.file_name" :value="ts.file_name">{{ ts.display_name }}</option>
           </select>
@@ -243,6 +243,7 @@ import { useTracks } from '../composables/useTracks'
 import { useBoundaryLayers } from '../composables/useBoundaryLayers'
 import { useCityLayer, type CityLevel, type CityLodLevel } from '../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../composables/useSettingsPersistence'
+import HelpTip from './HelpTip.vue'
 import { ChevronDown, Layers, Map, MapPin, Globe, RotateCcw } from '@lucide/vue'
 
 defineProps<{

@@ -5,12 +5,12 @@
       <input
         class="search-input"
         type="text"
-        placeholder="搜索 ICAO / 航班号 / 注册号 / 机型 / 航司 / 起降地..."
+        placeholder="搜索 ICAO / 航班号 / 注册号 / 机型 / 航司 / 起降地..." title="输入关键字模糊搜索航迹"
         :value="filter.searchText ?? ''"
         @input="onSearchInput"
       />
-      <button v-if="filter.searchText" class="clear-search-btn" @click="clearSearch"><X :size="13" /></button>
-      <select class="filter-select source-select" :value="filter.source ?? ''" @change="onSourceChange">
+      <button v-if="filter.searchText" class="clear-search-btn" @click="clearSearch" title="清除搜索内容"><X :size="13" /></button>
+      <select class="filter-select source-select" title="按数据来源筛选" :value="filter.source ?? ''" @change="onSourceChange">
         <option value="">全部来源</option>
         <option v-for="opt in SOURCE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
       </select>
@@ -35,15 +35,15 @@
     <!-- Row 3: Point count + presets -->
     <div class="filter-row">
       <label class="flabel">点数:</label>
-      <input class="fnum" type="number" placeholder="≥" min="0" :value="filter.minPoints ?? ''"
+      <input class="fnum" type="number" placeholder="≥" title="最小航迹点数" min="0" :value="filter.minPoints ?? ''"
         @change="setFilter({ minPoints: vNum($event) })" />
       <span class="fsep">~</span>
-      <input class="fnum" type="number" placeholder="≤" min="0" :value="filter.maxPoints ?? ''"
+      <input class="fnum" type="number" placeholder="≤" title="最大航迹点数" min="0" :value="filter.maxPoints ?? ''"
         @change="setFilter({ maxPoints: vNum($event) })" />
       <span class="fgap" />
-      <button class="pbtn" @click="preset24h"><Clock :size="11" /> 24h内</button>
-      <button class="pbtn" @click="presetHighData"><BarChart3 :size="11" /> ≥100点</button>
-      <button class="pbtn reset" @click="clearFilters"><RotateCcw :size="11" /> 重置全部</button>
+      <button class="pbtn" @click="preset24h" title="筛选最近24小时内的航迹"><Clock :size="11" /> 24h内</button>
+      <button class="pbtn" @click="presetHighData" title="筛选点数不少于100的航迹"><BarChart3 :size="11" /> ≥100点</button>
+      <button class="pbtn reset" @click="clearFilters" title="清除所有筛选条件"><RotateCcw :size="11" /> 重置全部</button>
     </div>
   </div>
 </template>

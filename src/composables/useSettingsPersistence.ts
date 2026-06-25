@@ -229,6 +229,10 @@ async function applySettings(raw: Record<string, string>) {
     try { ts.activeSource.value = JSON.parse(raw['tile.source']) } catch { /* keep default */ }
   }
 
+  // ── Track elevation offsets ──
+  const { loadElevationOffsets } = await import('./useTrackElevation')
+  loadElevationOffsets(raw)
+
   // ── Flags ──
   const { useFlags } = await import('./useFlags')
   const fl = useFlags()

@@ -13,9 +13,9 @@
 import * as Cesium from 'cesium'
 import type { Track, TrackPoint, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
+import { getEffectiveAltitude } from '../composables/useTrackElevation'
 import {
   FLAT_ALTITUDE,
-  HOVER_OVERLAY_ALTITUDE,
   SELECTED_WIDTH,
   SELECTED_ALPHA,
   NORMAL_ALPHA,
@@ -111,16 +111,17 @@ export function isFinitePoint(p: TrackPoint): boolean {
     p.latitude >= -90 && p.latitude <= 90
 }
 
-export function toCartesianArray(positions: TrackPoint[]): Cesium.Cartesian3[] {
+export function toCartesianArray(positions: TrackPoint[], trackKey?: string): Cesium.Cartesian3[] {
+  const alt = trackKey ? getEffectiveAltitude(trackKey) : FLAT_ALTITUDE
   const flat: number[] = []
   let lastLng = 0, lastLat = 0
   for (let i = 0; i < positions.length; i++) {
     const p = positions[i]
     if (isFinitePoint(p)) {
-      flat.push(p.longitude, p.latitude, FLAT_ALTITUDE)
+      flat.push(p.longitude, p.latitude, alt)
       lastLng = p.longitude; lastLat = p.latitude
     } else {
-      flat.push(lastLng, lastLat, FLAT_ALTITUDE)
+      flat.push(lastLng, lastLat, alt)
     }
   }
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
@@ -169,7 +170,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
   const isRaw = track.source === 'radar_raw'
   const replaying = state.replayTime !== null
 
-  const trailRef = { positions: toCartesianArray(track.positions) }
+  const trailRef = { positions: toCartesianArray(track.positions, tKey) }
 
   // Entity API: main polyline
   let entity: Cesium.Entity | undefined
@@ -180,7 +181,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
       id: tKey,
       show: !replaying && state.visibility[track.source] !== false,
       polyline: {
-        positions: replaying ? [] : toCartesianArray(track.positions),
+        positions: replaying ? [] : toCartesianArray(track.positions, tKey),
         width,
         material: color.withAlpha(alpha),
         clampToGround: false,
@@ -193,7 +194,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
     .join(' | ')
 
   const last = track.positions[track.positions.length - 1]
-  const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
+  const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, getEffectiveAltitude(tKey))
 
   // P1: PointPrimitive for endpoint dot
   let pointPrimitive: Cesium.PointPrimitive | undefined
@@ -227,7 +228,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
     source: track.source, labelText: label || track.id, trailRef,
     trailPositions: [],
     lastTrailLo: track.positions.length - 1,
-    cachedPositions: toCartesianArray(track.positions),
+    cachedPositions: toCartesianArray(track.positions, tKey),
     _trailCache: [],
   })
 }
@@ -307,7 +308,8 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
 
     // Add or update entities
     for (const track of newTracks) {
-      const existing = entityMap.get(trackKey(track.id, track.source))
+      const tKey = trackKey(track.id, track.source)
+      const existing = entityMap.get(tKey)
       if (!existing) {
         createTrackEntities(track, state)
         continue
@@ -315,7 +317,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
 
       const hasEnoughPoints = track.positions.length >= 2
       const isRaw = track.source === 'radar_raw'
-      const tSel = trackKey(track.id, track.source) === state.selectedId
+      const tSel = tKey === state.selectedId
       const replaying = state.replayTime !== null
       if (!replaying) {
         existing.lastTrailLo = track.positions.length - 1
@@ -325,7 +327,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
       if (existing.entity) {
         if (hasEnoughPoints) {
           if (!replaying) {
-            const newPositions = toCartesianArray(track.positions)
+            const newPositions = toCartesianArray(track.positions, tKey)
             existing.trailRef.positions = newPositions
             existing.cachedPositions = newPositions
             if (existing.entity.polyline) {
@@ -343,9 +345,8 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
         }
       } else if (hasEnoughPoints) {
         const color = state.getLineColor(track.source)
-        const tKey = trackKey(track.id, track.source)
         if (!replaying) {
-          const pos = toCartesianArray(track.positions)
+          const pos = toCartesianArray(track.positions, tKey)
           existing.trailRef.positions = pos
           existing.cachedPositions = pos
         }
@@ -363,7 +364,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
 
       // Update label & PointPrimitive to last position
       const last = track.positions[track.positions.length - 1]
-      const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
+      const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, getEffectiveAltitude(tKey))
       if (existing.label) existing.label.position = lastPos
       if (existing.pointPrimitive) existing.pointPrimitive.position = lastPos
     }
@@ -510,7 +511,7 @@ export function updateReplayPositions(
     const cpLat = pts[lo].latitude + (pts[hi].latitude - pts[lo].latitude) * t
     const cpLng = pts[lo].longitude + (pts[hi].longitude - pts[lo].longitude) * t
 
-    const cpPos = Cesium.Cartesian3.fromDegrees(cpLng, cpLat, FLAT_ALTITUDE)
+    const cpPos = Cesium.Cartesian3.fromDegrees(cpLng, cpLat, getEffectiveAltitude(tKey))
     if (entities.label) entities.label.position = cpPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
 
@@ -536,7 +537,7 @@ export function updateReplayPositions(
       // 追加新数据点（prevLo+1 → lo），lastTrailLo 已在上面可能是 -1
       const start = entities.lastTrailLo + 1
       for (let i = start; i <= lo; i++) {
-        cache.push(Cesium.Cartesian3.fromDegrees(pts[i].longitude, pts[i].latitude, FLAT_ALTITUDE))
+        cache.push(Cesium.Cartesian3.fromDegrees(pts[i].longitude, pts[i].latitude, getEffectiveAltitude(tKey)))
       }
       // 追加插值尾点
       const lastPast = pts[lo]
@@ -622,12 +623,13 @@ export function applyHoverHighlight(
     ?? (entry.entity.polyline as any).positions
   if (!srcPositions || !Array.isArray(srcPositions) || srcPositions.length < 2) return
 
+  const hoverAlt = getEffectiveAltitude(trackId) + 1500
   const elevatedPositions = srcPositions.map((p: Cesium.Cartesian3) => {
     const cartographic = Cesium.Cartographic.fromCartesian(p)
     return Cesium.Cartesian3.fromDegrees(
       Cesium.Math.toDegrees(cartographic.longitude),
       Cesium.Math.toDegrees(cartographic.latitude),
-      HOVER_OVERLAY_ALTITUDE,
+      hoverAlt,
     )
   })
 
@@ -731,7 +733,7 @@ export function onReplayStart(
 
     // Reposition ball & label to track start (first position)
     const first = track.positions[0]
-    const firstPos = Cesium.Cartesian3.fromDegrees(first.longitude, first.latitude, FLAT_ALTITUDE)
+    const firstPos = Cesium.Cartesian3.fromDegrees(first.longitude, first.latitude, getEffectiveAltitude(trackKey(track.id, track.source)))
     if (entities.label) entities.label.position = firstPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = firstPos
   }
@@ -761,7 +763,7 @@ export function onReplayStop(
     }
     // Label & dot to last position
     const last = track.positions[track.positions.length - 1]
-    const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, FLAT_ALTITUDE)
+    const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, getEffectiveAltitude(trackKey(track.id, track.source)))
     if (entities.label) entities.label.position = lastPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
   }

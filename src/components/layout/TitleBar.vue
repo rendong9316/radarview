@@ -15,10 +15,10 @@
 
     <!-- Window controls -->
     <div class="titlebar-controls">
-      <button class="win-btn minimize" @pointerdown.prevent="onMinimize" title="最小化">
+      <button class="win-btn minimize" @pointerdown.prevent="onMinimize" title="最小化窗口">
         <svg width="12" height="12" viewBox="0 0 12 12"><rect y="5" width="12" height="1" fill="currentColor"/></svg>
       </button>
-      <button class="win-btn maximize" @pointerdown.prevent="onMaximize" :title="isMaximized ? '还原' : '最大化'">
+      <button class="win-btn maximize" @pointerdown.prevent="onMaximize" :title="isMaximized ? '还原窗口大小' : '最大化窗口'">
         <!-- 最大化图标：单个方框 -->
         <svg v-if="!isMaximized" width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" stroke="currentColor" stroke-width="1" fill="none"/></svg>
         <!-- 还原图标：两个重叠方框 -->
@@ -27,7 +27,7 @@
           <rect x="0" y="3" width="9" height="9" stroke="currentColor" stroke-width="1" fill="var(--titlebar-bg)"/>
         </svg>
       </button>
-      <button class="win-btn close" @pointerdown.prevent="onClose" title="关闭">
+      <button class="win-btn close" @pointerdown.prevent="onClose" title="关闭 RadarView">
         <svg width="12" height="12" viewBox="0 0 12 12"><line x1="1" y1="1" x2="11" y2="11" stroke="currentColor" stroke-width="1.2"/><line x1="11" y1="1" x2="1" y2="11" stroke="currentColor" stroke-width="1.2"/></svg>
       </button>
     </div>

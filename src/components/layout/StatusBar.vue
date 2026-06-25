@@ -19,7 +19,7 @@
         ref="progressRef"
         class="status-progress"
         :class="{ disabled: !hasData, dragging: isDragging }"
-        @click="onSeek($event)"
+        @click="onSeek($event)" title="拖动或点击跳转回放位置"
       >
         <div class="status-progress-fill" :style="{ width: `${progress * 100}%` }" />
         <div
@@ -39,7 +39,7 @@
         <select
           class="status-speed-select"
           :value="showCustomInput || !speedOptions.includes(speed) ? 'custom' : speed"
-          @change="onSpeedSelect(($event.target as HTMLSelectElement).value)"
+          @change="onSpeedSelect(($event.target as HTMLSelectElement).value)" title="选择回放倍速"
         >
           <option v-for="opt in speedOptions" :key="opt" :value="opt">{{ opt }}x</option>
           <option value="custom">自定义...</option>
@@ -51,7 +51,7 @@
           :value="speed"
           min="1"
           @keydown.enter="onCustomSpeed(($event.target as HTMLInputElement).value)"
-          title="自定义倍速 (回车生效)"
+          title="输入自定义倍速，按回车键确认生效"
         />
       </div>
     </div>

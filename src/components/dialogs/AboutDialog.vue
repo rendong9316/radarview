@@ -17,7 +17,7 @@
           <span class="tech-tag">SQLite</span>
         </div>
         <p class="dialog-copy">&copy; 2026 RadarView Team</p>
-        <button class="dialog-btn" @click="$emit('close')">关闭</button>
+        <button class="dialog-btn" @click="$emit('close')" title="关闭关于对话框">关闭</button>
       </div>
     </div>
   </Teleport>

@@ -1,13 +1,13 @@
 <template>
-  <div class="playback-bar">
-    <button class="ctrl-btn play-btn" @click="$emit('toggle')" :disabled="!hasData">
+  <div class="playback-bar"><HelpTip text="航迹回放控制。点击播放按钮启动时间回放，航迹圆球沿轨迹线移动。拖动进度条可跳转到任意时刻。倍速按钮控制回放速度，支持自定义输入。" position="bottom" />
+    <button class="ctrl-btn play-btn" @click="$emit('toggle')" :disabled="!hasData" title="开始 / 暂停回放">
       <Pause v-if="isPlaying" :size="16" />
       <Play v-else :size="16" />
     </button>
 
     <span class="time-display">{{ currentTimeFormatted }}</span>
 
-    <div class="progress-track" @mousedown="onMouseDown" ref="trackRef">
+    <div class="progress-track" @mousedown="onMouseDown" ref="trackRef" title="拖动或点击跳转回放位置">
       <div class="progress-fill" :style="{ width: (progress * 100) + '%' }"></div>
       <div class="progress-thumb" :style="{ left: (progress * 100) + '%' }"></div>
     </div>
@@ -31,7 +31,7 @@
         :value="speed"
         @keydown.enter="onCustomSpeed"
         @blur="onCustomSpeed"
-        title="自定义倍速，回车生效"
+        title="输入自定义回放倍速，按回车键确认"
       />
     </div>
   </div>
@@ -39,6 +39,7 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import HelpTip from './HelpTip.vue'
 import { Play, Pause } from '@lucide/vue'
 
 defineProps<{

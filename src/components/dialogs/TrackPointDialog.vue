@@ -12,8 +12,8 @@
             <span class="tpd-count">{{ track.positions.length.toLocaleString() }} 个点迹</span>
           </div>
           <div class="tpd-header-actions">
-            <button class="tpd-btn-export" @click="exportCSV"><Download :size="14" /> 导出 CSV</button>
-            <button class="tpd-btn-close" @click="emit('close')"><X :size="16" /></button>
+            <button class="tpd-btn-export" @click="exportCSV" title="导出点迹数据为 CSV 文件"><Download :size="14" /> 导出 CSV</button>
+            <button class="tpd-btn-close" @click="emit('close')" title="关闭点迹查看器"><X :size="16" /></button>
           </div>
         </div>
 

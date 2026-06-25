@@ -43,6 +43,7 @@
         @toggle-labels="emit('toggleLabels')"
         @reset-view="emit('resetView')"
         @clear-all="emit('clearAll')"
+        @reset-all-elevations="emit('resetAllElevations')"
       />
     </div>
 
@@ -89,6 +90,7 @@ const emit = defineEmits<{
   toggleLabels: []
   resetView: []
   clearAll: []
+  resetAllElevations: []
   switchTileSource: [fileName: string]
 }>()
 

@@ -1,18 +1,18 @@
 <template>
   <div class="track-panel">
     <div class="panel-body">
-      <div class="search-bar">
+      <div class="search-bar"><HelpTip text="支持按 ICAO 地址、航班号、注册号、机型、航司、起降地等关键字模糊搜索航迹。点击航迹行可在地图上单独查看。" position="bottom" />
         <input
           v-model="searchQuery"
           type="text"
           class="search-input"
-          placeholder="搜索 ICAO / 航班号 / 注册号 / 机型…"
+          placeholder="搜索 ICAO / 航班号 / 注册号 / 机型..." title="输入关键字搜索航迹"
         />
-        <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''"><X :size="14" /></span>
+        <span v-if="searchQuery" class="search-clear" @click="searchQuery = ''" title="清除搜索内容"><X :size="14" /></span>
       </div>
       <div v-if="isolatedId" class="isolate-banner">
         <span>单独查看: {{ isolatedLabel }}</span>
-        <button class="isolate-back-btn" @click="$emit('clearIsolation')">返回全部</button>
+        <button class="isolate-back-btn" @click="$emit('clearIsolation')" title="返回查看全部航迹">返回全部</button>
       </div>
       <template v-if="filteredList.length === 0">
         <p class="placeholder-text">{{ searchQuery ? '无匹配结果' : '航迹数据加载后将在此显示目标列表' }}</p>
@@ -25,7 +25,7 @@
             class="track-item"
             :class="{ selected: selectedId === trackKey(track.id, track.source) }"
           >
-            <div class="track-item-main" @click="$emit('isolate', trackKey(track.id, track.source))">
+            <div class="track-item-main" @click="$emit('isolate', trackKey(track.id, track.source))" title="点击单独查看此航迹">
               <div class="track-item-top">
                 <span class="track-color" :style="{ background: sourceColors[track.source] }"></span>
                 <span class="track-id">{{ track.metadata.flightNumber || track.id }}</span>
@@ -70,9 +70,7 @@
                 <span class="detail-value">{{ sourceLabel(track.source) }}</span>
               </div>
             </div>
-            <button
-              class="expand-btn"
-              @click="toggleExpand(track.id)"
+            <button class="expand-btn" @click="toggleExpand(track.id)" title="展开或收起航迹详细信息">
             >
               {{ expandedId === track.id ? '收起' : '详情' }}
             </button>
@@ -87,6 +85,7 @@
 import { ref, computed } from 'vue'
 import type { Track, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
+import HelpTip from './HelpTip.vue'
 import { X } from '@lucide/vue'
 
 const props = defineProps<{

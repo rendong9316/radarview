@@ -14,14 +14,14 @@
         <tr>
           <th class="col-eye"><Eye :size="12" /></th>
           <th class="col-src">来源</th>
-          <th class="col-icao sortable" @click="$emit('setSort', 'icao_address')">ICAO {{ sortIndicator('icao_address') }}</th>
-          <th class="col-flt sortable" @click="$emit('setSort', 'flight_no')">航班号 {{ sortIndicator('flight_no') }}</th>
-          <th class="col-reg sortable" @click="$emit('setSort', 'registration')">注册号 {{ sortIndicator('registration') }}</th>
-          <th class="col-type sortable" @click="$emit('setSort', 'aircraft_type')">机型 {{ sortIndicator('aircraft_type') }}</th>
-          <th class="col-aln sortable" @click="$emit('setSort', 'airline')">航司 {{ sortIndicator('airline') }}</th>
+          <th class="col-icao sortable" title="按 ICAO 地址排序" @click="$emit('setSort', 'icao_address')">ICAO {{ sortIndicator('icao_address') }}</th>
+          <th class="col-flt sortable" title="按航班号排序" @click="$emit('setSort', 'flight_no')">航班号 {{ sortIndicator('flight_no') }}</th>
+          <th class="col-reg sortable" title="按注册号排序" @click="$emit('setSort', 'registration')">注册号 {{ sortIndicator('registration') }}</th>
+          <th class="col-type sortable" title="按机型排序" @click="$emit('setSort', 'aircraft_type')">机型 {{ sortIndicator('aircraft_type') }}</th>
+          <th class="col-aln sortable" title="按航空公司排序" @click="$emit('setSort', 'airline')">航司 {{ sortIndicator('airline') }}</th>
           <th class="col-route">起降地</th>
-          <th class="col-pts sortable" @click="$emit('setSort', 'point_count')">点数 {{ sortIndicator('point_count') }}</th>
-          <th class="col-time sortable" @click="$emit('setSort', 'min_timestamp')">时间 {{ sortIndicator('min_timestamp') }}</th>
+          <th class="col-pts sortable" title="按航迹点数排序" @click="$emit('setSort', 'point_count')">点数 {{ sortIndicator('point_count') }}</th>
+          <th class="col-time sortable" title="按时间排序" @click="$emit('setSort', 'min_timestamp')">时间 {{ sortIndicator('min_timestamp') }}</th>
           <th class="col-act">操作</th>
         </tr>
       </thead>
@@ -35,7 +35,7 @@
           @contextmenu.prevent="onCtx($event, row)"
         >
           <td class="col-eye" @click.stop="$emit('toggleVisible', row)">
-            <span class="eye-icon" :class="{ on: isVisible(row.icao_address, row.batch_id) }">
+            <span class="eye-icon" title="切换地图可见性" :class="{ on: isVisible(row.icao_address, row.batch_id) }">
               <Eye v-if="isVisible(row.icao_address, row.batch_id)" :size="13" />
               <Circle v-else :size="13" />
             </span>
@@ -53,7 +53,7 @@
           <td class="col-pts">{{ row.point_count.toLocaleString() }}</td>
           <td class="col-time">{{ fmtTime(row) }}</td>
           <td class="col-act">
-            <button class="act-btn" title="删除" @click.stop="$emit('deleteTrack', row)"><Trash2 :size="12" /></button>
+            <button class="act-btn" title="删除此航迹" @click.stop="$emit('deleteTrack', row)"><Trash2 :size="12" /></button>
           </td>
         </tr>
       </tbody>
@@ -61,8 +61,8 @@
 
     <Teleport to="body">
       <div v-if="ctx.visible" class="context-menu" :style="{ position: 'fixed', top: ctx.y + 'px', left: ctx.x + 'px', zIndex: 100 }" @click.stop>
-        <button class="ctx-item" @click="ctxAct('view-points')"><ClipboardList :size="13" /> 查看点迹数据</button>
-        <button class="ctx-item danger" @click="ctxAct('delete')"><Trash2 :size="13" /> 删除该航迹</button>
+        <button class="ctx-item" @click="ctxAct('view-points')" title="查看此航迹的详细点数据"><ClipboardList :size="13" /> 查看点迹数据</button>
+        <button class="ctx-item danger" @click="ctxAct('delete')" title="删除此航迹"><Trash2 :size="13" /> 删除该航迹</button>
       </div>
     </Teleport>
   </div>

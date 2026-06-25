@@ -2,9 +2,9 @@
   <div class="pagination-bar">
     <span class="page-info">第 {{ page }} / {{ totalPages }} 页 (共 {{ total.toLocaleString() }} 条)</span>
     <div class="page-controls">
-      <button class="page-btn" :disabled="page <= 1" @click="$emit('setPage', page - 1)">&lt; 上一页</button>
-      <button class="page-btn" :disabled="page >= totalPages" @click="$emit('setPage', page + 1)">下一页 &gt;</button>
-      <select class="ps-select" :value="pageSize" @change="$emit('setPageSize', Number(($event.target as HTMLSelectElement).value))">
+      <button class="page-btn" :disabled="page <= 1" title="跳转到上一页" @click="$emit('setPage', page - 1)">&lt; 上一页</button>
+      <button class="page-btn" :disabled="page >= totalPages" title="跳转到下一页" @click="$emit('setPage', page + 1)">下一页 &gt;</button>
+      <select class="ps-select" title="选择每页显示条数" :value="pageSize" @change="$emit('setPageSize', Number(($event.target as HTMLSelectElement).value))">
         <option :value="20">20条/页</option>
         <option :value="50">50条/页</option>
         <option :value="100">100条/页</option>

@@ -5,7 +5,7 @@
       <div class="group-header" @click="toggleSection('lineColor')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('lineColor') }" />
         <Palette :size="13" class="group-icon" />
-        <span>线条颜色</span>
+        <span>线条颜色</span><HelpTip text="设置各数据源航迹线的颜色。点击色块选择颜色，点击右侧重置按钮恢复为默认颜色。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('lineColor')">
         <div v-for="src in dataSources" :key="'lc-'+src" class="setting-row">
@@ -36,7 +36,7 @@
       <div class="group-header" @click="toggleSection('lineWidth')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('lineWidth') }" />
         <GripHorizontal :size="13" class="group-icon" />
-        <span>线宽调节</span>
+        <span>线宽调节</span><HelpTip text="设置各数据源航迹线的像素宽度，范围 0.5-8 px。拖动滑块即时生效。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('lineWidth')">
         <div v-for="src in dataSources" :key="'lw-'+src" class="setting-row">
@@ -46,7 +46,7 @@
             class="row-slider"
             min="0.5" max="8" step="0.5"
             :value="lineWidths[src]"
-            @input="$emit('setLineWidth', src, Number(($event.target as HTMLInputElement).value))"
+            @input="$emit('setLineWidth', src, Number(($event.target as HTMLInputElement).value))" title="调整航迹线宽"
           />
           <span class="row-value">{{ lineWidths[src] }}</span>
         </div>
@@ -58,14 +58,14 @@
       <div class="group-header" @click="toggleSection('dotScale')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('dotScale') }" />
         <CircleDot :size="13" class="group-icon" />
-        <span>圆球直径</span>
+        <span>圆球直径</span><HelpTip text="设置各数据源终点圆球的缩放比例，范围 0.2-3.0 倍。圆心位置表示航迹当前时刻的位置。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('dotScale')">
         <div v-for="src in dataSources" :key="'ds-'+src" class="setting-row">
           <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
           <input type="range" class="row-slider" min="0.2" max="3.0" step="0.1"
             :value="dotScale[src]"
-            @input="$emit('setDotScale', src, Number(($event.target as HTMLInputElement).value))" />
+            @input="$emit('setDotScale', src, Number(($event.target as HTMLInputElement).value))" title="调整终点圆球大小" />
           <span class="row-value">{{ dotScale[src].toFixed(1) }}</span>
         </div>
       </div>
@@ -76,14 +76,14 @@
       <div class="group-header" @click="toggleSection('flagScale')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('flagScale') }" />
         <Flag :size="13" class="group-icon" />
-        <span>旗标大小</span>
+        <span>旗标大小</span><HelpTip text="设置旗标图标和文字标签的整体缩放比例，范围 0.5-3.0 倍。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('flagScale')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">图标&amp;文字</span>
           <input type="range" class="row-slider" min="0.5" max="3.0" step="0.1"
             :value="flagScaleVal"
-            @input="setFlagScale(Number(($event.target as HTMLInputElement).value))" />
+            @input="setFlagScale(Number(($event.target as HTMLInputElement).value))" title="调整旗标图标和文字大小" />
           <span class="row-value">{{ flagScaleVal.toFixed(1) }}</span>
         </div>
       </div>
@@ -94,14 +94,14 @@
       <div class="group-header" @click="toggleSection('fontSize')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('fontSize') }" />
         <Type :size="13" class="group-icon" />
-        <span>字号大小</span>
+        <span>字号大小</span><HelpTip text="设置应用界面文字的基础字号，范围 10-20 px。影响侧栏、面板等所有文本。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('fontSize')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--text-primary)">应用字号</span>
           <input type="range" class="row-slider" min="10" max="20" step="1"
             :value="fontSizeVal"
-            @input="setFontSize(Number(($event.target as HTMLInputElement).value))" />
+            @input="setFontSize(Number(($event.target as HTMLInputElement).value))" title="调整应用界面字号" />
           <span class="row-value">{{ fontSizeVal }}px</span>
         </div>
       </div>
@@ -112,12 +112,12 @@
       <div class="group-header" @click="toggleSection('pointDots')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('pointDots') }" />
         <Dot :size="13" class="group-icon" />
-        <span>点迹显示</span>
+        <span>点迹显示</span><HelpTip text="控制航迹点迹的全局显示。开启后每条航迹的每个采样位置绘制为小圆球，可直观查看数据密度。可调节圆球大小或一键清除。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('pointDots')">
         <div class="setting-row">
           <span class="row-label" style="color: var(--accent-primary)">全局显示</span>
-          <label class="toggle-switch" title="切换航迹点显示">
+          <label class="toggle-switch" title="切换全局航迹点迹显示">
             <input type="checkbox" :checked="showAllPointDots" @change="toggleAllPointDots()" />
             <span class="toggle-slider"></span>
           </label>
@@ -127,10 +127,10 @@
           <span class="row-label" style="color: var(--accent-primary)">圆球大小</span>
           <input type="range" class="row-slider" min="0.2" max="5.0" step="0.1"
             :value="trackPointDotScaleVal"
-            @input="setTrackPointDotScale(Number(($event.target as HTMLInputElement).value))" />
+            @input="setTrackPointDotScale(Number(($event.target as HTMLInputElement).value))" title="调整航迹点迹圆球大小" />
           <span class="row-value">{{ trackPointDotScaleVal.toFixed(1) }}</span>
         </div>
-        <button class="action-btn" @click="requestClearAll()">
+        <button class="action-btn" @click="requestClearAll()" title="清除所有点迹显示">
           <Eraser :size="13" />
           <span>清空所有点迹</span>
         </button>
@@ -142,7 +142,7 @@
       <div class="group-header" @click="toggleSection('pointDotColors')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('pointDotColors') }" />
         <PaintBucket :size="13" class="group-icon" />
-        <span>点迹颜色</span>
+        <span>点迹颜色</span><HelpTip text="设置各数据源航迹点迹的颜色。默认使用与对应线条颜色互补的自动对比色，便于区分轨迹线和采样点。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('pointDotColors')">
         <div v-for="src in dataSources" :key="'pdc-'+src" class="setting-row">
@@ -170,7 +170,7 @@
       <div class="group-header" @click="toggleSection('tools')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('tools') }" />
         <Wrench :size="13" class="group-icon" />
-        <span>工具</span>
+        <span>工具</span><HelpTip text="常用功能的快捷入口。数据管理：打开批量数据管理面板。标签显示：切换航迹标签。重置视角：恢复地图默认视角。清除显示：清除地图上所有航迹。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('tools')">
         <div class="tools-grid">
@@ -191,6 +191,10 @@
             <Trash2 :size="13" />
             <span>清除显示</span>
           </button>
+          <button v-if="trackCount" class="action-btn" @click="$emit('resetAllElevations')">
+            <RotateCcw :size="13" />
+            <span>恢复所有航迹高度</span>
+          </button>
         </div>
       </div>
     </div>
@@ -199,6 +203,7 @@
 </template>
 
 <script setup lang="ts">
+import HelpTip from '../HelpTip.vue'
 import { computed, ref, watch, onMounted } from 'vue'
 import type { DataSource } from '../../types/track'
 import { useFlagScale } from '../../composables/useFlagScale'
@@ -226,6 +231,7 @@ defineEmits<{
   toggleLabels: []
   resetView: []
   clearAll: []
+  resetAllElevations: []
 }>()
 
 const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']

@@ -41,6 +41,22 @@
           class="context-menu-item"
           @click="handleContextViewPoints"
         ><ClipboardList :size="13" /> 查看点迹数据</div>
+        <!-- 航迹抬升 -->
+        <div
+          v-if="!hasTrackElevation()"
+          class="context-menu-item"
+          @click="handleContextElevate"
+        ><ArrowUp :size="13" /> 抬升航迹</div>
+        <template v-if="hasTrackElevation()">
+          <div
+            class="context-menu-item"
+            @click="handleContextAdjustElevation"
+          ><ArrowUp :size="13" /> 抬升/下降航迹</div>
+          <div
+            class="context-menu-item"
+            @click="handleContextResetElevation"
+          ><RotateCcw :size="13" /> 恢复高度</div>
+        </template>
         <div
           class="context-menu-item context-menu-danger"
           @click="handleContextDeleteTrack"
@@ -68,8 +84,9 @@ import { useCityLayer } from '../composables/useCityLayer'
 import { useRuler } from '../composables/useRuler'
 import { useSpatialLasso } from '../composables/useSpatialLasso'
 import { trackKey } from '../composables/useTracks'
+import { hasElevationOffset, getElevationOffset, setElevationOffset, adjustElevation, resetElevation } from '../composables/useTrackElevation'
 import { whenSettingsLoaded } from '../composables/useSettingsPersistence'
-import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon } from '@lucide/vue'
+import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon, ArrowUp, RotateCcw } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
 
 // ── Cesium 渲染模块 ──
@@ -382,6 +399,60 @@ function handleContextDeleteTrack() {
   contextMenu.value.visible = false
 }
 
+// ── 航迹抬升 ──
+
+function hasTrackElevation(): boolean {
+  return hasElevationOffset(contextMenu.value.trackId)
+}
+
+function refreshTrackDisplay(_trackKey: string) {
+  TrackR.syncEntities(props.tracks, buildTrackState())
+  // 如果当前悬停的正是这条航迹，也需要更新高亮线
+  if (TrackR.getHoveredTrackId() === _trackKey) {
+    TrackR.applyHoverHighlight(_trackKey, {
+      dotScale: props.dotScale,
+      lineWidths: props.lineWidths,
+    })
+  }
+  cesiumCtx?.viewer?.scene.requestRender()
+}
+
+function handleContextElevate() {
+  const trackId = contextMenu.value.trackId
+  const input = prompt('请输入抬升高度 (km)：', '0')
+  if (input === null) return
+  const km = parseFloat(input)
+  if (isNaN(km) || km <= 0) {
+    alert('请输入有效的正数（单位：km）')
+    return
+  }
+  setElevationOffset(trackId, km * 1000)
+  contextMenu.value.visible = false
+  refreshTrackDisplay(trackId)
+}
+
+function handleContextAdjustElevation() {
+  const trackId = contextMenu.value.trackId
+  const currentKm = (getElevationOffset(trackId) / 1000).toFixed(1)
+  const input = prompt(`当前抬升高度：${currentKm} km\n请输入调整量（km，负值表示下降）：`, '0')
+  if (input === null) return
+  const deltaKm = parseFloat(input)
+  if (isNaN(deltaKm)) {
+    alert('请输入有效数值（单位：km）')
+    return
+  }
+  adjustElevation(trackId, deltaKm * 1000)
+  contextMenu.value.visible = false
+  refreshTrackDisplay(trackId)
+}
+
+function handleContextResetElevation() {
+  const trackId = contextMenu.value.trackId
+  resetElevation(trackId)
+  contextMenu.value.visible = false
+  refreshTrackDisplay(trackId)
+}
+
 // ═══════════════════════════════════════════
 // exposed 方法
 // ═══════════════════════════════════════════
@@ -408,6 +479,9 @@ defineExpose({
   flyToFlag,
   resetView,
   switchTileLayer,
+  refreshTracks: () => {
+    if (cesiumCtx) TrackR.syncEntities(props.tracks, buildTrackState())
+  },
   whenMapReady: () => mapReadyPromise,
 })
 

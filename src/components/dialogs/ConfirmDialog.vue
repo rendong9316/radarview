@@ -13,7 +13,7 @@
           <span>{{ checkboxLabel }}</span>
         </label>
         <div class="dialog-actions">
-          <button class="dialog-btn dialog-btn-cancel" @click="onCancel">{{ cancelText }}</button>
+          <button class="dialog-btn dialog-btn-cancel" @click="onCancel" title="取消并关闭对话框">{{ cancelText }}</button>
           <button
             class="dialog-btn dialog-btn-confirm"
             :class="{ 'btn-danger': variant === 'danger' }"

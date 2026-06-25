@@ -72,9 +72,44 @@
                 <tr><td>双击空地</td><td>放置旗标（默认图钉样式，自动命名）</td></tr>
                 <tr><td>双击已有旗标</td><td>删除该旗标</td></tr>
                 <tr><td>右上角「← 返回全部」按钮</td><td>退出隔离模式，恢复显示全部</td></tr>
-                <tr><td><kbd>Esc</kbd> 键</td><td>退出隔离模式 / 清除选中</td></tr>
+                <tr><td><kbd>Esc</kbd> 键</td><td>退出隔离模式 / 退出套索绘制 / 退出标尺模式</td></tr>
                 <tr><td><kbd>Ctrl+R</kbd></td><td>重置地图视角到默认位置</td></tr>
                 <tr><td><kbd>Ctrl+T</kbd></td><td>切换航迹标签（ICAO/航班号）显示 / 隐藏</td></tr>
+              </tbody>
+            </table>
+
+            <p class="doc-para doc-subtitle">空间套索（<kbd>Ctrl+Shift+S</kbd>）</p>
+            <table class="doc-table">
+              <thead>
+                <tr><th>操作</th><th>说明</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>启用套索</td><td>筛选面板点击「启用套索」或按 <kbd>Ctrl+Shift+S</kbd></td></tr>
+                <tr><td>顶点模式</td><td>单击地图依次放置顶点，双击最后一个顶点闭合多边形</td></tr>
+                <tr><td>自由绘制模式</td><td>按住左键拖动绘制连续曲线，松手自动闭合；绘制时相机锁定不旋转</td></tr>
+                <tr><td>拖拽顶点</td><td>闭合后左键按住顶点圆圈拖动，实时更新坐标、边长、面积</td></tr>
+                <tr><td>应用空间筛选</td><td>点击「应用空间筛选」按钮，地图仅显示多边形内的航迹片段</td></tr>
+                <tr><td>重新绘制</td><td>清除当前多边形并重新进入绘制模式</td></tr>
+                <tr><td>清除空间筛选</td><td>移除空间筛选条件，恢复显示全部航迹（多边形仍保留）</td></tr>
+                <tr><td>取消绘制</td><td>绘制中途点击「取消绘制」或按 <kbd>Esc</kbd> 放弃当前多边形</td></tr>
+                <tr><td>顶点圆圈大小</td><td>筛选面板滑块调节顶点圆圈直径（2–18 px），实时生效</td></tr>
+                <tr><td>区域信息</td><td>闭合后显示周长、面积、顶点坐标表、各边长</td></tr>
+              </tbody>
+            </table>
+
+            <p class="doc-para doc-subtitle">航线标尺（<kbd>Ctrl+Shift+R</kbd>）</p>
+            <table class="doc-table">
+              <thead>
+                <tr><th>操作</th><th>说明</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>启用标尺</td><td>按 <kbd>Ctrl+Shift+R</kbd> 进入标尺模式</td></tr>
+                <tr><td>放置航点</td><td>单击地图依次放置航点，每个航点显示序号标签</td></tr>
+                <tr><td>测距显示</td><td>相邻航点之间实时显示大地线距离；悬停线段高亮显示精确数值</td></tr>
+                <tr><td>拖拽航点</td><td>左键按住航点拖动，距离实时更新</td></tr>
+                <tr><td>删除航点</td><td>右键航点删除</td></tr>
+                <tr><td>清除全部</td><td>点击标尺面板「清除」或再次按 <kbd>Ctrl+Shift+R</kbd></td></tr>
+                <tr><td>退出标尺</td><td>按 <kbd>Esc</kbd> 退出标尺模式，标尺线保留</td></tr>
               </tbody>
             </table>
 
@@ -154,9 +189,12 @@
             </table>
           </div>
 
-          <!-- 八、时间筛选 -->
+          <!-- 八、筛选面板 -->
           <div class="doc-section">
-            <h3 class="section-title">八、时间筛选（侧边栏 → 筛选）</h3>
+            <h3 class="section-title">八、筛选面板（侧边栏 → 筛选 <kbd>Ctrl+Shift+E</kbd>）</h3>
+            <p class="doc-para">筛选面板集成三种独立的筛选方式，可自由组合使用。每种筛选激活时各自显示独立的绿色指示灯。</p>
+
+            <p class="doc-para doc-subtitle">时间筛选</p>
             <table class="doc-table">
               <thead>
                 <tr><th>功能</th><th>说明</th></tr>
@@ -164,8 +202,31 @@
               <tbody>
                 <tr><td>时间范围过滤</td><td>设置起止时间，点击「应用过滤」；过滤后仅显示该时段内有位置的航迹点</td></tr>
                 <tr><td>清除时间过滤</td><td>点击「清除」恢复显示全部时间范围</td></tr>
-                <tr><td>航迹点数量筛选</td><td>按数据源（ADS-B / Radar / Raw）独立开关，设置最小/最大点数范围</td></tr>
-                <tr><td>筛选激活指示</td><td>面板顶部显示绿色圆点 + 「筛选器已激活」提示</td></tr>
+              </tbody>
+            </table>
+
+            <p class="doc-para doc-subtitle">点数筛选</p>
+            <table class="doc-table">
+              <thead>
+                <tr><th>功能</th><th>说明</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>按数据源独立设置</td><td>ADS-B / Radar / Raw 各自独立开关，设置最小/最大点数范围</td></tr>
+                <tr><td>与时间筛选独立</td><td>点数筛选始终基于航迹总点数，不受时间窗口影响</td></tr>
+              </tbody>
+            </table>
+
+            <p class="doc-para doc-subtitle">空间套索</p>
+            <table class="doc-table">
+              <thead>
+                <tr><th>功能</th><th>说明</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>绘制多边形</td><td>顶点模式（单击放置）或自由绘制模式（按住拖动）在地图上圈出区域</td></tr>
+                <tr><td>应用空间筛选</td><td>闭合后点击「应用空间筛选」，地图仅显示多边形内的航迹片段</td></tr>
+                <tr><td>区域信息</td><td>自动计算并显示周长、面积、各顶点坐标、各边长</td></tr>
+                <tr><td>筛选交集</td><td>时间、点数、空间三种筛选取交集，互不干扰</td></tr>
+                <tr><td>跨会话记忆</td><td>套索形状和筛选状态自动持久化，重启软件后自动恢复</td></tr>
               </tbody>
             </table>
           </div>
@@ -229,7 +290,7 @@
               </thead>
               <tbody>
                 <tr><td>菜单 → 视图 → 外观</td><td>暗色 / 亮色 / 高对比度</td></tr>
-                <tr><td>状态栏最右侧主题按钮</td><td>循环切换三种主题（图标：月亮☾ / 太阳☀ / 对比度◐）</td></tr>
+                <tr><td>状态栏最右侧主题按钮</td><td>循环切换三种主题（暗色 / 亮色 / 高对比度）</td></tr>
               </tbody>
             </table>
           </div>
@@ -270,15 +331,17 @@
                 <tr><td><kbd>Ctrl+Shift+M</kbd></td><td>打开航迹管理系统</td></tr>
                 <tr><td><kbd>Ctrl+Shift+L</kbd></td><td>打开图层控制</td></tr>
                 <tr><td><kbd>Ctrl+Shift+F</kbd></td><td>打开旗标面板</td></tr>
-                <tr><td><kbd>Ctrl+Shift+E</kbd></td><td>打开时间筛选</td></tr>
-                <tr><td><kbd>Esc</kbd></td><td>清除选中 / 退出隔离模式</td></tr>
+                <tr><td><kbd>Ctrl+Shift+E</kbd></td><td>打开筛选面板</td></tr>
+                <tr><td><kbd>Ctrl+Shift+S</kbd></td><td>切换空间套索</td></tr>
+                <tr><td><kbd>Ctrl+Shift+R</kbd></td><td>切换航线标尺</td></tr>
+                <tr><td><kbd>Esc</kbd></td><td>退出隔离 / 退出套索绘制 / 退出标尺模式 / 清除选中</td></tr>
                 <tr><td><kbd>F12</kbd></td><td>开发工具（仅开发模式）</td></tr>
               </tbody>
             </table>
           </div>
         </div>
 
-        <button class="dialog-btn" @click="$emit('close')">关闭</button>
+        <button class="dialog-btn" @click="$emit('close')" title="关闭使用文档">关闭</button>
       </div>
     </div>
   </Teleport>

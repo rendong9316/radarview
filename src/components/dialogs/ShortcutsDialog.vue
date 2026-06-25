@@ -56,7 +56,7 @@
             <span class="shortcut-desc">时间过滤</span>
           </div>
         </div>
-        <button class="dialog-btn" @click="$emit('close')">关闭</button>
+        <button class="dialog-btn" @click="$emit('close')" title="关闭快捷键参考">关闭</button>
       </div>
     </div>
   </Teleport>

@@ -28,6 +28,7 @@
         @toggle-labels="toggleLabels"
         @reset-view="handleResetView"
         @clear-all="onClear"
+        @reset-all-elevations="onResetAllElevations"
         @switch-tile-source="onSwitchTileSource"
       />
 
@@ -49,23 +50,23 @@
 
         <!-- Drop overlay -->
         <div v-if="dragOver" class="drop-overlay" @drop.prevent="onDrop" @dragleave.prevent="onDragLeave">
-          <div class="drop-hint">释放文件以导入</div>
+          <div class="drop-hint" title="将文件拖放到此处以导入数据">释放文件以导入</div>
         </div>
 
         <!-- Error toast -->
         <span v-if="errorMsg" class="error-toast">{{ errorMsg }}</span>
 
         <!-- Back-to-all floating button -->
-        <button v-if="isolatedTrackId" class="back-all-btn" @click="onClearIsolation">← 返回全部</button>
+        <button v-if="isolatedTrackId" class="back-all-btn" @click="onClearIsolation" title="返回查看全部航迹">← 返回全部</button>
 
         <!-- Batch panel (overlay on editor when open) -->
         <div v-if="batchPanelOpen" class="batch-overlay">
           <div class="batch-overlay-header">
             <span>批量数据管理</span>
-            <button class="batch-overlay-close" @click="batchPanelOpen = false"><X :size="14" /></button>
+            <button class="batch-overlay-close" @click="batchPanelOpen = false" title="关闭批量数据管理面板"><X :size="14" /></button>
           </div>
           <div v-if="batches.length === 0" class="batch-empty">暂无已保存的数据</div>
-          <div v-for="b in batches" :key="b.id" class="batch-row" @click="handleLoadBatch(b.id)" title="点击加载">
+          <div v-for="b in batches" :key="b.id" class="batch-row" @click="handleLoadBatch(b.id)" title="从数据库加载此批次数据">
             <div class="batch-info">
               <span class="batch-src" :class="b.source.toLowerCase()">{{ b.source }}</span>
               <span class="batch-file">{{ b.file_name }}</span>
@@ -76,7 +77,7 @@
               :class="{ deleting: deletingBatchId === b.id }"
               @click.stop="handleDeleteBatch(b.id)"
               :disabled="deletingBatchId !== null"
-              title="从数据库中删除"
+              title="从数据库中永久删除此批次"
             >
               <span v-if="deletingBatchId === b.id" class="del-spinner"></span>
               <X v-else :size="14" />
@@ -160,6 +161,7 @@ import { loadAllSettings, getRawSetting, flushSaves, scheduleSave } from './comp
 import { useTracks as useTracksModule } from './composables/useTracks'
 import { useRuler } from './composables/useRuler'
 import { useSpatialLasso } from './composables/useSpatialLasso'
+import { resetElevation } from './composables/useTrackElevation'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -461,7 +463,7 @@ onMounted(async () => {
       else if (ruler.active.value) { ruler.deactivate() }
       else { clearIsolation() }
     }
-    else if (ctrl && shift && e.key === 'L') { e.preventDefault(); lasso.active.value ? lasso.clearAll() : lasso.activate() }
+    else if (ctrl && shift && e.key === 'S') { e.preventDefault(); lasso.active.value ? lasso.clearAll() : lasso.activate() }
     else if (ctrl && shift && e.key === 'R') { e.preventDefault(); ruler.toggle() }
     else if (!ctrl && !shift && e.key === 'F12') { e.preventDefault(); /* Dev tools handled by Tauri natively */ }
   })
@@ -599,6 +601,13 @@ async function onClear() {
   })
 }
 function handleResetView() { mapRef.value?.resetView() }
+
+function onResetAllElevations() {
+  for (const t of tracks.value) {
+    resetElevation(trackKey(t.id, t.source))
+  }
+  mapRef.value?.refreshTracks()
+}
 async function onSwitchTileSource(fileName: string) {
   await setActiveSource(fileName)
   const info = tileSources.value.find(s => s.file_name === fileName)

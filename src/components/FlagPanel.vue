@@ -20,7 +20,8 @@
           max="180"
           step="any"
         />
-        <button class="place-btn" @click="handlePlaceFlag">放置旗标</button>
+        <button class="place-btn" @click="handlePlaceFlag" title="在地图上放置旗标">放置旗标</button>
+        <div class="input-row-help"><HelpTip text="旗标是地图上的标记点。双击地图可放置旗标，或在此输入经纬度手动放置。选中两个旗标可计算两点间的距离（Vincenty 公式）和方位角。" /></div>
       </div>
       <p v-if="coordError" class="coord-error">{{ coordError }}</p>
 
@@ -34,9 +35,9 @@
       <!-- Scrollable area: flags + ruler share the remaining space -->
       <div class="panel-scroll">
         <div v-if="flags.length > 0" class="flag-list">
-          <button class="clear-all-btn" @click="onClearAll"><Trash2 :size="13" /> 清除全部旗标</button>
+          <button class="clear-all-btn" @click="onClearAll" title="清除所有旗标，此操作不可撤销"><Trash2 :size="13" /> 清除全部旗标</button>
           <div v-for="flag in flags" :key="flag.id" class="flag-row">
-            <label class="flag-check-wrap" @click.stop>
+            <label class="flag-check-wrap" @click.stop title="选中后计算两点间距离和方位角">
               <input
                 type="checkbox"
                 class="flag-check"
@@ -58,23 +59,19 @@
                 />
               </template>
               <template v-else>
-                <span class="flag-label" @click="startRename(flag)" title="点击重命名"><Pencil :size="11" class="flag-label-icon" /> {{ flag.label }}</span>
+                <span class="flag-label" @click="startRename(flag)" title="点击修改旗标名称"><Pencil :size="11" class="flag-label-icon" /> {{ flag.label }}</span>
               </template>
               <span class="flag-coords">{{ fmt(flag.latitude) }}, {{ fmt(flag.longitude) }}</span>
             </div>
-            <button class="flag-del" @click="removeFlag(flag.id)" title="删除旗标"><X :size="13" /></button>
+            <button class="flag-del" @click="removeFlag(flag.id)" title="删除此旗标"><X :size="13" /></button>
           </div>
         </div>
 
         <!-- ── 航线标尺 ── -->
         <div class="ruler-section">
           <div class="ruler-header">
-            <span class="ruler-title">📏 航线标尺</span>
-            <button
-              class="ruler-toggle"
-              :class="{ active: ruler.active.value }"
-              @click="ruler.toggle()"
-            >
+            <span class="ruler-title">航线标尺</span><HelpTip text="航线规划测距工具。启用后单击地图依次放置航点，自动计算每段距离和方位角，显示总距离和首尾方位。Esc 键退出标尺模式。" />
+            <button class="ruler-toggle" :class="{ active: ruler.active.value }" @click="ruler.toggle()" title="启用地图航线测距标尺">
               {{ ruler.active.value ? '关闭标尺' : '启用标尺' }}
             </button>
           </div>
@@ -117,8 +114,8 @@
 
             <!-- Actions -->
             <div class="ruler-actions">
-              <button class="ruler-action-btn" @click="ruler.undo()" :disabled="ruler.waypoints.value.length === 0">↩ 撤销</button>
-              <button class="ruler-action-btn ruler-action-danger" @click="ruler.clearAll()" :disabled="ruler.waypoints.value.length === 0">清空</button>
+              <button class="ruler-action-btn" @click="ruler.undo()" :disabled="ruler.waypoints.value.length === 0" title="撤销上一个航点">↩ 撤销</button>
+              <button class="ruler-action-btn ruler-action-danger" @click="ruler.clearAll()" :disabled="ruler.waypoints.value.length === 0" title="清空所有航点">清空</button>
             </div>
           </template>
         </div>
@@ -132,6 +129,7 @@ import { ref, computed } from 'vue'
 import { useFlags } from '../composables/useFlags'
 import { useRuler } from '../composables/useRuler'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
+import HelpTip from './HelpTip.vue'
 import { Trash2, Pencil, X } from '@lucide/vue'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
@@ -236,6 +234,12 @@ const geoResult = computed(() => {
 .input-row {
   display: flex;
   gap: 4px;
+}
+
+.input-row-help {
+  display: flex;
+  align-items: center;
+  padding: 2px 0 0 0;
 }
 
 .coord-input {

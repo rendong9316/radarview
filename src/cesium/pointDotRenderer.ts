@@ -10,7 +10,7 @@
 import * as Cesium from 'cesium'
 import type { Track, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
-import { FLAT_ALTITUDE } from './types'
+import { getEffectiveAltitude } from '../composables/useTrackElevation'
 import type { CesiumContext } from './types'
 
 // ═══════════════════════════════════════════
@@ -106,7 +106,7 @@ export function rebuildPointDotsForTrack(
     const lat = Number(pos.latitude)
     if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue
 
-    Cesium.Cartesian3.fromDegrees(lon, lat, FLAT_ALTITUDE, undefined, _scratchCartesian)
+    Cesium.Cartesian3.fromDegrees(lon, lat, getEffectiveAltitude(trackId), undefined, _scratchCartesian)
     const prim = ctx.pointDotsCollection.add({
       id: `pointdot::${trackId}::${i}`,
       position: _scratchCartesian,
@@ -287,7 +287,7 @@ export function showPointDotHover(
   const line2 = `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
 
   const text = `${line1}\n${line2}`
-  const position = Cesium.Cartesian3.fromDegrees(pt.longitude, pt.latitude, FLAT_ALTITUDE)
+  const position = Cesium.Cartesian3.fromDegrees(pt.longitude, pt.latitude, getEffectiveAltitude(trackId))
 
   if (!pointDotHoverEntity) {
     pointDotHoverEntity = ctx.viewer.entities.add({

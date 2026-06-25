@@ -1,8 +1,8 @@
 <template>
   <div class="filter-panel">
-    <div v-if="props.hasActiveFilter || hasPointCountFilter || lasso.hasSpatialFilter.value" class="active-indicator"><Circle :size="10" class="ai-dot" /> 筛选器已激活</div>
     <div class="panel-body">
       <!-- 时间范围过滤 -->
+      <div v-if="props.hasActiveFilter" class="filter-indicator"><Circle :size="8" class="fi-dot" /> 时间筛选已激活</div>
       <div v-if="props.timeRange" class="range-info">
         数据范围: {{ fmtTime(props.timeRange.min) }} — {{ fmtTime(props.timeRange.max) }}
       </div>
@@ -24,8 +24,8 @@
         />
       </div>
       <div class="btn-row">
-        <button class="apply-btn" @click="apply" :disabled="!canApply">应用过滤</button>
-        <button v-if="props.hasActiveFilter" class="clear-btn" @click="clear">清除</button>
+        <button class="apply-btn" @click="apply" :disabled="!canApply" title="应用时间范围过滤条件">应用过滤</button>
+        <button v-if="props.hasActiveFilter" class="clear-btn" @click="clear" title="清除时间过滤条件">清除</button>
       </div>
       <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
@@ -33,11 +33,12 @@
       <div class="filter-divider"></div>
 
       <!-- 航迹点长度筛选 -->
-      <div class="filter-section-label">航迹点长度筛选</div>
+      <div v-if="hasPointCountFilter" class="filter-indicator"><Circle :size="8" class="fi-dot" /> 点数筛选已激活</div>
+      <div class="filter-section-label">航迹点长度筛选</div><HelpTip text="按航迹点数过滤各数据源。勾选数据源后设置最小和最大点数阈值，仅显示点数在范围内的航迹。可用于过滤掉采样点过少的低质量航迹。" />
       <div class="point-filter-list">
         <div v-for="item in layerItems" :key="'pf-'+item.source" class="point-filter-row">
           <span class="layer-dot" :style="{ background: item.color }"></span>
-          <label class="pf-check-wrap" @click.stop>
+          <label class="pf-check-wrap" @click.stop title="启用此数据源的点数筛选">
             <input
               type="checkbox"
               :checked="pointCountFilters[item.source].enabled"
@@ -48,8 +49,7 @@
           <span class="pf-check-label">{{ item.label }}</span>
           <input
             type="number"
-            class="pf-input"
-            placeholder="最小"
+            class="pf-input" placeholder="最小" title="最小航迹点数阈值"
             min="0"
             :disabled="!pointCountFilters[item.source].enabled"
             :value="pointCountFilters[item.source].min"
@@ -58,8 +58,7 @@
           <span class="pf-sep">-</span>
           <input
             type="number"
-            class="pf-input"
-            placeholder="最大"
+            class="pf-input" placeholder="最大" title="最大航迹点数阈值"
             min="0"
             :disabled="!pointCountFilters[item.source].enabled"
             :value="pointCountFilters[item.source].max"
@@ -72,7 +71,8 @@
       <div class="filter-divider"></div>
 
       <!-- 空间套索筛选 -->
-      <div class="filter-section-label">空间套索</div>
+      <div v-if="lasso.hasSpatialFilter.value" class="filter-indicator"><Circle :size="8" class="fi-dot" /> 空间筛选已激活</div>
+      <div class="filter-section-label">空间套索</div><HelpTip text="空间多边形筛选工具。启用后在地图上单击添加顶点，双击闭合多边形。系统使用点入多边形和线段相交两种判定方法，查找所有与多边形相交的航迹。点击结果行可跳转到对应航迹。" />
       <div class="lasso-section">
         <!-- Mode selector -->
         <div v-if="!lasso.isClosed.value" class="lasso-mode-row">
@@ -126,7 +126,7 @@
         <template v-if="lasso.isClosed.value">
           <p class="lasso-hint">多边形已闭合（{{ lasso.vertices.value.length }} 个顶点）</p>
           <div class="lasso-actions">
-            <button class="lasso-apply-btn" @click="handleApplyLasso">{{ lasso.hasSpatialFilter.value ? '重新应用' : '应用空间筛选' }}</button>
+            <button class="lasso-apply-btn" @click="handleApplyLasso" title="根据多边形筛选相交航迹">{{ lasso.hasSpatialFilter.value ? '重新应用' : '应用空间筛选' }}</button>
             <button class="lasso-clear-btn" @click="handleRedrawLasso">重新绘制</button>
           </div>
           <div v-if="lasso.hasSpatialFilter.value" class="lasso-actions">
@@ -189,6 +189,7 @@ import type { DataSource } from '../types/track'
 import { useTrackFilter } from '../composables/useTrackFilter'
 import { useSpatialLasso } from '../composables/useSpatialLasso'
 
+import HelpTip from './HelpTip.vue'
 import { Circle } from '@lucide/vue'
 
 const props = defineProps<{
@@ -346,20 +347,16 @@ function fmtArea(sqKm: number): string {
   gap: 6px;
 }
 
-.active-indicator {
-  font-size: 0.714rem;
+.filter-indicator {
+  font-size: 0.643rem;
   color: var(--accent-primary);
-  padding: 4px 8px;
-  background: var(--bg-tertiary);
-  border-radius: 2px;
-  text-align: center;
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 4px;
+  margin-bottom: 2px;
 }
 
-.ai-dot {
+.fi-dot {
   flex-shrink: 0;
   fill: var(--accent-primary);
 }

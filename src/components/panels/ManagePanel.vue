@@ -17,7 +17,7 @@
       <span v-else class="stat-item">暂无数据，请先导入航迹</span>
       <div class="stat-right">
         <span>地图可见 <strong>{{ totalVisibleCount }}</strong> 条</span>
-        <button v-if="totalVisibleCount > 0" class="btn-mini" @click="clearVisibleSet">清空</button>
+        <button v-if="totalVisibleCount > 0" class="btn-mini" @click="clearVisibleSet" title="清空地图可见航迹集合">清空</button>
       </div>
     </div>
 
@@ -28,14 +28,14 @@
     <div class="toolbar">
       <span class="toolbar-info">匹配 {{ totalCount }} 条 · 本页 {{ rows.length }} 条 · 地图可见 {{ visibleOnPage }} 条</span>
       <div class="toolbar-actions">
-        <button v-if="highlightedIcaos.size > 0" class="tb-btn highlight-clear" @click="clearAllHighlights">
+        <button v-if="highlightedIcaos.size > 0" class="tb-btn highlight-clear" @click="clearAllHighlights" title="取消所有高亮标记">
           <Sparkles :size="11" /> 取消高亮
         </button>
-        <button class="tb-btn" @click="showAllOnPage"><Eye :size="11" /> 本页全显</button>
+        <button class="tb-btn" @click="showAllOnPage" title="将本页所有航迹设为地图可见"><Eye :size="11" /> 本页全显</button>
         <button class="tb-btn" @click="clearVisibleSet">清空地图</button>
-        <button class="tb-btn danger" @click="deleteVisibleTracks"><Trash2 :size="11" /> 删可见</button>
-        <button class="tb-btn" @click="exportVisibleTracks"><Download :size="11" /> 导出</button>
-        <button class="tb-btn" @click="refresh"><RefreshCw :size="11" /> 刷新</button>
+        <button class="tb-btn danger" @click="deleteVisibleTracks" title="软删除所有地图可见航迹"><Trash2 :size="11" /> 删可见</button>
+        <button class="tb-btn" @click="exportVisibleTracks" title="导出当前筛选结果为 JSON 文件"><Download :size="11" /> 导出</button>
+        <button class="tb-btn" @click="refresh" title="刷新数据库统计和元数据"><RefreshCw :size="11" /> 刷新</button>
       </div>
     </div>
 
