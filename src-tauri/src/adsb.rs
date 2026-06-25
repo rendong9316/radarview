@@ -95,6 +95,7 @@ pub fn parse_adsb_csv(file_path: &str) -> Result<Vec<Track>, String> {
                 destination:    meta.6,
                 source:         "ADS-B".to_string(),
                 positions,
+                file_name:      String::new(),
             }
         })
         .collect();

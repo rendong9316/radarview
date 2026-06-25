@@ -35,7 +35,7 @@ fn import_adsb_file(
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
     let t0 = Instant::now();
-    let tracks = adsb::parse_adsb_csv(&file_path)?;
+    let mut tracks = adsb::parse_adsb_csv(&file_path)?;
     let t1 = Instant::now();
     eprintln!("[perf] CSV parse: {:?}", t1 - t0);
 
@@ -45,6 +45,11 @@ fn import_adsb_file(
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+
+    // Stamp file_name on every track for frontend identity
+    for t in &mut tracks {
+        t.file_name = file_name.clone();
+    }
 
     if !db::batch_exists(&db_path_buf, &file_name)? {
         let tracks_clone = tracks.clone();
@@ -99,13 +104,17 @@ fn import_radar_file(
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
-    let tracks = radar::parse_mat_file(&app_handle, &file_path)?;
+    let mut tracks = radar::parse_mat_file(&app_handle, &file_path)?;
 
     let db_path_buf = db_path.0.lock().map_err(|e| e.to_string())?.clone();
     let file_name = std::path::Path::new(&file_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+
+    for t in &mut tracks {
+        t.file_name = file_name.clone();
+    }
 
     if !db::batch_exists(&db_path_buf, &file_name)? {
         let tracks_clone = tracks.clone();
@@ -155,13 +164,17 @@ fn import_radar_raw_file(
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
-    let tracks = radar::parse_mat_file_with_source(&app_handle, &file_path, Some("RadarRaw"))?;
+    let mut tracks = radar::parse_mat_file_with_source(&app_handle, &file_path, Some("RadarRaw"))?;
 
     let db_path_buf = db_path.0.lock().map_err(|e| e.to_string())?.clone();
     let file_name = std::path::Path::new(&file_path)
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
+
+    for t in &mut tracks {
+        t.file_name = file_name.clone();
+    }
 
     if !db::batch_exists(&db_path_buf, &file_name)? {
         let tracks_clone = tracks.clone();

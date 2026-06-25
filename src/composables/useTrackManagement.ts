@@ -112,14 +112,14 @@ export function applyDeletedKeys() {
   _pendingDeletedKeys = null
 }
 
-/** Clear soft-deleted status for imported tracks (by ICAO + DB source).
+/** Clear soft-deleted status for imported tracks (by ICAO + DB source + fileName).
  *  Called after re-importing a file to restore previously hidden tracks.
  *  Returns the number of tracks restored. */
-export function restoreSoftDeletedTracks(icaos: string[], dbSource: string): number {
+export function restoreSoftDeletedTracks(icaos: string[], dbSource: string, fileName: string): number {
   let count = 0
   const newDel = new Set(deletedTrackKeys.value)
   for (const icao of icaos) {
-    const dk = `${icao}::${dbSource}`
+    const dk = `${icao}::${dbSource}::${fileName}`
     if (newDel.delete(dk)) count++
   }
   if (count > 0) {
@@ -156,11 +156,12 @@ export async function restoreVisibleSet() {
         // fullTracks[0] has raw source string from backend (e.g. "ADS-B")
         const dbSource = fullTracks[0]?.source ?? ''
         const frontendSource = dbSourceToFrontend(dbSource)
-        const trKey = `${icao}::${frontendSource}`
+        const fileName = fullTracks[0]?.file_name ?? ''
+        const trKey = `${icao}::${frontendSource}::${fileName}`
 
         // Check if already loaded (from load_persisted_tracks)
         const existing = tr.tracks.value.find(
-          t => t.id === icao && t.source === frontendSource
+          t => t.id === icao && t.source === frontendSource && t.fileName === fileName
         )
         if (!existing) {
           tr.addTracks(fromBackendTracks(fullTracks))
@@ -180,8 +181,8 @@ function dbKey(icao: string, batchId: number): string {
   return `${icao}::${batchId}`
 }
 
-function trKey(icao: string, source: string): string {
-  return `${icao}::${source}`
+function trKey(icao: string, source: string, fileName: string): string {
+  return `${icao}::${source}::${fileName}`
 }
 
 /** Map DB source name to frontend DataSource */
@@ -270,7 +271,7 @@ export function useTrackManagement() {
         offset: (currentPage.value - 1) * pageSize.value,
       })
       rows.value = resp.rows.filter(
-        r => !deletedTrackKeys.value.has(`${r.icao_address}::${r.source}`)
+        r => !deletedTrackKeys.value.has(`${r.icao_address}::${r.source}::${r.batch_file_name}`)
       )
       totalCount.value = resp.total_count
     } catch (e) {
@@ -354,8 +355,9 @@ export function useTrackManagement() {
     const icao = row.icao_address
     const batchId = row.batch_id
     const source = dbSourceToFrontend(row.source)
+    const fileName = row.batch_file_name
     const key = dbKey(icao, batchId)
-    const tKey = trKey(icao, source)
+    const tKey = trKey(icao, source, fileName)
 
     if (visibleTrackKeys.value.has(key)) {
       // Remove from map
@@ -371,7 +373,7 @@ export function useTrackManagement() {
       visibleTrackKeys.value = newSet
 
       const tr = await getUseTracks()
-      const existing = tr.tracks.value.find(t => `${t.id}::${t.source}` === tKey)
+      const existing = tr.tracks.value.find(t => `${t.id}::${t.source}::${t.fileName}` === tKey)
       if (!existing) {
         try {
           const tracksJson = JSON.stringify([[icao, batchId]])
@@ -425,6 +427,7 @@ export function useTrackManagement() {
     const icao = row.icao_address
     const batchId = row.batch_id
     const source = dbSourceToFrontend(row.source)
+    const fileName = row.batch_file_name
     const { useConfirmDialog } = await import('./useConfirmDialog')
     const { show } = useConfirmDialog()
     const ok = await show({
@@ -436,8 +439,8 @@ export function useTrackManagement() {
 
     const tr = await getUseTracks()
 
-    // Mark as deleted (key = "icao::dbSource")
-    const delKey = `${icao}::${row.source}`
+    // Mark as deleted (key = "icao::dbSource::fileName")
+    const delKey = `${icao}::${row.source}::${fileName}`
     const key = dbKey(icao, batchId)
     const newDel = new Set(deletedTrackKeys.value)
     newDel.add(delKey)
@@ -448,9 +451,9 @@ export function useTrackManagement() {
     const newLd = new Set(loadedTrackKeys.value); newLd.delete(key); loadedTrackKeys.value = newLd
 
     // Remove from map and tracks array
-    const tKey = trKey(icao, source)
+    const tKey = trKey(icao, source, fileName)
     tr.removeFromVisibleSet(tKey)
-    tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+    tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source && t.fileName === fileName))
 
     // Push to undo stack (session-lifetime only)
     const { useUndoStack } = await import('./useUndoStack')
@@ -460,6 +463,7 @@ export function useTrackManagement() {
       batchId,
       dbSource: row.source,
       frontendSource: source,
+      fileName,
       wasVisible: true, // was visible in the toggled sense (we just removed it)
       dbKey: key,
       trKey: tKey,
@@ -470,9 +474,9 @@ export function useTrackManagement() {
     fetchMetadata()
   }
 
-  /** Delete a track by icao + frontend DataSource (no batch_id needed).
-   *  Used from CesiumMap context menu where batch_id is unavailable. */
-  async function deleteTrackByKey(icao: string, source: DataSource): Promise<boolean> {
+  /** Delete a track by icao + frontend DataSource + fileName.
+   *  Used from CesiumMap context menu. */
+  async function deleteTrackByKey(icao: string, source: DataSource, fileName: string): Promise<boolean> {
     const dbSource = frontendToDbSource(source)
     const { useConfirmDialog } = await import('./useConfirmDialog')
     const { show } = useConfirmDialog()
@@ -485,23 +489,24 @@ export function useTrackManagement() {
 
     const tr = await getUseTracks()
 
-    // Mark as deleted
-    const delKey = `${icao}::${dbSource}`
+    // Mark as deleted (key = "icao::dbSource::fileName")
+    const delKey = `${icao}::${dbSource}::${fileName}`
     const newDel = new Set(deletedTrackKeys.value)
     newDel.add(delKey)
     deletedTrackKeys.value = newDel
 
-    // Remove from in-memory tracks
-    tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+    // Remove from in-memory tracks (match by fileName too)
+    tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source && t.fileName === fileName))
 
-    // Clean up visible/loaded sets: remove all entries matching this icao
+    // Clean up visible/loaded sets: remove all entries matching this icao+fileName
     const newVis = new Set(visibleTrackKeys.value)
     const newLd = new Set(loadedTrackKeys.value)
+    const prefix = `${icao}::`
     for (const key of visibleTrackKeys.value) {
-      if (key.startsWith(`${icao}::`)) newVis.delete(key)
+      if (key.startsWith(prefix)) newVis.delete(key)
     }
     for (const key of loadedTrackKeys.value) {
-      if (key.startsWith(`${icao}::`)) newLd.delete(key)
+      if (key.startsWith(prefix)) newLd.delete(key)
     }
     visibleTrackKeys.value = newVis
     loadedTrackKeys.value = newLd
@@ -514,9 +519,10 @@ export function useTrackManagement() {
       batchId: 0, // unknown — restore via re-import/reload
       dbSource,
       frontendSource: source,
+      fileName,
       wasVisible: true,
       dbKey: '',
-      trKey: trKey(icao, source),
+      trKey: trKey(icao, source, fileName),
     }])
 
     await fetchStats()
@@ -552,19 +558,21 @@ export function useTrackManagement() {
       const icao = row.icao_address
       const batchId = row.batch_id
       const source = dbSourceToFrontend(row.source)
+      const fileName = row.batch_file_name
       const key = dbKey(icao, batchId)
-      const tKey = trKey(icao, source)
+      const tKey = trKey(icao, source, fileName)
 
-      newDel.add(`${icao}::${row.source}`)
+      newDel.add(`${icao}::${row.source}::${fileName}`)
       newVis.delete(key)
       newLd.delete(key)
       tr.removeFromVisibleSet(tKey)
-      tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source))
+      tr.tracks.value = tr.tracks.value.filter(t => !(t.id === icao && t.source === source && t.fileName === fileName))
 
       undoItems.push({
         icao, batchId,
         dbSource: row.source,
         frontendSource: source,
+        fileName,
         wasVisible: true,
         dbKey: key,
         trKey: tKey,
@@ -590,10 +598,10 @@ export function useTrackManagement() {
     const entry = undoStack.pop()
     if (!entry) return false
 
-    // Remove from deleted keys (key = "icao::dbSource")
+    // Remove from deleted keys (key = "icao::dbSource::fileName")
     const newDel = new Set(deletedTrackKeys.value)
     for (const item of entry.items) {
-      newDel.delete(`${item.icao}::${item.dbSource}`)
+      newDel.delete(`${item.icao}::${item.dbSource}::${(item as any).fileName || ''}`)
     }
     deletedTrackKeys.value = newDel
 
@@ -604,9 +612,10 @@ export function useTrackManagement() {
       visibleTrackKeys.value = new Set(visibleTrackKeys.value).add(item.dbKey)
       loadedTrackKeys.value = new Set(loadedTrackKeys.value).add(item.dbKey)
 
+      const fileName = (item as any).fileName || ''
       // Check if track already in memory (e.g. still in tracks array from another batch)
       const existing = tr.tracks.value.find(
-        t => t.id === item.icao && t.source === item.frontendSource
+        t => t.id === item.icao && t.source === item.frontendSource && t.fileName === fileName
       )
       if (!existing) {
         try {

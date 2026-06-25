@@ -205,10 +205,12 @@ function doPick(endPosition: Cesium.Cartesian2, cb: InteractionCallbacks) {
     }
 
     // 没有下方航迹：仅显示点迹信息
+    // pointdot ID format: "pointdot::" + trackKey + "::" + index
+    // trackKey is now 3-part (icao::source::fileName), self-joined with "::"
     const parts = (picked.id as string).split('::')
-    if (parts.length === 3) {
-      const trackId = parts[1]
-      const index = parseInt(parts[2], 10)
+    if (parts.length >= 4 && parts[0] === 'pointdot') {
+      const index = parseInt(parts[parts.length - 1], 10)
+      const trackId = parts.slice(1, -1).join('::')
       if (!isNaN(index) && cb.hasEntity(trackId)) {
         cb.removeHoverHighlight()
         cb.hideCityHover()
@@ -265,10 +267,13 @@ function doPickWithPicked(picked: any, endPosition: Cesium.Cartesian2, cb: Inter
       const baseId = picked.id.slice('trail::'.length)
       if (cb.hasEntity(baseId)) trackId = baseId
     }
-    // L4: Point dot pick
+    // L4: Point dot pick — "pointdot::" + trackKey + "::" + index
     else if (picked.id.startsWith('pointdot::')) {
       const parts = picked.id.split('::')
-      if (parts.length === 3 && cb.hasEntity(parts[1])) trackId = parts[1]
+      if (parts.length >= 4) {
+        const candidate = parts.slice(1, -1).join('::')
+        if (cb.hasEntity(candidate)) trackId = candidate
+      }
     }
   } else if (picked.id instanceof Cesium.Entity) {
     const entityId = (picked.id as Cesium.Entity).id
@@ -634,11 +639,11 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
         }
       }
 
-      // point dot pick
+      // point dot pick — "pointdot::" + trackKey + "::" + index
       if (typeof effectivePicked.id === 'string' && effectivePicked.id.startsWith('pointdot::')) {
-        const lastSep = (effectivePicked.id as string).lastIndexOf('::')
-        if (lastSep > 'pointdot::'.length) {
-          const trackId = (effectivePicked.id as string).slice('pointdot::'.length, lastSep)
+        const parts = (effectivePicked.id as string).split('::')
+        if (parts.length >= 4) {
+          const trackId = parts.slice(1, -1).join('::')
           if (cb.hasEntity(trackId)) {
             cb.openContextMenu({
               visible: true, x: movement.position.x, y: movement.position.y,

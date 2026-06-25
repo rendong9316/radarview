@@ -147,7 +147,8 @@ import { useConfirmDialog } from './composables/useConfirmDialog'
 import { viewingTrack, viewingTrackLoading, closeTrackPointViewer, openTrackPointViewer } from './composables/useTrackPointViewer'
 import { deletedTrackKeys } from './composables/useTrackManagement'
 import { useTrackLoader } from './composables/useTrackLoader'
-import { useTracks, trackKey, parseTrackKey } from './composables/useTracks'
+import { useTracks, trackKey } from './composables/useTracks'
+import { setBatchOrder } from './composables/useFileLabels'
 import { useReplay } from './composables/useReplay'
 import { fromBackendTracks } from './composables/convertTrack'
 import { useTrackFilter } from './composables/useTrackFilter'
@@ -161,10 +162,10 @@ import { useActivityBar } from './composables/useActivityBar'
 import { useTheme } from './composables/useTheme'
 import { useTileSource } from './composables/useTileSource'
 import { loadAllSettings, getRawSetting, flushSaves, scheduleSave } from './composables/useSettingsPersistence'
-import { useTracks as useTracksModule } from './composables/useTracks'
+
 import { useRuler } from './composables/useRuler'
 import { useSpatialLasso } from './composables/useSpatialLasso'
-import { resetElevation, getSourceElevationKm, setSourceElevation, resetSourceElevation, applySourceOffsetToTrack } from './composables/useTrackElevation'
+import { resetElevation, getSourceElevationKm, setSourceElevation, resetSourceElevation, applySourceOffsetToTrack, clearAllFileElevations } from './composables/useTrackElevation'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -174,7 +175,6 @@ interface Batch {
 const mapRef = ref<InstanceType<typeof CesiumMap>>()
 const loader = useTrackLoader()
 const { tracks, trackCount, selectedId, isolatedTrackId, visibleTrackIds, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
-const { tracksBySource } = useTracksModule()
 const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange, clearAllTimeRanges } = useTrackFilter()
 const { toggle: toggleLabels } = useLabelVisibility()
 const { lineWidths, setLineWidth } = useLineWidth()
@@ -228,10 +228,10 @@ const displayTracks = computed(() => {
   let candidates: typeof tracks.value
   if (visibleTrackIds.value.size > 0) {
     // Priority 1: Management panel multi-select visible set
-    candidates = tracks.value.filter(tr => visibleTrackIds.value.has(trackKey(tr.id, tr.source)))
+    candidates = tracks.value.filter(tr => visibleTrackIds.value.has(trackKey(tr.id, tr.source, tr.fileName)))
   } else if (isolatedTrackId.value) {
     // Priority 2: TrackPanel single isolation
-    const t = tracks.value.find(tr => trackKey(tr.id, tr.source) === isolatedTrackId.value)
+    const t = tracks.value.find(tr => trackKey(tr.id, tr.source, tr.fileName) === isolatedTrackId.value)
     candidates = t ? [t] : []
   } else {
     // Priority 3: Default — show all filtered tracks
@@ -243,7 +243,7 @@ const displayTracks = computed(() => {
   }
   // Filter out soft-deleted tracks
   if (deletedTrackKeys.value.size > 0) {
-    candidates = candidates.filter(tr => !deletedTrackKeys.value.has(`${tr.id}::${trackSourceToDbSource(tr.source)}`))
+    candidates = candidates.filter(tr => !deletedTrackKeys.value.has(`${tr.id}::${trackSourceToDbSource(tr.source)}::${tr.fileName}`))
   }
   return candidates
 })
@@ -253,12 +253,20 @@ const unifiedReplayTime = computed(() =>
   replay.isReplayActive.value ? replay.currentTime.value : null
 )
 
-// StatusBar source indicators
-const statusSources = computed(() => [
-  { key: 'adsb' as DataSource, label: 'ADS-B', count: tracksBySource.value.adsb?.length ?? 0, visible: visibility.value.adsb },
-  { key: 'radar' as DataSource, label: 'Radar', count: tracksBySource.value.radar?.length ?? 0, visible: visibility.value.radar },
-  { key: 'radar_raw' as DataSource, label: 'Raw', count: tracksBySource.value.radar_raw?.length ?? 0, visible: visibility.value.radar_raw },
-])
+// StatusBar source indicators — with file count info for multi-file sources
+const statusSources = computed(() => {
+  function fileInfo(src: DataSource) {
+    const srcTracks = tracks.value.filter(t => t.source === src)
+    const fileSet = new Set(srcTracks.map(t => t.fileName).filter(Boolean))
+    return { count: srcTracks.length, fileCount: fileSet.size }
+  }
+  const adsb = fileInfo('adsb'), radar = fileInfo('radar'), raw = fileInfo('radar_raw')
+  return [
+    { key: 'adsb' as DataSource, label: 'ADS-B', count: adsb.count, fileCount: adsb.fileCount, visible: visibility.value.adsb },
+    { key: 'radar' as DataSource, label: 'Radar', count: radar.count, fileCount: radar.fileCount, visible: visibility.value.radar },
+    { key: 'radar_raw' as DataSource, label: 'Raw', count: raw.count, fileCount: raw.fileCount, visible: visibility.value.radar_raw },
+  ]
+})
 
 const cameraHeightKm = ref(0)
 const mouseLongitude = ref(0)
@@ -394,7 +402,7 @@ onMounted(async () => {
     invoke('push_splash_log', { message: '读取到 ' + savedRaw.length + ' 条记录' })
     console.log('[App] load_persisted_tracks returned', savedRaw.length, 'tracks')
     const saved = savedRaw.filter(
-      (t: any) => !deletedTrackKeys.value.has(`${t.icao_address}::${t.source}`)
+      (t: any) => !deletedTrackKeys.value.has(`${t.icao_address}::${t.source}::${t.file_name || ''}`)
     )
     console.log('[App] after soft-delete filter:', saved.length, 'tracks')
     // Save restored selectedId/isolatedTrackId before setAll() wipes them
@@ -406,11 +414,11 @@ onMounted(async () => {
 
     // Restore only if referenced tracks still exist in the loaded data
     if (savedSelectedId) {
-      const exists = tracks.value.some(t => trackKey(t.id, t.source) === savedSelectedId)
+      const exists = tracks.value.some(t => trackKey(t.id, t.source, t.fileName) === savedSelectedId)
       if (exists) selectedId.value = savedSelectedId
     }
     if (savedIsolatedId) {
-      const exists = tracks.value.some(t => trackKey(t.id, t.source) === savedIsolatedId)
+      const exists = tracks.value.some(t => trackKey(t.id, t.source, t.fileName) === savedIsolatedId)
       if (exists) isolatedTrackId.value = savedIsolatedId
     }
   } catch (e) {
@@ -487,16 +495,19 @@ onMounted(async () => {
 })
 
 async function refreshBatches() {
-  try { batches.value = await invoke('get_batches_cmd') } catch (e) {
+  try {
+    batches.value = await invoke('get_batches_cmd')
+    setBatchOrder(batches.value)
+  } catch (e) {
     console.error('[App] refreshBatches failed:', e)
   }
 }
 
-async function restoreDeletedAndRefresh(icaos: string[], dbSource: string) {
+async function restoreDeletedAndRefresh(icaos: string[], dbSource: string, fileName: string) {
   const { restoreSoftDeletedTracks, deletedTrackKeys, useTrackManagement: mgmt } =
     await import('./composables/useTrackManagement')
   console.log(`[import:${dbSource}] before restore — deletedKeys size:`, deletedTrackKeys.value.size)
-  const restored = restoreSoftDeletedTracks(icaos, dbSource)
+  const restored = restoreSoftDeletedTracks(icaos, dbSource, fileName)
   console.log(`[import:${dbSource}] after restore — restored:`, restored, 'deletedKeys size:', deletedTrackKeys.value.size)
   if (restored > 0) {
     await mgmt().fetchMetadata()
@@ -513,7 +524,7 @@ async function handleImportAdsb() {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
       autoApplySourceElevation(result)
-      await restoreDeletedAndRefresh(result.map(t => t.id), 'ADS-B')
+      await restoreDeletedAndRefresh(result.map(t => t.id), 'ADS-B', result[0]?.fileName || '')
       await nextTick()
     }
     await refreshBatches()
@@ -529,7 +540,7 @@ async function handleImportRadar() {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
       autoApplySourceElevation(result)
-      await restoreDeletedAndRefresh(result.map(t => t.id), 'Radar')
+      await restoreDeletedAndRefresh(result.map(t => t.id), 'Radar', result[0]?.fileName || '')
     }
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
@@ -544,7 +555,7 @@ async function handleImportRadarRaw() {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
       autoApplySourceElevation(result)
-      await restoreDeletedAndRefresh(result.map(t => t.id), 'RadarRaw')
+      await restoreDeletedAndRefresh(result.map(t => t.id), 'RadarRaw', result[0]?.fileName || '')
     }
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
@@ -575,13 +586,11 @@ async function handleLoadBatch(id: number) {
 }
 
 function onIsolateTrack(compositeKey: string) {
-  const { id, source } = parseTrackKey(compositeKey)
-  isolateTrack(id, source)
+  isolateTrack(compositeKey)
 }
 function onTrackPick(compositeKey: string | null) {
   if (compositeKey) {
-    const { id, source } = parseTrackKey(compositeKey)
-    isolateTrack(id, source)
+    isolateTrack(compositeKey)
   } else {
     clearIsolation()
   }
@@ -599,10 +608,10 @@ function onShowTrackDetail(payload: { icao: string; source: string }) {
     }
   })
 }
-async function onDeleteTrack(payload: { icao: string; source: string }) {
+async function onDeleteTrack(payload: { icao: string; source: string; fileName?: string }) {
   const mod = await import('./composables/useTrackManagement')
   const { deleteTrackByKey } = mod.useTrackManagement()
-  await deleteTrackByKey(payload.icao, payload.source as DataSource)
+  await deleteTrackByKey(payload.icao, payload.source as DataSource, payload.fileName || '')
 }
 function onViewTrackPoints(track: import('./types/track').Track) {
   openTrackPointViewer(track)
@@ -620,11 +629,12 @@ function handleResetView() { mapRef.value?.resetView() }
 
 function onResetAllElevations() {
   for (const t of tracks.value) {
-    resetElevation(trackKey(t.id, t.source))
+    resetElevation(trackKey(t.id, t.source, t.fileName))
   }
-  for (const src of ['adsb', 'radar', 'radar_raw'] as DataSource[]) {
+  for (const src of ['adsb', 'radar', 'radar_raw', 'simulation'] as DataSource[]) {
     resetSourceElevation(src, [])
   }
+  clearAllFileElevations()
   mapRef.value?.refreshTracks()
 }
 

@@ -25,6 +25,8 @@ pub struct Track {
     pub destination: String,
     pub source: String,
     pub positions: Vec<TrackPosition>,
+    #[serde(default)]
+    pub file_name: String,
 }
 
 // ── Compact IPC DTO — short field names + epoch‑ms timestamps ──────────────
@@ -52,6 +54,8 @@ pub struct TrackDto {
     pub org: String,
     #[serde(skip_serializing_if = "String::is_empty", default)]
     pub dst: String,
+    #[serde(skip_serializing_if = "String::is_empty", default)]
+    pub fname: String,
 }
 
 /// Compact position DTO — serialized as JSON array [ts,lat,lng,alt,hdg,gs,vr]
@@ -178,6 +182,7 @@ impl Track {
             aln: self.airline.clone(),
             org: self.origin.clone(),
             dst: self.destination.clone(),
+            fname: self.file_name.clone(),
         }
     }
 }

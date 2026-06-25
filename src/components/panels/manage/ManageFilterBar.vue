@@ -10,9 +10,11 @@
         @input="onSearchInput"
       />
       <button v-if="filter.searchText" class="clear-search-btn" @click="clearSearch" title="清除搜索内容"><X :size="13" /></button>
-      <select class="filter-select source-select" title="按数据来源筛选" :value="filter.source ?? ''" @change="onSourceChange">
+      <select class="filter-select source-select" title="按数据来源或文件筛选" :value="sourceSelectValue" @change="onSourceChange">
         <option value="">全部来源</option>
-        <option v-for="opt in SOURCE_OPTIONS" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+        <template v-for="opt in sourceOptions" :key="opt.value">
+          <option :value="opt.value" :style="opt.indent ? 'padding-left: 14px' : ''">{{ opt.label }}</option>
+        </template>
       </select>
     </div>
 
@@ -49,13 +51,63 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { invoke } from '@tauri-apps/api/core'
 import { useTrackManagement } from '../../../composables/useTrackManagement'
-import { SOURCE_OPTIONS } from '../../../types/manage'
+import { getFileLabel, setBatchOrder } from '../../../composables/useFileLabels'
 import { X, Clock, BarChart3, RotateCcw } from '@lucide/vue'
 
 const {
   filter, distinctOptions, setFilter, setSearchText, applySearch, clearFilters,
 } = useTrackManagement()
+
+interface BatchInfo { id: number; file_name: string; source: string; track_count: number; imported_at: string }
+const batches = ref<BatchInfo[]>([])
+
+onMounted(async () => {
+  try {
+    batches.value = await invoke<BatchInfo[]>('get_batches_cmd')
+    setBatchOrder(batches.value)
+  } catch { /* ignore */ }
+})
+
+/** DB source value → display label */
+const DB_SOURCE_LABELS: Record<string, string> = { 'ADS-B': 'ADS-B', 'Radar': 'Radar', 'RadarRaw': 'Raw' }
+/** DB source value → frontend filter key */
+const DB_SOURCE_TO_FLT: Record<string, string> = { 'ADS-B': 'adsb', 'Radar': 'radar', 'RadarRaw': 'radar_raw' }
+
+interface SourceOption { value: string; label: string; indent?: boolean }
+
+const sourceOptions = computed<SourceOption[]>(() => {
+  const opts: SourceOption[] = []
+  const bySource = new Map<string, BatchInfo[]>()
+  for (const b of batches.value) {
+    // b.source is the DB value (e.g. "ADS-B", "Radar", "RadarRaw")
+    const filterKey = DB_SOURCE_TO_FLT[b.source] || b.source
+    if (!bySource.has(filterKey)) bySource.set(filterKey, [])
+    bySource.get(filterKey)!.push(b)
+  }
+  for (const [filterKey, srcBatches] of bySource) {
+    const label = DB_SOURCE_LABELS[srcBatches[0].source] || filterKey
+    if (srcBatches.length === 1) {
+      opts.push({ value: filterKey, label })
+    } else {
+      opts.push({ value: filterKey, label: `${label}（全部）` })
+      for (const b of srcBatches) {
+        opts.push({ value: `${filterKey}::${b.id}`, label: `· ${getFileLabel(filterKey as any, b.file_name)}`, indent: true })
+      }
+    }
+  }
+  return opts
+})
+
+/** Current composite value shown in the source select */
+const sourceSelectValue = computed(() => {
+  const s = filter.value.source ?? ''
+  const bid = filter.value.batchId
+  if (s && bid != null) return `${s}::${bid}`
+  return s
+})
 
 function v(e: Event): string | undefined {
   const val = (e.target as HTMLSelectElement).value
@@ -67,7 +119,16 @@ function vNum(e: Event): number | undefined {
 }
 
 function onSourceChange(e: Event) {
-  setFilter({ source: ((e.target as HTMLSelectElement).value || undefined) as any })
+  const raw = (e.target as HTMLSelectElement).value
+  if (!raw) { setFilter({ source: undefined, batchId: undefined }); return }
+  const sepIdx = raw.indexOf('::')
+  if (sepIdx > 0) {
+    const src = raw.substring(0, sepIdx)
+    const bid = parseInt(raw.substring(sepIdx + 2), 10)
+    setFilter({ source: src as any, batchId: isNaN(bid) ? undefined : bid })
+  } else {
+    setFilter({ source: raw as any, batchId: undefined })
+  }
 }
 
 let timer: ReturnType<typeof setTimeout> | null = null

@@ -233,6 +233,16 @@ async function applySettings(raw: Record<string, string>) {
   const { loadElevationOffsets } = await import('./useTrackElevation')
   loadElevationOffsets(raw)
 
+  // ── File-level style overrides ──
+  const { loadFileColors } = await import('./useFileLineColor')
+  loadFileColors(raw)
+  const { loadFileWidths } = await import('./useFileLineWidth')
+  loadFileWidths(raw)
+  const { loadFileScales } = await import('./useFileDotScale')
+  loadFileScales(raw)
+  const { loadFileVisibility } = await import('./useFileVisibility')
+  loadFileVisibility(raw)
+
   // ── Flags ──
   const { useFlags } = await import('./useFlags')
   const fl = useFlags()

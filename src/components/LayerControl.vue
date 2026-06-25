@@ -8,23 +8,36 @@
         <span>数据源</span><HelpTip text="控制各数据源航迹在地图上的显示或隐藏。关闭后航迹线和终点圆球将不可见，数据仍在内存中。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('visibility')">
-        <div
-          v-for="item in layerItems"
-          :key="item.source"
-          class="setting-row"
-        >
-          <span class="layer-dot" :style="{ background: item.color }"></span>
-          <span class="row-label" :style="{ color: item.color, width: 'auto', flex: 1 }">{{ item.label }}</span>
-          <span class="row-value" style="min-width: 24px; text-align: right;">{{ item.count }}</span>
-          <label class="toggle-switch" @click.stop>
-            <input
-              type="checkbox"
-              :checked="visibility[item.source]"
-              @change="toggle(item.source)"
-            />
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
+        <template v-for="item in layerItems" :key="item.source">
+          <div class="setting-row" :class="{ 'has-sub': item.files.length > 1 }">
+            <span v-if="item.files.length > 1" class="expand-arrow" @click="toggleSourceExpanded(item.source)">
+              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(item.source) }" />
+            </span>
+            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+            <span class="layer-dot" :style="{ background: item.color }"></span>
+            <span class="row-label" :style="{ color: item.color, width: 'auto', flex: 1 }">{{ item.label }}</span>
+            <span class="row-value" style="min-width: 24px; text-align: right;">{{ item.count }}</span>
+            <label class="toggle-switch" @click.stop>
+              <input
+                type="checkbox"
+                :checked="visibility[item.source]"
+                @change="toggleSourceWithFiles(item)"
+              />
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+          <div v-if="item.files.length > 1 && expandedSources.has(item.source)" class="file-rows">
+            <div v-for="f in item.files" :key="f.fileName" class="setting-row file-row">
+              <span class="layer-dot" style="visibility:hidden; width:8px"></span>
+              <span class="row-label file-label" :style="{ color: item.color }">{{ f.displayLabel }}</span>
+              <span class="row-value" style="min-width: 24px; text-align: right;">{{ f.count }}</span>
+              <label class="toggle-switch" @click.stop>
+                <input type="checkbox" :checked="f.visible" @change="toggleFile(item.source, f.fileName)" />
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -32,7 +45,7 @@
     <div class="settings-group">
       <div class="group-header" @click="toggleSection('boundary')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('boundary') }" />
-        <Map :size="13" class="group-icon" />
+        <MapIcon :size="13" class="group-icon" />
         <span>行政边界</span><HelpTip text="控制国界、海岸线、省界三种行政边界图层的显示、线宽和颜色。线宽在拖动滑块松手时生效，颜色即时切换。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('boundary')">
@@ -239,12 +252,14 @@ import { computed, ref, watch, onMounted } from 'vue'
 import type { DataSource } from '../types/track'
 import type { TileSourceInfo } from '../composables/useTileSource'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
+import { useFileVisibility } from '../composables/useFileVisibility'
+import { getFileLabel } from '../composables/useFileLabels'
 import { useTracks } from '../composables/useTracks'
 import { useBoundaryLayers } from '../composables/useBoundaryLayers'
 import { useCityLayer, type CityLevel, type CityLodLevel } from '../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../composables/useSettingsPersistence'
 import HelpTip from './HelpTip.vue'
-import { ChevronDown, Layers, Map, MapPin, Globe, RotateCcw } from '@lucide/vue'
+import { ChevronDown, Layers, Map as MapIcon, MapPin, Globe, RotateCcw } from '@lucide/vue'
 
 defineProps<{
   tileSources: TileSourceInfo[]
@@ -255,8 +270,9 @@ defineEmits<{
   switchTileSource: [fileName: string]
 }>()
 
-const { visibility, toggle } = useLayerVisibility()
-const { tracksBySource } = useTracks()
+const { visibility, toggle: toggleSource } = useLayerVisibility()
+const { isFileVisible, setFileVisible } = useFileVisibility()
+const { tracks } = useTracks()
 const { boundaryVisible, boundaryWidths, boundaryColors, setBoundaryVisible, setBoundaryWidth, setBoundaryColor } = useBoundaryLayers()
 const {
   cityLayer,
@@ -273,11 +289,55 @@ const {
   setCityLabelColor,
 } = useCityLayer()
 
-const layerItems = computed(() => [
-  { source: 'adsb' as DataSource, label: 'ADS-B', color: 'var(--source-adsb)', count: tracksBySource.value.adsb?.length ?? 0 },
-  { source: 'radar' as DataSource, label: 'Radar', color: 'var(--source-radar)', count: tracksBySource.value.radar?.length ?? 0 },
-  { source: 'radar_raw' as DataSource, label: 'Raw', color: 'var(--source-radar_raw)', count: tracksBySource.value.radar_raw?.length ?? 0 },
-])
+/** Which sources have their file sub-list expanded */
+const expandedSources = ref<Set<string>>(new Set())
+
+function toggleSourceExpanded(src: string) {
+  const next = new Set(expandedSources.value)
+  if (next.has(src)) next.delete(src)
+  else next.add(src)
+  expandedSources.value = next
+}
+
+interface LayerItem {
+  source: DataSource
+  label: string
+  color: string
+  count: number
+  files: FileInfo[]
+}
+interface FileInfo { fileName: string; displayLabel: string; count: number; visible: boolean }
+
+const layerItems = computed<LayerItem[]>(() => {
+  const sourceInfo: { source: DataSource; label: string; color: string }[] = [
+    { source: 'adsb', label: 'ADS-B', color: 'var(--source-adsb)' },
+    { source: 'radar', label: 'Radar', color: 'var(--source-radar)' },
+    { source: 'radar_raw', label: 'Raw', color: 'var(--source-radar_raw)' },
+  ]
+  return sourceInfo.map(si => {
+    const srcTracks = tracks.value.filter(t => t.source === si.source)
+    // Group by file
+    const fileMap = new Map<string, number>()
+    for (const t of srcTracks) {
+      const fn = t.fileName || ''
+      fileMap.set(fn, (fileMap.get(fn) || 0) + 1)
+    }
+    const files: FileInfo[] = []
+    fileMap.forEach((count: number, fileName: string) => {
+      files.push({ fileName, displayLabel: getFileLabel(si.source, fileName), count, visible: isFileVisible(si.source, fileName) })
+    })
+    return { source: si.source, label: si.label, color: si.color, count: srcTracks.length, files }
+  })
+})
+
+/** Toggle source visibility */
+function toggleSourceWithFiles(item: LayerItem) {
+  toggleSource(item.source)
+}
+
+function toggleFile(source: DataSource, fileName: string) {
+  setFileVisible(source, fileName, !isFileVisible(source, fileName))
+}
 
 const cityLevelRows: { key: CityLevel; label: string }[] = [
   { key: 'capital', label: '首都' },
@@ -438,6 +498,13 @@ onMounted(() => {
   border-radius: 50%;
   flex-shrink: 0;
 }
+
+.expand-arrow { width: 10px; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; }
+.source-chevron { transition: transform 0.15s ease; }
+.source-chevron.collapsed { transform: rotate(-90deg); }
+.file-rows { padding-left: 0; }
+.file-row { padding-left: 4px; }
+.file-label { font-size: 0.714rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Slider ── */
 .advanced-toggle {

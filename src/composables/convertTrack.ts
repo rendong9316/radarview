@@ -10,6 +10,7 @@ interface BackendTrack {
   origin: string
   destination: string
   source: string
+  file_name?: string
   positions: BackendPosition[]
 }
 
@@ -39,6 +40,7 @@ interface TrackDto {
   aln?: string
   org?: string
   dst?: string
+  fname?: string
 }
 
 /** Fast timestamp parser — charCode math. Input is local time from Python strftime. */
@@ -92,6 +94,7 @@ export function fromTrackDto(td: TrackDto): Track {
   return {
     id: td.id,
     source: mapDtoSource(td.src),
+    fileName: td.fname || '',
     positions,
     minTimestamp: td.min_ts,
     maxTimestamp: td.max_ts,
@@ -133,6 +136,7 @@ export function fromBackendTrack(bt: BackendTrack): Track {
   return {
     id: bt.icao_address,
     source: mapSource(bt.source),
+    fileName: bt.file_name || '',
     positions,
     minTimestamp: len > 0 ? minTs : 0,
     maxTimestamp: len > 0 ? maxTs : 0,

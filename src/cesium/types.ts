@@ -41,6 +41,7 @@ export interface TrackEntities {
   /** P1: PointPrimitive for endpoint dot */
   pointPrimitive: Cesium.PointPrimitive | undefined
   source: string
+  fileName: string
   labelText: string
   /** Mutable holder for full track positions — used to restore after replay */
   trailRef: { positions: Cesium.Cartesian3[] }

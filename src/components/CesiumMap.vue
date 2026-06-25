@@ -73,6 +73,10 @@ import { invoke } from '@tauri-apps/api/core'
 import type { Track, DataSource } from '../types/track'
 import { useLineColor } from '../composables/useLineColor'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
+import { useFileVisibility } from '../composables/useFileVisibility'
+import { useFileLineColor } from '../composables/useFileLineColor'
+import { useFileLineWidth } from '../composables/useFileLineWidth'
+import { useFileDotScale } from '../composables/useFileDotScale'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import { useFlagScale } from '../composables/useFlagScale'
@@ -84,7 +88,7 @@ import { useCityLayer } from '../composables/useCityLayer'
 import { useRuler } from '../composables/useRuler'
 import { useSpatialLasso } from '../composables/useSpatialLasso'
 import { trackKey } from '../composables/useTracks'
-import { hasElevationOffset, getElevationOffset, setElevationOffset, adjustElevation, resetElevation } from '../composables/useTrackElevation'
+import { hasElevationOffset, getElevationOffset, setElevationOffset, adjustElevation, resetElevation, fileElevationKm } from '../composables/useTrackElevation'
 import { whenSettingsLoaded } from '../composables/useSettingsPersistence'
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon, ArrowUp, RotateCcw } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
@@ -114,7 +118,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'track-pick': [trackId: string | null]
   'show-track-detail': [payload: { icao: string; source: string }]
-  'delete-track': [payload: { icao: string; source: string }]
+  'delete-track': [payload: { icao: string; source: string; fileName?: string }]
   'view-track-points': [track: Track]
   'view-status': [payload: { cameraHeightKm: number; longitude: number; latitude: number; fps: number }]
 }>()
@@ -126,6 +130,10 @@ const emit = defineEmits<{
 const containerRef = ref<HTMLDivElement>()
 const { getEffectiveHex, lineColors } = useLineColor()
 const { visibility } = useLayerVisibility()
+const { getVisibilityMap: getFileVisibilityMap, fileVisibility } = useFileVisibility()
+const { fileColors } = useFileLineColor()
+const { fileWidths } = useFileLineWidth()
+const { fileScales } = useFileDotScale()
 const { showLabels } = useLabelVisibility()
 const { flags, addFlag, removeFlag, renameFlag, setFlagStyle, selectedPair } = useFlags()
 const { flagScale } = useFlagScale()
@@ -229,13 +237,35 @@ function contrastColor(hex: string): string {
 // ═══════════════════════════════════════════
 
 function buildTrackState(): TrackR.TrackState {
+  const vis: Record<string, boolean> = { ...visibility.value }
+  const fv = getFileVisibilityMap()
+  for (const key of Object.keys(fv)) {
+    if (fv[key] === false) vis[key] = false
+  }
+  // Merge file-level overrides into width/dot records (file key = "source::fileName")
+  const lw: Record<string, number> = { ...props.lineWidths }
+  for (const key of Object.keys(fileWidths.value)) {
+    if (fileWidths.value[key] != null) lw[key] = fileWidths.value[key]!
+  }
+  const ds: Record<string, number> = { ...props.dotScale }
+  for (const key of Object.keys(fileScales.value)) {
+    if (fileScales.value[key] != null) ds[key] = fileScales.value[key]!
+  }
+  // File-aware color getter
+  const getLineColorWithFile = (src: DataSource, fn?: string) => {
+    if (fn) {
+      const fk = `${src}::${fn}`
+      if (fileColors.value[fk]) return Cesium.Color.fromCssColorString(fileColors.value[fk]!)
+    }
+    return getLineColor(src)
+  }
   return {
     selectedId: props.selectedId,
     replayTime: props.replayTime,
-    lineWidths: props.lineWidths,
-    dotScale: props.dotScale,
-    getLineColor,
-    visibility: { ...visibility.value },
+    lineWidths: lw,
+    dotScale: ds,
+    getLineColor: getLineColorWithFile,
+    visibility: vis,
     showLabels: showLabels.value,
   }
 }
@@ -313,7 +343,7 @@ function buildInteractionCallbacks(): Interaction.InteractionCallbacks {
     showManualPointDots: (id) => DotR.showManualPointDots(id, props.tracks, getPointDotColor, pointDotPixelSize, manualPointDotsTrackIds, globalHiddenTrackKeys),
     hidePointDotsForTrack: (id) => DotR.hidePointDotsForTrack(id, manualPointDotsTrackIds, globalHiddenTrackKeys, showAllPointDots),
     getFlagById: (id) => flags.value.find(f => f.id === id),
-    findTrackByKey: (key) => props.tracks.find(t => trackKey(t.id, t.source) === key),
+    findTrackByKey: (key) => props.tracks.find(t => trackKey(t.id, t.source, t.fileName) === key),
     addHighlight,
     openContextMenu: (menu) => { contextMenu.value = menu },
     closeContextMenu: () => { contextMenu.value.visible = false },
@@ -373,9 +403,9 @@ function handleContextHidePointDots() {
 
 function handleContextShowDetail() {
   const trackId = contextMenu.value.trackId
-  const sepIdx = trackId.lastIndexOf('::')
-  const icao = sepIdx > 0 ? trackId.substring(0, sepIdx) : trackId
-  const source = sepIdx > 0 ? trackId.substring(sepIdx + 2) : ''
+  const parts = trackId.split('::')
+  const icao = parts[0] || trackId
+  const source = (parts[1] as DataSource) || 'adsb'
   addHighlight(icao)
   emit('show-track-detail', { icao, source })
   contextMenu.value.visible = false
@@ -383,7 +413,7 @@ function handleContextShowDetail() {
 
 function handleContextViewPoints() {
   const trackId = contextMenu.value.trackId
-  const track = props.tracks.find(t => trackKey(t.id, t.source) === trackId)
+  const track = props.tracks.find(t => trackKey(t.id, t.source, t.fileName) === trackId)
   if (track) {
     emit('view-track-points', track)
   }
@@ -392,10 +422,11 @@ function handleContextViewPoints() {
 
 function handleContextDeleteTrack() {
   const trackId = contextMenu.value.trackId
-  const sepIdx = trackId.lastIndexOf('::')
-  const icao = sepIdx > 0 ? trackId.substring(0, sepIdx) : trackId
-  const source = sepIdx > 0 ? trackId.substring(sepIdx + 2) : ''
-  emit('delete-track', { icao, source })
+  const parts = trackId.split('::')
+  const icao = parts[0] || trackId
+  const source = (parts[1] as DataSource) || 'adsb'
+  const fileName = parts[2] || ''
+  emit('delete-track', { icao, source, fileName })
   contextMenu.value.visible = false
 }
 
@@ -407,6 +438,7 @@ function hasTrackElevation(): boolean {
 
 function refreshTrackDisplay(_trackKey: string) {
   TrackR.syncEntities(props.tracks, buildTrackState())
+  DotR.refreshPointDotPositions(props.tracks)
   // 如果当前悬停的正是这条航迹，也需要更新高亮线
   if (TrackR.getHoveredTrackId() === _trackKey) {
     TrackR.applyHoverHighlight(_trackKey, {
@@ -480,7 +512,10 @@ defineExpose({
   resetView,
   switchTileLayer,
   refreshTracks: () => {
-    if (cesiumCtx) TrackR.syncEntities(props.tracks, buildTrackState())
+    if (cesiumCtx) {
+      TrackR.syncEntities(props.tracks, buildTrackState())
+      DotR.refreshPointDotPositions(props.tracks)
+    }
   },
   whenMapReady: () => mapReadyPromise,
 })
@@ -1034,14 +1069,15 @@ watch(
   { deep: true },
 )
 
-// ── 线颜色 ──
-watch(lineColors, () => {
+// ── 线颜色（source-level + file-level） ──
+watch([lineColors, fileColors], () => {
   const entityMap = TrackR.getEntityMap_mutable()
+  const state = buildTrackState()
   for (const [tKey, entry] of entityMap) {
     const isSelected = tKey === previousSelectedId
     const isHovered = TrackR.getHoveredTrackId() === tKey
     if (isSelected || isHovered) continue
-    const color = getLineColor(entry.source as DataSource)
+    const color = state.getLineColor(entry.source as DataSource, entry.fileName)
     const isRaw = entry.source === 'radar_raw'
     if (entry.entity?.polyline) {
       entry.entity.polyline.material = color.withAlpha(isRaw ? 0.75 : 0.88) as any
@@ -1051,6 +1087,34 @@ watch(lineColors, () => {
     }
   }
   cesiumCtx?.viewer?.scene.requestRender()
+}, { deep: true })
+
+// ── 线宽（file-level） ──
+watch(fileWidths, () => {
+  if (!cesiumCtx?.viewer) return
+  TrackR.syncEntities(props.tracks, buildTrackState())
+}, { deep: true })
+
+// ── 端点大小（file-level） ──
+watch(fileScales, () => {
+  if (!cesiumCtx?.viewer) return
+  TrackR.syncEntities(props.tracks, buildTrackState())
+}, { deep: true })
+
+// ── 文件可见性 ──
+watch(() => fileVisibility.value, () => {
+  if (!cesiumCtx?.viewer) return
+  const state = buildTrackState()
+  TrackR.reapplyVisibility(state.visibility, props.replayTime)
+  cesiumCtx.viewer.scene.requestRender()
+}, { deep: true })
+
+// ── 文件级高度偏移 ──
+watch(fileElevationKm, () => {
+  if (!cesiumCtx?.viewer) return
+  TrackR.syncEntities(props.tracks, buildTrackState())
+  DotR.refreshPointDotPositions(props.tracks)
+  cesiumCtx.viewer.scene.requestRender()
 }, { deep: true })
 
 // ── 选中高亮 ──

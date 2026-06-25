@@ -23,9 +23,9 @@
             v-for="track in filteredList"
             :key="track.id"
             class="track-item"
-            :class="{ selected: selectedId === trackKey(track.id, track.source) }"
+            :class="{ selected: selectedId === trackKey(track.id, track.source, track.fileName) }"
           >
-            <div class="track-item-main" @click="$emit('isolate', trackKey(track.id, track.source))" title="点击单独查看此航迹">
+            <div class="track-item-main" @click="$emit('isolate', trackKey(track.id, track.source, track.fileName))" title="点击单独查看此航迹">
               <div class="track-item-top">
                 <span class="track-color" :style="{ background: sourceColors[track.source] }"></span>
                 <span class="track-id">{{ track.metadata.flightNumber || track.id }}</span>
@@ -104,7 +104,7 @@ const searchQuery = ref('')
 
 const isolatedLabel = computed(() => {
   if (!props.isolatedId) return ''
-  const track = props.tracks.find(t => trackKey(t.id, t.source) === props.isolatedId)
+  const track = props.tracks.find(t => trackKey(t.id, t.source, t.fileName) === props.isolatedId)
   if (!track) return props.isolatedId
   return track.metadata.flightNumber || track.metadata.registration || track.id
 })

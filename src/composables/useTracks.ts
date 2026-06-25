@@ -7,18 +7,21 @@ const isolatedTrackId = ref<string | null>(null)
 /** Multi-select visible set from management panel (key = "icao::source") */
 const visibleTrackIds = ref<Set<string>>(new Set())
 
-/** Composite key for track identity: id + source. Radar and Measurement
- *  data may share the same Target ID but are different tracks. */
-export function trackKey(id: string, source: DataSource): string {
-  return `${id}::${source}`
+/** Composite key for track identity: id + source + fileName.
+ *  Different files from the same source produce independent tracks;
+ *  same-file reimports still deduplicate. */
+export function trackKey(id: string, source: DataSource, fileName: string): string {
+  return `${id}::${source}::${fileName}`
 }
-/** Extract id and source from a composite key */
-export function parseTrackKey(key: string): { id: string; source: DataSource } {
-  const idx = key.lastIndexOf('::')
-  return {
-    id: key.substring(0, idx),
-    source: key.substring(idx + 2) as DataSource,
+/** Extract id, source, and fileName from a composite key.
+ *  Backward-compatible with legacy 2-part keys (fileName becomes ''). */
+export function parseTrackKey(key: string): { id: string; source: DataSource; fileName: string } {
+  const parts = key.split('::')
+  if (parts.length >= 3) {
+    return { id: parts[0], source: parts[1] as DataSource, fileName: parts[2] }
   }
+  // Legacy 2-part key (icao::source)
+  return { id: parts[0], source: parts[1] as DataSource, fileName: '' }
 }
 
 export function useTracks() {
@@ -30,12 +33,12 @@ export function useTracks() {
 
   const selectedTrack = computed(() => {
     if (!selectedId.value) return null
-    return tracks.value.find((t) => trackKey(t.id, t.source) === selectedId.value) ?? null
+    return tracks.value.find((t) => trackKey(t.id, t.source, t.fileName) === selectedId.value) ?? null
   })
 
   const isolatedTrack = computed(() => {
     if (!isolatedTrackId.value) return null
-    return tracks.value.find((t) => trackKey(t.id, t.source) === isolatedTrackId.value) ?? null
+    return tracks.value.find((t) => trackKey(t.id, t.source, t.fileName) === isolatedTrackId.value) ?? null
   })
 
   const tracksBySource = computed(() => {
@@ -51,10 +54,10 @@ export function useTracks() {
     // Store existing tracks by reference — only clone on merge conflict.
     // No downstream code mutates Track objects or positions arrays.
     for (const t of tracks.value) {
-      map.set(trackKey(t.id, t.source), t)
+      map.set(trackKey(t.id, t.source, t.fileName), t)
     }
     for (const nt of newTracks) {
-      const key = trackKey(nt.id, nt.source)
+      const key = trackKey(nt.id, nt.source, nt.fileName)
       const existing = map.get(key)
       if (existing) {
         // Clone positions for this track only — the merge path mutates array
@@ -83,22 +86,35 @@ export function useTracks() {
     tracks.value = Array.from(map.values())
   }
 
-  function removeTrack(id: string, source: DataSource) {
-    const key = trackKey(id, source)
-    tracks.value = tracks.value.filter((t) => trackKey(t.id, t.source) !== key)
-    if (selectedId.value === key) {
+  /** Remove a track by its full composite key (icao::source::fileName). */
+  function removeTrackByCompositeKey(compositeKey: string) {
+    tracks.value = tracks.value.filter((t) => trackKey(t.id, t.source, t.fileName) !== compositeKey)
+    if (selectedId.value === compositeKey) {
       selectedId.value = null
     }
+  }
+
+  function removeTrack(id: string, source: DataSource) {
+    const match = tracks.value.find(t => t.id === id && t.source === source)
+    const key = match ? trackKey(match.id, match.source, match.fileName) : trackKey(id, source, '')
+    removeTrackByCompositeKey(key)
   }
 
   function selectTrack(key: string | null) {
     selectedId.value = key
   }
 
-  function isolateTrack(id: string, source: DataSource) {
-    const key = trackKey(id, source)
-    isolatedTrackId.value = key
-    selectedId.value = key
+  /** Isolate a single track by its full composite key. */
+  function isolateTrack(compositeKey: string) {
+    isolatedTrackId.value = compositeKey
+    selectedId.value = compositeKey
+  }
+
+  /** Legacy — isolate by id+source only, falls back to first matching track. */
+  function isolateTrackByIdSource(id: string, source: DataSource) {
+    const match = tracks.value.find(t => t.id === id && t.source === source)
+    const key = match ? trackKey(match.id, match.source, match.fileName) : trackKey(id, source, '')
+    isolateTrack(key)
   }
 
   function clearIsolation() {
@@ -164,8 +180,10 @@ export function useTracks() {
     tracksBySource,
     addTracks,
     removeTrack,
+    removeTrackByCompositeKey,
     selectTrack,
     isolateTrack,
+    isolateTrackByIdSource,
     clearIsolation,
     addToVisibleSet,
     removeFromVisibleSet,

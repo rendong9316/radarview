@@ -8,26 +8,38 @@
         <span>线条颜色</span><HelpTip text="设置各数据源航迹线的颜色。点击色块选择颜色，点击右侧重置按钮恢复为默认颜色。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('lineColor')">
-        <div v-for="src in dataSources" :key="'lc-'+src" class="setting-row">
-          <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
-          <div class="color-control">
-            <input
-              type="color"
-              class="color-input"
-              :value="effectiveColor(src)"
-              @input="onColorChange(src, ($event.target as HTMLInputElement).value)"
-            />
-            <span class="color-hex">{{ effectiveColor(src) }}</span>
+        <template v-for="src in dataSources" :key="'lc-'+src">
+          <div class="setting-row" :class="{ 'has-sub': getFilesForSrc(src).length > 1 }">
+            <span v-if="getFilesForSrc(src).length > 1" class="expand-arrow" @click="toggleSrcExpanded(src)">
+              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
+            </span>
+            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+            <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+            <div class="color-control">
+              <input type="color" class="color-input" :value="effectiveColor(src)"
+                @input="onColorChange(src, ($event.target as HTMLInputElement).value)" />
+              <span class="color-hex">{{ effectiveColor(src) }}</span>
+            </div>
+            <button class="reset-btn" :class="{ show: hasCustomColor(src) }"
+              :title="`重置 ${sourceLabel(src)} 为默认颜色`" @click="onResetColor(src)">
+              <RotateCcw :size="12" />
+            </button>
           </div>
-          <button
-            class="reset-btn"
-            :class="{ show: hasCustomColor(src) }"
-            :title="`重置 ${sourceLabel(src)} 为默认颜色`"
-            @click="onResetColor(src)"
-          >
-            <RotateCcw :size="12" />
-          </button>
-        </div>
+          <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
+            <div v-for="f in getFilesForSrc(src)" :key="'lc-'+src+'-'+f.fileName" class="setting-row file-row">
+              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+              <div class="color-control">
+                <input type="color" class="color-input" :value="fileEffectiveColor(src, f.fileName)"
+                  @input="onFileColorChange(src, f.fileName, ($event.target as HTMLInputElement).value)" />
+                <span class="color-hex">{{ fileEffectiveColor(src, f.fileName) }}</span>
+              </div>
+              <button class="reset-btn" :class="{ show: hasFileColor(src, f.fileName) }"
+                :title="`重置 ${f.fileName} 跟随数据源颜色`" @click="onFileResetColor(src, f.fileName)">
+                <RotateCcw :size="12" />
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -39,17 +51,32 @@
         <span>线宽调节</span><HelpTip text="设置各数据源航迹线的像素宽度，范围 0.5-8 px。拖动滑块即时生效。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('lineWidth')">
-        <div v-for="src in dataSources" :key="'lw-'+src" class="setting-row">
-          <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
-          <input
-            type="range"
-            class="row-slider"
-            min="0.5" max="8" step="0.5"
-            :value="lineWidths[src]"
-            @input="$emit('setLineWidth', src, Number(($event.target as HTMLInputElement).value))" title="调整航迹线宽"
-          />
-          <span class="row-value">{{ lineWidths[src] }}</span>
-        </div>
+        <template v-for="src in dataSources" :key="'lw-'+src">
+          <div class="setting-row" :class="{ 'has-sub': getFilesForSrc(src).length > 1 }">
+            <span v-if="getFilesForSrc(src).length > 1" class="expand-arrow" @click="toggleSrcExpanded(src)">
+              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
+            </span>
+            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+            <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+            <input type="range" class="row-slider" min="0.5" max="8" step="0.5"
+              :value="lineWidths[src]"
+              @input="$emit('setLineWidth', src, Number(($event.target as HTMLInputElement).value))" title="调整航迹线宽" />
+            <span class="row-value">{{ lineWidths[src] }}</span>
+          </div>
+          <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
+            <div v-for="f in getFilesForSrc(src)" :key="'lw-'+src+'-'+f.fileName" class="setting-row file-row">
+              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+              <input type="range" class="row-slider" min="0.5" max="8" step="0.5"
+                :value="fileEffectiveWidth(src, f.fileName)"
+                @input="onFileWidthChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级线宽" />
+              <span class="row-value">{{ fileEffectiveWidth(src, f.fileName) }}</span>
+              <button class="reset-btn" :class="{ show: hasFileWidth(src, f.fileName) }"
+                :title="`重置 ${f.fileName} 跟随数据源线宽`" @click="onFileResetWidth(src, f.fileName)" style="margin-left:4px">
+                <RotateCcw :size="12" />
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -61,13 +88,32 @@
         <span>圆球直径</span><HelpTip text="设置各数据源终点圆球的缩放比例，范围 0.2-3.0 倍。圆心位置表示航迹当前时刻的位置。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('dotScale')">
-        <div v-for="src in dataSources" :key="'ds-'+src" class="setting-row">
-          <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
-          <input type="range" class="row-slider" min="0.2" max="3.0" step="0.1"
-            :value="dotScale[src]"
-            @input="$emit('setDotScale', src, Number(($event.target as HTMLInputElement).value))" title="调整终点圆球大小" />
-          <span class="row-value">{{ dotScale[src].toFixed(1) }}</span>
-        </div>
+        <template v-for="src in dataSources" :key="'ds-'+src">
+          <div class="setting-row" :class="{ 'has-sub': getFilesForSrc(src).length > 1 }">
+            <span v-if="getFilesForSrc(src).length > 1" class="expand-arrow" @click="toggleSrcExpanded(src)">
+              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
+            </span>
+            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+            <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+            <input type="range" class="row-slider" min="0.2" max="3.0" step="0.1"
+              :value="dotScale[src]"
+              @input="$emit('setDotScale', src, Number(($event.target as HTMLInputElement).value))" title="调整终点圆球大小" />
+            <span class="row-value">{{ dotScale[src].toFixed(1) }}</span>
+          </div>
+          <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
+            <div v-for="f in getFilesForSrc(src)" :key="'ds-'+src+'-'+f.fileName" class="setting-row file-row">
+              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+              <input type="range" class="row-slider" min="0.2" max="3.0" step="0.1"
+                :value="fileEffectiveScale(src, f.fileName, dotScale[src])"
+                @input="onFileScaleChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级圆球大小" />
+              <span class="row-value">{{ fileEffectiveScale(src, f.fileName, dotScale[src]).toFixed(1) }}</span>
+              <button class="reset-btn" :class="{ show: hasFileScale(src, f.fileName) }"
+                :title="`重置 ${f.fileName} 跟随数据源大小`" @click="onFileResetScale(src, f.fileName)" style="margin-left:4px">
+                <RotateCcw :size="12" />
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -79,28 +125,39 @@
         <span>航迹高度偏移</span><HelpTip text="按数据源批量设置航迹渲染高度偏移量。输入 0 表示使用默认高度（10km）。新导入的航迹会自动应用对应数据源的偏移量。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('sourceElevation')">
-        <div v-for="src in dataSources" :key="'sel-'+src" class="setting-row">
-          <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
-          <div class="elevation-input-group">
-            <input
-              type="number"
-              class="elevation-input"
-              :value="sourceElevations[src] ?? 0"
-              min="0"
-              step="0.5"
-              @change="onSourceElevationChange(src, ($event.target as HTMLInputElement).value)"
-            />
-            <span class="elevation-unit">km</span>
+        <template v-for="src in dataSources" :key="'sel-'+src">
+          <div class="setting-row" :class="{ 'has-sub': getFilesForSrc(src).length > 1 }">
+            <span v-if="getFilesForSrc(src).length > 1" class="expand-arrow" @click="toggleSrcExpanded(src)">
+              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
+            </span>
+            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+            <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+            <div class="elevation-input-group">
+              <input type="number" class="elevation-input" :value="sourceElevations[src] ?? 0"
+                min="0" step="0.5" @change="onSourceElevationChange(src, ($event.target as HTMLInputElement).value)" />
+              <span class="elevation-unit">km</span>
+            </div>
+            <button class="reset-btn" :class="{ show: (sourceElevations[src] ?? 0) > 0 }"
+              :title="`重置 ${sourceLabel(src)} 为默认高度`" @click="emit('resetSourceElevation', src)">
+              <RotateCcw :size="12" />
+            </button>
           </div>
-          <button
-            class="reset-btn"
-            :class="{ show: (sourceElevations[src] ?? 0) > 0 }"
-            :title="`重置 ${sourceLabel(src)} 为默认高度`"
-            @click="emit('resetSourceElevation', src)"
-          >
-            <RotateCcw :size="12" />
-          </button>
-        </div>
+          <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
+            <div v-for="f in getFilesForSrc(src)" :key="'sel-'+src+'-'+f.fileName" class="setting-row file-row">
+              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+              <div class="elevation-input-group">
+                <input type="number" class="elevation-input" :value="getFileElevationKm(src, f.fileName)"
+                  min="0" step="0.5" placeholder="0"
+                  @change="onFileElevationChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" />
+                <span class="elevation-unit">km</span>
+              </div>
+              <button class="reset-btn" :class="{ show: getFileElevationKm(src, f.fileName) > 0 }"
+                :title="`重置 ${f.displayLabel} 为默认高度`" @click="onResetFileElevation(src, f.fileName)" style="margin-left:4px">
+                <RotateCcw :size="12" />
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -224,7 +281,7 @@
             <Trash2 :size="13" />
             <span>清除显示</span>
           </button>
-          <button v-if="trackCount" class="action-btn" @click="$emit('resetAllElevations')">
+          <button v-if="trackCount" class="action-btn full-width" @click="$emit('resetAllElevations')">
             <RotateCcw :size="13" />
             <span>恢复所有航迹高度</span>
           </button>
@@ -276,6 +333,78 @@ const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
 const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
 const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
+
+// File-level overrides
+import { useFileLineColor } from '../../composables/useFileLineColor'
+import { useFileLineWidth } from '../../composables/useFileLineWidth'
+import { useFileDotScale } from '../../composables/useFileDotScale'
+import { setFileElevation, resetFileElevation, getFileElevationKm } from '../../composables/useTrackElevation'
+import { useTracks } from '../../composables/useTracks'
+import { getFileLabel } from '../../composables/useFileLabels'
+
+const { getEffectiveFileColor, setFileColor, resetFileColor, hasFileColor } = useFileLineColor()
+const { getEffectiveFileWidth, setFileWidth, resetFileWidth, hasFileWidth } = useFileLineWidth()
+const { getEffectiveFileScale, setFileScale, resetFileScale, hasFileScale } = useFileDotScale()
+const { tracks } = useTracks()
+
+interface FileInfo { fileName: string; displayLabel: string; count: number }
+
+function getFilesForSrc(src: DataSource): FileInfo[] {
+  const map = new Map<string, number>()
+  for (const t of tracks.value) {
+    if (t.source === src) {
+      const fn = t.fileName || ''
+      map.set(fn, (map.get(fn) || 0) + 1)
+    }
+  }
+  return Array.from(map.entries()).map(([fileName, count]) => ({ fileName, displayLabel: getFileLabel(src, fileName), count }))
+}
+
+/** Which sources have file sub-items expanded */
+const expandedSources = ref<Set<string>>(new Set())
+function toggleSrcExpanded(src: string) {
+  const n = new Set(expandedSources.value)
+  if (n.has(src)) { n.delete(src) } else { n.add(src) }
+  expandedSources.value = n
+}
+
+// File-level handlers
+function fileEffectiveColor(src: DataSource, fn: string): string {
+  return getEffectiveFileColor(src, fn)
+}
+function onFileColorChange(src: DataSource, fn: string, hex: string) {
+  setFileColor(src, fn, hex)
+}
+function onFileResetColor(src: DataSource, fn: string) {
+  resetFileColor(src, fn)
+}
+
+function fileEffectiveWidth(src: DataSource, fn: string): number {
+  return getEffectiveFileWidth(src, fn)
+}
+function onFileWidthChange(src: DataSource, fn: string, v: number) {
+  setFileWidth(src, fn, v)
+}
+function onFileResetWidth(src: DataSource, fn: string) {
+  resetFileWidth(src, fn)
+}
+
+function fileEffectiveScale(src: DataSource, fn: string, srcScale: number): number {
+  return getEffectiveFileScale(src, fn, srcScale)
+}
+function onFileScaleChange(src: DataSource, fn: string, v: number) {
+  setFileScale(src, fn, v)
+}
+function onFileResetScale(src: DataSource, fn: string) {
+  resetFileScale(src, fn)
+}
+
+function onFileElevationChange(src: DataSource, fn: string, km: number) {
+  setFileElevation(src, fn, km, tracks.value)
+}
+function onResetFileElevation(src: DataSource, fn: string) {
+  resetFileElevation(src, fn, tracks.value)
+}
 
 const flagScaleVal = computed(() => flagScale.value)
 const fontSizeVal = computed(() => fontSize.value)
@@ -573,6 +702,15 @@ function onSourceElevationChange(src: DataSource, raw: string) {
   flex-shrink: 0;
 }
 
+/* ── File-level expand ── */
+.expand-arrow { width: 10px; flex-shrink: 0; cursor: pointer; display: flex; align-items: center; }
+.source-chevron { transition: transform 0.15s ease; color: var(--text-tertiary); }
+.source-chevron.collapsed { transform: rotate(-90deg); }
+.file-rows { padding-left: 0; }
+.file-row { padding-left: 4px; }
+.file-label { font-size: 0.714rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
+.row-label.file-label { width: auto; flex: 0 0 120px; }
+
 /* ── Toggle switch ── */
 .toggle-switch {
   position: relative;
@@ -665,5 +803,9 @@ function onSourceElevationChange(src: DataSource, raw: string) {
 
 .tools-grid .action-btn {
   justify-content: center;
+}
+
+.tools-grid .action-btn.full-width {
+  grid-column: 1 / -1;
 }
 </style>

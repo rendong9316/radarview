@@ -127,12 +127,15 @@ export function toCartesianArray(positions: TrackPoint[], trackKey?: string): Ce
   return Cesium.Cartesian3.fromDegreesArrayHeights(flat)
 }
 
-export function pointPrimSize(dotBase: number, source: string, dotScale: Record<DataSource, number>): number {
-  return POINT_PRIMITIVE_BASE * (dotBase / DOT_BASE) * (dotScale[source as DataSource] ?? 1.0)
+export function pointPrimSize(dotBase: number, source: string, dotScale: Record<string, number>, fileName?: string): number {
+  const fk = fileName ? `${source}::${fileName}` : ''
+  const scale = (fk && dotScale[fk] != null) ? dotScale[fk] : (dotScale[source] ?? 1.0)
+  return POINT_PRIMITIVE_BASE * (dotBase / DOT_BASE) * scale
 }
 
-export function baseWidth(source: DataSource, lineWidths: Record<DataSource, number>): number {
-  return lineWidths[source] ?? 2.0
+export function baseWidth(source: DataSource, lineWidths: Record<string, number>, fileName?: string): number {
+  const fk = fileName ? `${source}::${fileName}` : ''
+  return (fk && lineWidths[fk] != null) ? lineWidths[fk] : (lineWidths[source] ?? 2.0)
 }
 
 export function extractTrackKeyFromPolylineId(polylineId: string): string | null {
@@ -141,7 +144,8 @@ export function extractTrackKeyFromPolylineId(polylineId: string): string | null
   if (polylineId.startsWith('trail::')) return polylineId.slice('trail::'.length)
   if (polylineId.startsWith('pointdot::')) {
     const parts = polylineId.split('::')
-    return parts.length === 3 ? parts[1] : null
+    // pointdot::trackKey::index — trackKey may be 2-part or 3-part
+    return parts.length >= 4 ? parts.slice(1, -1).join('::') : null
   }
   return null
 }
@@ -153,19 +157,19 @@ export function extractTrackKeyFromPolylineId(polylineId: string): string | null
 export interface TrackState {
   selectedId: string | null
   replayTime: number | null
-  lineWidths: Record<DataSource, number>
-  dotScale: Record<DataSource, number>
+  lineWidths: Record<string, number>
+  dotScale: Record<string, number>
   visibility: Record<string, boolean>
   showLabels: boolean
-  getLineColor: (source: DataSource) => Cesium.Color
+  getLineColor: (source: DataSource, fileName?: string) => Cesium.Color
 }
 
 export function createTrackEntities(track: Track, state: TrackState) {
   if (!ctx?.viewer || track.positions.length === 0) return
   if (!ctx.trackLabels) return
 
-  const color = state.getLineColor(track.source)
-  const tKey = trackKey(track.id, track.source)
+  const color = state.getLineColor(track.source, track.fileName)
+  const tKey = trackKey(track.id, track.source, track.fileName)
   const isSelected = tKey === state.selectedId
   const isRaw = track.source === 'radar_raw'
   const replaying = state.replayTime !== null
@@ -175,11 +179,11 @@ export function createTrackEntities(track: Track, state: TrackState) {
   // Entity API: main polyline
   let entity: Cesium.Entity | undefined
   if (track.positions.length >= 2) {
-    const width = isSelected ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths)
+    const width = isSelected ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths, track.fileName)
     const alpha = isSelected ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA
     entity = ctx.viewer.entities.add({
       id: tKey,
-      show: !replaying && state.visibility[track.source] !== false,
+      show: !replaying && state.visibility[track.source] !== false && state.visibility[`${track.source}::${track.fileName}`] !== false,
       polyline: {
         positions: replaying ? [] : toCartesianArray(track.positions, tKey),
         width,
@@ -204,14 +208,14 @@ export function createTrackEntities(track: Track, state: TrackState) {
       id: tKey,
       position: lastPos,
       color: color,
-      pixelSize: pointPrimSize(base, track.source, state.dotScale),
+      pixelSize: pointPrimSize(base, track.source, state.dotScale, track.fileName),
     })
   }
 
   // Label in LabelCollection
   const lbl = ctx.trackLabels.add({
     id: `${tKey}::dot`,
-    show: state.visibility[track.source] !== false,
+    show: state.visibility[track.source] !== false && state.visibility[`${track.source}::${track.fileName}`] !== false,
     position: lastPos,
     text: state.showLabels ? (label || track.id) : '',
     font: state.showLabels ? LABEL_FONT_LARGE : LABEL_FONT_BASE,
@@ -225,7 +229,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
 
   entityMap.set(tKey, {
     entity, trailLine: undefined, label: lbl, pointPrimitive,
-    source: track.source, labelText: label || track.id, trailRef,
+    source: track.source, fileName: track.fileName, labelText: label || track.id, trailRef,
     trailPositions: [],
     lastTrailLo: track.positions.length - 1,
     cachedPositions: toCartesianArray(track.positions, tKey),
@@ -277,7 +281,8 @@ export function reapplyVisibility(
 ) {
   const replaying = replayTime !== null
   for (const [, entities] of entityMap) {
-    const vis = visibility[entities.source]
+    const fileKey = `${entities.source}::${entities.fileName}`
+    const vis = visibility[entities.source] !== false && visibility[fileKey] !== false
     if (entities.entity) entities.entity.show = replaying ? false : vis
     if (entities.trailLine) entities.trailLine.show = vis
     if (entities.label) entities.label.show = vis
@@ -296,7 +301,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
   try {
     ctx.viewer.entities.suspendEvents()
 
-    const keepIds = new Set(newTracks.map((t) => trackKey(t.id, t.source)))
+    const keepIds = new Set(newTracks.map((t) => trackKey(t.id, t.source, t.fileName)))
     const oldIds = Array.from(entityMap.keys())
 
     // Remove entities for tracks no longer in display list
@@ -308,7 +313,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
 
     // Add or update entities
     for (const track of newTracks) {
-      const tKey = trackKey(track.id, track.source)
+      const tKey = trackKey(track.id, track.source, track.fileName)
       const existing = entityMap.get(tKey)
       if (!existing) {
         createTrackEntities(track, state)
@@ -322,7 +327,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
       if (!replaying) {
         existing.lastTrailLo = track.positions.length - 1
       }
-      const vis = state.visibility[track.source] !== false
+      const vis = state.visibility[track.source] !== false && state.visibility[`${track.source}::${track.fileName}`] !== false
 
       if (existing.entity) {
         if (hasEnoughPoints) {
@@ -336,15 +341,15 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
             existing.entity.show = vis
           }
           if (existing.entity.polyline) {
-            (existing.entity.polyline as any).width = tSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths)
-            const color = state.getLineColor(track.source)
+            (existing.entity.polyline as any).width = tSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths, track.fileName)
+            const color = state.getLineColor(track.source, track.fileName)
             existing.entity.polyline.material = color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA) as any
           }
         } else {
           existing.entity.show = false
         }
       } else if (hasEnoughPoints) {
-        const color = state.getLineColor(track.source)
+        const color = state.getLineColor(track.source, track.fileName)
         if (!replaying) {
           const pos = toCartesianArray(track.positions, tKey)
           existing.trailRef.positions = pos
@@ -355,7 +360,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
           show: vis,
           polyline: {
             positions: existing.trailRef.positions,
-            width: tSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths),
+            width: tSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths, track.fileName),
             material: color.withAlpha(tSel ? SELECTED_ALPHA : isRaw ? RAW_ALPHA : NORMAL_ALPHA),
             clampToGround: false,
           },
@@ -469,7 +474,7 @@ export function updateReplayPositions(
   let diagTrailNoCache = 0
 
   for (const track of tracks) {
-    const tKey = trackKey(track.id, track.source)
+    const tKey = trackKey(track.id, track.source, track.fileName)
     const entities = entityMap.get(tKey)
     if (!entities || track.positions.length === 0) continue
 
@@ -503,7 +508,7 @@ export function updateReplayPositions(
       continue
     }
 
-    const vis = state.visibility[entities.source] !== false
+    const vis = state.visibility[entities.source] !== false && state.visibility[`${entities.source}::${entities.fileName}`] !== false
 
     // Interpolate current position
     const dt = pts[hi].timestamp - pts[lo].timestamp
@@ -556,14 +561,14 @@ export function updateReplayPositions(
         entities.trailLine.show = cache.length >= 2 && vis
         diagTrailUpdated++
       } else if (cache.length >= 2) {
-        const color = state.getLineColor(track.source)
+        const color = state.getLineColor(track.source, track.fileName)
         const isSel = tKey === state.selectedId
         const isRaw = track.source === 'radar_raw'
         entities.trailLine = ctx.trackLines!.add({
           id: `trail::${tKey}`,
           show: vis,
           positions: cache,
-          width: isSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths),
+          width: isSel ? SELECTED_WIDTH : baseWidth(track.source, state.lineWidths, track.fileName),
           material: Cesium.Material.fromType('Color', {
             color: color.withAlpha(isSel ? SELECTED_ALPHA : (isRaw ? RAW_ALPHA : NORMAL_ALPHA)),
           }),
@@ -649,14 +654,14 @@ export function applyHoverHighlight(
   }
 
   if (entry.pointPrimitive) {
-    entry.pointPrimitive.pixelSize = pointPrimSize(DOT_HOVER, entry.source, state.dotScale)
+    entry.pointPrimitive.pixelSize = pointPrimSize(DOT_HOVER, entry.source, state.dotScale, entry.fileName)
     entry.pointPrimitive.color = HOVER_COLOR
   }
 }
 
 export function removeHoverHighlight(
   previousSelectedId: string | null,
-  getLineColor: (source: DataSource) => Cesium.Color,
+  getLineColor: (source: DataSource, fileName?: string) => Cesium.Color,
   state: { dotScale: Record<DataSource, number> },
 ) {
   if (ctx?.activeOverlayLine) {
@@ -670,8 +675,9 @@ export function removeHoverHighlight(
       isSelected ? DOT_SELECTED : entry.source === 'radar_raw' ? DOT_RAW : DOT_BASE,
       entry.source,
       state.dotScale,
+      entry.fileName,
     )
-    entry.pointPrimitive.color = getLineColor(entry.source as DataSource)
+    entry.pointPrimitive.color = getLineColor(entry.source as DataSource, entry.fileName)
   }
   hoveredTrackId = null
 }
@@ -722,7 +728,7 @@ export function onReplayStart(
   pointDotLastLo: Map<string, number>,
 ) {
   for (const track of tracks) {
-    const entities = entityMap.get(trackKey(track.id, track.source))
+    const entities = entityMap.get(trackKey(track.id, track.source, track.fileName))
     if (!entities || track.positions.length === 0) continue
     if (entities.entity) entities.entity.show = false
     if (entities.trailLine) {
@@ -733,7 +739,7 @@ export function onReplayStart(
 
     // Reposition ball & label to track start (first position)
     const first = track.positions[0]
-    const firstPos = Cesium.Cartesian3.fromDegrees(first.longitude, first.latitude, getEffectiveAltitude(trackKey(track.id, track.source)))
+    const firstPos = Cesium.Cartesian3.fromDegrees(first.longitude, first.latitude, getEffectiveAltitude(trackKey(track.id, track.source, track.fileName)))
     if (entities.label) entities.label.position = firstPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = firstPos
   }
@@ -752,18 +758,18 @@ export function onReplayStop(
   pointDotLastLo: Map<string, number>,
 ) {
   for (const track of tracks) {
-    const entities = entityMap.get(trackKey(track.id, track.source))
+    const entities = entityMap.get(trackKey(track.id, track.source, track.fileName))
     if (!entities || track.positions.length === 0) continue
     if (entities.trailLine) {
       removeTrailLine(entities.trailLine)
       entities.trailLine = undefined
     }
     if (entities.entity) {
-      entities.entity.show = state.visibility[entities.source] !== false
+      entities.entity.show = state.visibility[entities.source] !== false && state.visibility[`${entities.source}::${entities.fileName}`] !== false
     }
     // Label & dot to last position
     const last = track.positions[track.positions.length - 1]
-    const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, getEffectiveAltitude(trackKey(track.id, track.source)))
+    const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, getEffectiveAltitude(trackKey(track.id, track.source, track.fileName)))
     if (entities.label) entities.label.position = lastPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = lastPos
   }

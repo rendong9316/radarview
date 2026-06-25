@@ -23,9 +23,13 @@ const elevationOffsets = new Map<string, number>()
 /** DataSource → 数据源级期望偏移量（米），用于 UI 显示和批量应用。reactive 以保证 Vue computed 能追踪变化。 */
 const sourceElevationOffsets = reactive<Partial<Record<DataSource, number>>>({})
 
+/** "source::fileName" → 文件级偏移量（km），用于 UI 显示。reactive 以保证 Vue watcher 能追踪变化。 */
+export const fileElevationKm = reactive<Record<string, number>>({})
+
 /** 持久化 key */
 const SETTINGS_KEY = 'elevation.offsets'
 const SOURCE_SETTINGS_KEY = 'elevation.source_offsets'
+const FILE_SETTINGS_KEY = 'elevation.file_offsets'
 
 // ═══════════════════════════════════════════
 // 持久化辅助
@@ -38,6 +42,12 @@ function _persist() {
     scheduleSave(SOURCE_SETTINGS_KEY, JSON.stringify(
       Object.keys(sourceElevationOffsets).length === 0 ? null : sourceElevationOffsets,
     ))
+    // Persist file-level elevation as plain object (strip reactive proxy)
+    const fileObj: Record<string, number> = {}
+    for (const k of Object.keys(fileElevationKm)) {
+      if (fileElevationKm[k] > 0) fileObj[k] = fileElevationKm[k]
+    }
+    scheduleSave(FILE_SETTINGS_KEY, JSON.stringify(Object.keys(fileObj).length === 0 ? null : fileObj))
   })
 }
 
@@ -105,7 +115,7 @@ export function setSourceElevation(source: DataSource, offsetKm: number, tracks:
   }
   for (const t of tracks) {
     if (t.source === source) {
-      setElevationOffset_internal(trackKey(t.id, t.source), offsetMeters)
+      setElevationOffset_internal(trackKey(t.id, t.source, t.fileName), offsetMeters)
     }
   }
   _persist()
@@ -114,9 +124,14 @@ export function setSourceElevation(source: DataSource, offsetKm: number, tracks:
 /** 重置某数据源所有航迹的偏移量为 0 */
 export function resetSourceElevation(source: DataSource, tracks: Track[]): void {
   delete sourceElevationOffsets[source]
+  // Also clear all file-level elevations under this source
+  const prefix = `${source}::`
+  for (const k of Object.keys(fileElevationKm)) {
+    if (k.startsWith(prefix)) delete fileElevationKm[k]
+  }
   for (const t of tracks) {
     if (t.source === source) {
-      resetElevation_internal(trackKey(t.id, t.source))
+      resetElevation_internal(trackKey(t.id, t.source, t.fileName))
     }
   }
   _persist()
@@ -126,9 +141,50 @@ export function resetSourceElevation(source: DataSource, tracks: Track[]): void 
 export function applySourceOffsetToTrack(track: Track): void {
   const offsetMeters = sourceElevationOffsets[track.source]
   if (offsetMeters !== undefined && offsetMeters > 0) {
-    setElevationOffset_internal(trackKey(track.id, track.source), offsetMeters)
+    setElevationOffset_internal(trackKey(track.id, track.source, track.fileName), offsetMeters)
     _persist()
   }
+}
+
+/** 批量设置某文件所有航迹的偏移量（km）。传入 tracks 数组以定位。 */
+export function setFileElevation(source: DataSource, fileName: string, offsetKm: number, tracks: Track[]): void {
+  const offsetMeters = Math.max(0, offsetKm * 1000)
+  const fileKey = `${source}::${fileName}`
+  // Track file-level offset for UI display & reactivity
+  if (offsetKm === 0) {
+    delete fileElevationKm[fileKey]
+  } else {
+    fileElevationKm[fileKey] = offsetKm
+  }
+  for (const t of tracks) {
+    if (t.source === source && t.fileName === fileName) {
+      setElevationOffset_internal(trackKey(t.id, t.source, t.fileName), offsetMeters)
+    }
+  }
+  _persist()
+}
+
+/** 重置某文件所有航迹的偏移量为 0 */
+export function resetFileElevation(source: DataSource, fileName: string, tracks: Track[]): void {
+  const fileKey = `${source}::${fileName}`
+  delete fileElevationKm[fileKey]
+  for (const t of tracks) {
+    if (t.source === source && t.fileName === fileName) {
+      resetElevation_internal(trackKey(t.id, t.source, t.fileName))
+    }
+  }
+  _persist()
+}
+
+/** 查询文件级偏移量（km），用于 UI 显示 */
+export function getFileElevationKm(source: DataSource, fileName: string): number {
+  return fileElevationKm[`${source}::${fileName}`] ?? 0
+}
+
+/** 清除所有文件级偏移记录（不处理逐航迹偏移） */
+export function clearAllFileElevations(): void {
+  for (const k of Object.keys(fileElevationKm)) delete fileElevationKm[k]
+  _persist()
 }
 
 // ═══════════════════════════════════════════
@@ -180,6 +236,21 @@ export function loadElevationOffsets(raw: Record<string, string>) {
         for (const [key, val] of Object.entries(parsed)) {
           if (typeof val === 'number' && val > 0) {
             sourceElevationOffsets[key as DataSource] = val
+          }
+        }
+      }
+    } catch { /* keep empty map on parse error */ }
+  }
+  // 恢复文件级偏移
+  const fileRaw = raw[FILE_SETTINGS_KEY]
+  if (fileRaw !== undefined) {
+    try {
+      const parsed = JSON.parse(fileRaw)
+      for (const k of Object.keys(fileElevationKm)) delete fileElevationKm[k]
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const [key, val] of Object.entries(parsed)) {
+          if (typeof val === 'number' && val > 0) {
+            fileElevationKm[key] = val
           }
         }
       }

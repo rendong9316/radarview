@@ -4,6 +4,7 @@
 
 import { ref, computed, watch, type Ref, onUnmounted } from 'vue'
 import type { Track, TrackPoint } from '../types/track'
+import { trackKey } from './useTracks'
 
 export interface ReplayPosition {
   point: TrackPoint | null
@@ -206,7 +207,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
         worker.postMessage({
           type: 'init',
           tracks: serializedTracks,
-          trackKeys: tracks.value.map(t => `${t.id}::${t.source}`),
+          trackKeys: tracks.value.map(t => trackKey(t.id, t.source, t.fileName)),
           flatAltitude: 10000
         })
 
@@ -267,7 +268,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
       const point = interpolatePosition(pos, track.positions)
       if (point) {
         results.push({
-          key: `${track.id}::${track.source}`,
+          key: trackKey(track.id, track.source, track.fileName),
           lo: pos.index,
           lat: point.latitude,
           lng: point.longitude,
@@ -315,7 +316,7 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
     // 将 Worker 结果转换为 TrackPoint
     const trackMap = new Map<string, Track>()
     for (const track of tracks.value) {
-      trackMap.set(`${track.id}::${track.source}`, track)
+      trackMap.set(trackKey(track.id, track.source, track.fileName), track)
     }
 
     for (const wr of workerResults) {

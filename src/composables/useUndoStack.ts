@@ -14,6 +14,8 @@ export interface UndoItem {
   dbKey: string
   /** icao+frontendSource key for useTracks visible set restore */
   trKey: string
+  /** File name for per-file delete tracking */
+  fileName?: string
   /** Row metadata for table display (may be unavailable for map-context deletes) */
   row?: TrackMetaInfo
 }

@@ -128,7 +128,7 @@ function rebuildTrackLayerData() {
   const replayTime = props.replayTime
   for (const track of props.tracks) {
     if (track.positions.length < 2) continue
-    const tKey = trackKey(track.id, track.source); const color = getLineColor(track.source)
+    const tKey = trackKey(track.id, track.source, track.fileName); const color = getLineColor(track.source)
     const isSelected = tKey === props.selectedId; const isHovered = hoveredTrackId === tKey
     let visiblePositions = track.positions
     if (replayTime !== null) {

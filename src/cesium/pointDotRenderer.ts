@@ -94,7 +94,7 @@ export function rebuildPointDotsForTrack(
   // Remove existing dots for this track
   removePointDotsForTrack(trackId)
 
-  const track = tracks.find(t => trackKey(t.id, t.source) === trackId)
+  const track = tracks.find(t => trackKey(t.id, t.source, t.fileName) === trackId)
   if (!track || track.positions.length === 0) return
 
   const color = Cesium.Color.fromCssColorString(getColor(track.source))
@@ -189,7 +189,7 @@ export function syncGlobalPointDots(
 ) {
   if (!ctx?.viewer || !ctx.pointDotsCollection) return
 
-  const activeTracks = new Map(tracks.map(t => [trackKey(t.id, t.source), t]))
+  const activeTracks = new Map(tracks.map(t => [trackKey(t.id, t.source, t.fileName), t]))
   const currentKeys = new Set(pointDotEntityMap.keys())
 
   // Remove dots for tracks that no longer exist or should be hidden
@@ -208,7 +208,7 @@ export function syncGlobalPointDots(
   // Add dots for tracks that should be showing but aren't yet
   if (showAllPointDots) {
     for (const track of tracks) {
-      const tKey = trackKey(track.id, track.source)
+      const tKey = trackKey(track.id, track.source, track.fileName)
       if (globalHiddenTrackKeys.has(tKey)) continue
       if (pointDotEntityMap.has(tKey)) continue
       rebuildPointDotsForTrack(tKey, tracks, getColor, dotPixelSize)
@@ -238,7 +238,7 @@ export function refreshPointDotColors(
   getColor: (source: DataSource) => string,
 ) {
   for (const [tKey, primitives] of pointDotEntityMap) {
-    const track = tracks.find(t => trackKey(t.id, t.source) === tKey)
+    const track = tracks.find(t => trackKey(t.id, t.source, t.fileName) === tKey)
     if (!track) continue
     const color = Cesium.Color.fromCssColorString(getColor(track.source))
     for (const prim of primitives) {
@@ -258,6 +258,22 @@ export function refreshPointDotSizes(dotPixelSize: number) {
   ctx?.viewer?.scene.requestRender()
 }
 
+/** Refresh positions of all existing point dots to reflect current elevation offsets */
+export function refreshPointDotPositions(tracks: Track[]) {
+  for (const [trackId, primitives] of pointDotEntityMap) {
+    const track = tracks.find(t => trackKey(t.id, t.source, t.fileName) === trackId)
+    if (!track) continue
+    const alt = getEffectiveAltitude(trackId)
+    for (let i = 0; i < primitives.length && i < track.positions.length; i++) {
+      const p = track.positions[i]
+      primitives[i].position = Cesium.Cartesian3.fromDegrees(
+        Number(p.longitude), Number(p.latitude), alt,
+      )
+    }
+  }
+  ctx?.viewer?.scene.requestRender()
+}
+
 // ═══════════════════════════════════════════
 // 点迹悬停标签
 // ═══════════════════════════════════════════
@@ -269,7 +285,7 @@ export function showPointDotHover(
   dotPixelSize: number,
 ) {
   if (!ctx?.viewer) return
-  const track = tracks.find(t => trackKey(t.id, t.source) === trackId)
+  const track = tracks.find(t => trackKey(t.id, t.source, t.fileName) === trackId)
   if (!track || pointIndex >= track.positions.length) return
 
   const pt = track.positions[pointIndex]

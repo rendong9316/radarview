@@ -25,6 +25,8 @@ export interface Track {
   id: string
   /** 数据来源 */
   source: DataSource
+  /** 导入文件名，用于区分同一数据源的不同文件 */
+  fileName: string
   /** 航迹点列表（按时间排序） */
   positions: TrackPoint[]
   /** 航迹最小时间戳（毫秒），从 positions[0].timestamp 提取 */

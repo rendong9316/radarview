@@ -85,12 +85,12 @@
         v-for="s in sources"
         :key="s.key"
         class="status-source"
-        :title="`点击切换 ${s.label} 可见性`"
+        :title="(s as any).fileCount > 1 ? `${s.label}: ${s.count} 条航迹 (${(s as any).fileCount} 个文件) — 点击切换` : `点击切换 ${s.label} 可见性`"
         :aria-label="`切换 ${s.label} 可见性`"
         @click="$emit('toggleSource', s.key)"
       >
         <span class="source-dot" :style="{ background: `var(--source-${s.key})` }" :class="{ off: !s.visible }" />
-        {{ s.label }}:{{ s.count }}
+        {{ s.label }}:{{ s.count }}<span v-if="(s as any).fileCount > 1" class="file-count-hint">/{{ (s as any).fileCount }}f</span>
       </button>
 
       <!-- Track count -->
@@ -387,6 +387,12 @@ onUnmounted(() => {
 }
 .source-dot.off {
   opacity: 0.3;
+}
+
+.file-count-hint {
+  font-size: 0.643rem;
+  color: var(--text-tertiary);
+  margin-left: 1px;
 }
 
 .status-view {
