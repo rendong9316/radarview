@@ -6,18 +6,30 @@
  * 模块级单例，所有组件共享。持久化到 SQLite。
  */
 
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import type { DataSource } from '../types/track'
 
 // ═══════════════════════════════════════════
-// 模块级状态
+// 模块级状态（单例）
 // ═══════════════════════════════════════════
 
 /** key = "source::fileName", value = visible (default true) */
 const fileVisibility = ref<Record<string, boolean>>({})
-
-/** 持久化 key */
 const SETTINGS_KEY = 'display.file_visible'
+
+// ═══════════════════════════════════════════
+// 模块级持久化 watcher（仅创建一次）
+// ═══════════════════════════════════════════
+
+watch(fileVisibility, () => {
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    scheduleSave(SETTINGS_KEY, JSON.stringify(fileVisibility.value))
+  })
+}, { deep: true, immediate: false })
+
+// ═══════════════════════════════════════════
+// 持久化加载
+// ═══════════════════════════════════════════
 
 /** 从持久化数据恢复（由 useSettingsPersistence 在启动时调用） */
 export function loadFileVisibility(raw: Record<string, string>) {
@@ -33,7 +45,7 @@ export function loadFileVisibility(raw: Record<string, string>) {
 }
 
 // ═══════════════════════════════════════════
-// 公开 API
+// 公开 API（工厂函数，无副作用）
 // ═══════════════════════════════════════════
 
 export function useFileVisibility() {
@@ -47,7 +59,6 @@ export function useFileVisibility() {
   function setFileVisible(source: DataSource, fileName: string, visible: boolean) {
     const key = `${source}::${fileName}`
     fileVisibility.value = { ...fileVisibility.value, [key]: visible }
-    _persist()
   }
 
   /** 获取某数据源下所有文件及其可见性 */
@@ -61,16 +72,6 @@ export function useFileVisibility() {
   /** 获取原始可见性 Map（供渲染器使用） */
   function getVisibilityMap(): Record<string, boolean> {
     return { ...fileVisibility.value }
-  }
-
-  // ═══════════════════════════════════════════
-  // 持久化
-  // ═══════════════════════════════════════════
-
-  function _persist() {
-    import('./useSettingsPersistence').then(({ scheduleSave }) => {
-      scheduleSave(SETTINGS_KEY, JSON.stringify(fileVisibility.value))
-    })
   }
 
   return { fileVisibility, isFileVisible, setFileVisible, getFilesForSource, getVisibilityMap }

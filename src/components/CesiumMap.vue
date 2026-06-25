@@ -335,7 +335,7 @@ function buildInteractionCallbacks(): Interaction.InteractionCallbacks {
     setHoveredPointDotId: (id) => DotR.setHoveredPointDotId(id),
     checkPointDotHit: (trackId, pos) => DotR.checkPointDotHit(trackId, pos, pointDotPixelSize),
     applyHoverHighlight: (id) => TrackR.applyHoverHighlight(id, { dotScale: props.dotScale, lineWidths: props.lineWidths }),
-    removeHoverHighlight: () => TrackR.removeHoverHighlight(previousSelectedId, getLineColor, { dotScale: props.dotScale }),
+    removeHoverHighlight: () => TrackR.removeHoverHighlight(previousSelectedId, buildTrackState().getLineColor, { dotScale: props.dotScale }),
     getHoveredTrackId: () => TrackR.getHoveredTrackId(),
     setHoveredTrackId: (id) => TrackR.setHoveredTrackId(id),
     hasEntity: (key) => TrackR.getEntityMap().has(key),
@@ -952,7 +952,7 @@ watch(
       }
       TrackR.updateReplayPositions(
         time, props.tracks,
-        { selectedId: props.selectedId, lineWidths: props.lineWidths, visibility: { ...visibility.value }, getLineColor },
+        { selectedId: props.selectedId, lineWidths: props.lineWidths, visibility: { ...visibility.value }, getLineColor: buildTrackState().getLineColor },
         DotR.getEntityMap_mutable(),
         DotR.getLastLo() as Map<string, number>,
       )

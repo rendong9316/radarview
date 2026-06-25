@@ -361,12 +361,31 @@ function getFilesForSrc(src: DataSource): FileInfo[] {
 }
 
 /** Which sources have file sub-items expanded */
+const EXPANDED_SOURCES_KEY = 'settings.expanded_sources'
 const expandedSources = ref<Set<string>>(new Set())
+
+function loadExpandedSourcesState() {
+  const raw = getRawSetting(EXPANDED_SOURCES_KEY)
+  if (raw) {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        expandedSources.value = new Set(arr)
+      }
+    } catch { /* keep default (all collapsed) */ }
+  }
+}
+
 function toggleSrcExpanded(src: string) {
   const n = new Set(expandedSources.value)
   if (n.has(src)) { n.delete(src) } else { n.add(src) }
   expandedSources.value = n
 }
+
+// Persist expanded sources on change
+watch(expandedSources, (val) => {
+  scheduleSave(EXPANDED_SOURCES_KEY, JSON.stringify([...val]))
+}, { deep: true })
 
 // File-level handlers
 function fileEffectiveColor(src: DataSource, fn: string): string {
@@ -448,6 +467,7 @@ watch(collapsedSections, (val) => {
 
 onMounted(() => {
   loadCollapsedState()
+  loadExpandedSourcesState()
 })
 
 function effectiveColor(src: DataSource): string {

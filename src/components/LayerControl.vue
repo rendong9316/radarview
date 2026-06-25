@@ -290,7 +290,20 @@ const {
 } = useCityLayer()
 
 /** Which sources have their file sub-list expanded */
+const EXPANDED_SOURCES_KEY = 'layers.expanded_sources'
 const expandedSources = ref<Set<string>>(new Set())
+
+function loadExpandedSourcesState() {
+  const raw = getRawSetting(EXPANDED_SOURCES_KEY)
+  if (raw) {
+    try {
+      const arr = JSON.parse(raw)
+      if (Array.isArray(arr)) {
+        expandedSources.value = new Set(arr)
+      }
+    } catch { /* keep default (all collapsed) */ }
+  }
+}
 
 function toggleSourceExpanded(src: string) {
   const next = new Set(expandedSources.value)
@@ -298,6 +311,10 @@ function toggleSourceExpanded(src: string) {
   else next.add(src)
   expandedSources.value = next
 }
+
+watch(expandedSources, (val) => {
+  scheduleSave(EXPANDED_SOURCES_KEY, JSON.stringify([...val]))
+}, { deep: true })
 
 interface LayerItem {
   source: DataSource
@@ -392,6 +409,7 @@ watch(collapsedSections, (val) => {
 
 onMounted(() => {
   loadCollapsedState()
+  loadExpandedSourcesState()
 })
 </script>
 

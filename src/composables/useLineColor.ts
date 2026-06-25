@@ -36,12 +36,21 @@ export function getThemeColor(source: DataSource): string {
   return raw || fallbackColors[source]
 }
 
-export function useLineColor() {
-  /** Get the effective hex color: custom if set, otherwise theme default. */
-  function getEffectiveHex(source: DataSource): string {
-    return lineColors[source] || getThemeColor(source)
-  }
+/** Get the effective hex color: custom if set, otherwise theme default. (Standalone, no factory needed) */
+export function getEffectiveHex(source: DataSource): string {
+  return lineColors[source] || getThemeColor(source)
+}
 
+// ── Module-level persistence watcher (created ONCE) ──
+watch(lineColors, () => {
+  import('./useSettingsPersistence').then(({ scheduleSave }) => {
+    for (const [src, v] of Object.entries(lineColors)) {
+      scheduleSave(`display.line_color.${src}`, JSON.stringify(v))
+    }
+  })
+}, { deep: true, immediate: false })
+
+export function useLineColor() {
   /** Set a custom line color for a source. Pass null to reset to theme default. */
   function setLineColor(source: DataSource, hex: string | null) {
     lineColors[source] = hex
@@ -51,15 +60,6 @@ export function useLineColor() {
   function hasCustomColor(source: DataSource): boolean {
     return lineColors[source] !== null
   }
-
-  // Persist line color changes
-  watch(lineColors, () => {
-    import('./useSettingsPersistence').then(({ scheduleSave }) => {
-      for (const [src, v] of Object.entries(lineColors)) {
-        scheduleSave(`display.line_color.${src}`, JSON.stringify(v))
-      }
-    })
-  }, { deep: true, immediate: false })
 
   return { lineColors, getEffectiveHex, setLineColor, hasCustomColor }
 }
