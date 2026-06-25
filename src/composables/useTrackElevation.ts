@@ -8,7 +8,10 @@
  *   import { getEffectiveAltitude, setElevationOffset, resetElevation } from '../composables/useTrackElevation'
  */
 
+import { reactive } from 'vue'
 import { FLAT_ALTITUDE } from '../cesium/types'
+import type { DataSource, Track } from '../types/track'
+import { trackKey } from './useTracks'
 
 // ═══════════════════════════════════════════
 // 模块级状态
@@ -17,8 +20,12 @@ import { FLAT_ALTITUDE } from '../cesium/types'
 /** trackKey → 高度偏移量（米），≥ 0。不存在的 key 视为偏移 0。 */
 const elevationOffsets = new Map<string, number>()
 
+/** DataSource → 数据源级期望偏移量（米），用于 UI 显示和批量应用。reactive 以保证 Vue computed 能追踪变化。 */
+const sourceElevationOffsets = reactive<Partial<Record<DataSource, number>>>({})
+
 /** 持久化 key */
 const SETTINGS_KEY = 'elevation.offsets'
+const SOURCE_SETTINGS_KEY = 'elevation.source_offsets'
 
 // ═══════════════════════════════════════════
 // 持久化辅助
@@ -27,11 +34,10 @@ const SETTINGS_KEY = 'elevation.offsets'
 function _persist() {
   import('./useSettingsPersistence').then(({ scheduleSave }) => {
     const entries = Array.from(elevationOffsets.entries())
-    if (entries.length === 0) {
-      scheduleSave(SETTINGS_KEY, JSON.stringify(null))
-    } else {
-      scheduleSave(SETTINGS_KEY, JSON.stringify(entries))
-    }
+    scheduleSave(SETTINGS_KEY, JSON.stringify(entries.length === 0 ? null : entries))
+    scheduleSave(SOURCE_SETTINGS_KEY, JSON.stringify(
+      Object.keys(sourceElevationOffsets).length === 0 ? null : sourceElevationOffsets,
+    ))
   })
 }
 
@@ -83,23 +89,100 @@ export function hasElevationOffset(trackKey: string): boolean {
   return getElevationOffset(trackKey) > 0
 }
 
+/** 查询数据源级期望偏移量（km），用于 UI 展示 */
+export function getSourceElevationKm(source: DataSource): number {
+  const m = sourceElevationOffsets[source]
+  return m !== undefined ? m / 1000 : 0
+}
+
+/** 批量设置某数据源所有航迹的偏移量（km）。传入 tracks 数组以定位当前航迹。 */
+export function setSourceElevation(source: DataSource, offsetKm: number, tracks: Track[]): void {
+  const offsetMeters = Math.max(0, offsetKm * 1000)
+  if (offsetMeters === 0) {
+    delete sourceElevationOffsets[source]
+  } else {
+    sourceElevationOffsets[source] = offsetMeters
+  }
+  for (const t of tracks) {
+    if (t.source === source) {
+      setElevationOffset_internal(trackKey(t.id, t.source), offsetMeters)
+    }
+  }
+  _persist()
+}
+
+/** 重置某数据源所有航迹的偏移量为 0 */
+export function resetSourceElevation(source: DataSource, tracks: Track[]): void {
+  delete sourceElevationOffsets[source]
+  for (const t of tracks) {
+    if (t.source === source) {
+      resetElevation_internal(trackKey(t.id, t.source))
+    }
+  }
+  _persist()
+}
+
+/** 对新导入的航迹自动应用其数据源的偏移量 */
+export function applySourceOffsetToTrack(track: Track): void {
+  const offsetMeters = sourceElevationOffsets[track.source]
+  if (offsetMeters !== undefined && offsetMeters > 0) {
+    setElevationOffset_internal(trackKey(track.id, track.source), offsetMeters)
+    _persist()
+  }
+}
+
+// ═══════════════════════════════════════════
+// 内部方法（不触发独立持久化，由调用方统一 _persist）
+// ═══════════════════════════════════════════
+
+function setElevationOffset_internal(trackKey: string, offsetMeters: number): void {
+  const clamped = Math.max(0, offsetMeters)
+  if (clamped === 0) {
+    elevationOffsets.delete(trackKey)
+  } else {
+    elevationOffsets.set(trackKey, clamped)
+  }
+}
+
+function resetElevation_internal(trackKey: string): void {
+  elevationOffsets.delete(trackKey)
+}
+
 /** 从持久化数据中恢复抬升偏移量（由 useSettingsPersistence 在启动时调用） */
 export function loadElevationOffsets(raw: Record<string, string>) {
+  // 恢复逐航迹偏移
   const rawVal = raw[SETTINGS_KEY]
-  if (rawVal === undefined) return
-  try {
-    const parsed = JSON.parse(rawVal)
-    if (parsed === null) {
-      elevationOffsets.clear()
-      return
-    }
-    if (!Array.isArray(parsed)) return
-    elevationOffsets.clear()
-    for (const entry of parsed) {
-      if (Array.isArray(entry) && entry.length === 2 &&
-          typeof entry[0] === 'string' && typeof entry[1] === 'number') {
-        elevationOffsets.set(entry[0], entry[1])
+  if (rawVal !== undefined) {
+    try {
+      const parsed = JSON.parse(rawVal)
+      if (parsed === null) {
+        elevationOffsets.clear()
+      } else if (Array.isArray(parsed)) {
+        elevationOffsets.clear()
+        for (const entry of parsed) {
+          if (Array.isArray(entry) && entry.length === 2 &&
+              typeof entry[0] === 'string' && typeof entry[1] === 'number') {
+            elevationOffsets.set(entry[0], entry[1])
+          }
+        }
       }
-    }
-  } catch { /* keep empty map on parse error */ }
+    } catch { /* keep empty map on parse error */ }
+  }
+  // 恢复数据源级偏移
+  const srcRaw = raw[SOURCE_SETTINGS_KEY]
+  if (srcRaw !== undefined) {
+    try {
+      const parsed = JSON.parse(srcRaw)
+      if (parsed === null) {
+        for (const k of Object.keys(sourceElevationOffsets)) delete sourceElevationOffsets[k as DataSource]
+      } else if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+        for (const k of Object.keys(sourceElevationOffsets)) delete sourceElevationOffsets[k as DataSource]
+        for (const [key, val] of Object.entries(parsed)) {
+          if (typeof val === 'number' && val > 0) {
+            sourceElevationOffsets[key as DataSource] = val
+          }
+        }
+      }
+    } catch { /* keep empty map on parse error */ }
+  }
 }

@@ -18,6 +18,7 @@
         :track-count="trackCount"
         :tile-sources="tileSources"
         :active-source="activeSource"
+        :source-elevations="sourceElevations"
         @isolate="onIsolateTrack"
         @clear-isolation="onClearIsolation"
         @time-filter-apply="onTimeFilterApply"
@@ -29,6 +30,8 @@
         @reset-view="handleResetView"
         @clear-all="onClear"
         @reset-all-elevations="onResetAllElevations"
+        @set-source-elevation="onSetSourceElevation"
+        @reset-source-elevation="onResetSourceElevation"
         @switch-tile-source="onSwitchTileSource"
       />
 
@@ -161,7 +164,7 @@ import { loadAllSettings, getRawSetting, flushSaves, scheduleSave } from './comp
 import { useTracks as useTracksModule } from './composables/useTracks'
 import { useRuler } from './composables/useRuler'
 import { useSpatialLasso } from './composables/useSpatialLasso'
-import { resetElevation } from './composables/useTrackElevation'
+import { resetElevation, getSourceElevationKm, setSourceElevation, resetSourceElevation, applySourceOffsetToTrack } from './composables/useTrackElevation'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -192,6 +195,12 @@ const confirmDialog = useConfirmDialog()
 const closeConfirmEnabled = ref(true)
 const ruler = useRuler()
 const lasso = useSpatialLasso()
+
+const sourceElevations = computed(() => ({
+  adsb: getSourceElevationKm('adsb'),
+  radar: getSourceElevationKm('radar'),
+  radar_raw: getSourceElevationKm('radar_raw'),
+}))
 
 // Replay speed is restored from settings in onMounted after loadAllSettings()
 
@@ -503,6 +512,7 @@ async function handleImportAdsb() {
     if (result.length) {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      autoApplySourceElevation(result)
       await restoreDeletedAndRefresh(result.map(t => t.id), 'ADS-B')
       await nextTick()
     }
@@ -518,6 +528,7 @@ async function handleImportRadar() {
     if (result.length) {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      autoApplySourceElevation(result)
       await restoreDeletedAndRefresh(result.map(t => t.id), 'Radar')
     }
     await refreshBatches()
@@ -532,6 +543,7 @@ async function handleImportRadarRaw() {
     if (result.length) {
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      autoApplySourceElevation(result)
       await restoreDeletedAndRefresh(result.map(t => t.id), 'RadarRaw')
     }
     await refreshBatches()
@@ -554,7 +566,11 @@ async function handleDeleteBatch(id: number) {
 async function handleLoadBatch(id: number) {
   try {
     const raw = await invoke('load_batch_tracks_cmd', { batchId: id }) as any[]
-    if (raw.length) addTracks(fromBackendTracks(raw))
+    if (raw.length) {
+      const loaded = fromBackendTracks(raw)
+      addTracks(loaded)
+      autoApplySourceElevation(loaded)
+    }
   } catch (e) { errorMsg.value = String(e) }
 }
 
@@ -606,7 +622,27 @@ function onResetAllElevations() {
   for (const t of tracks.value) {
     resetElevation(trackKey(t.id, t.source))
   }
+  for (const src of ['adsb', 'radar', 'radar_raw'] as DataSource[]) {
+    resetSourceElevation(src, [])
+  }
   mapRef.value?.refreshTracks()
+}
+
+function onSetSourceElevation(src: DataSource, km: number) {
+  setSourceElevation(src, km, tracks.value)
+  mapRef.value?.refreshTracks()
+}
+
+function onResetSourceElevation(src: DataSource) {
+  resetSourceElevation(src, tracks.value)
+  mapRef.value?.refreshTracks()
+}
+
+/** 对新导入的航迹自动应用其数据源的高度偏移 */
+function autoApplySourceElevation(newTracks: import('./types/track').Track[]) {
+  for (const t of newTracks) {
+    applySourceOffsetToTrack(t)
+  }
 }
 async function onSwitchTileSource(fileName: string) {
   await setActiveSource(fileName)

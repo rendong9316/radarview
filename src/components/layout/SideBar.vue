@@ -37,6 +37,7 @@
         :dot-scale="dotScale"
         :batch-count="batchCount"
         :track-count="trackCount"
+        :source-elevations="sourceElevations"
         @set-line-width="(src: DataSource, v: number) => emit('setLineWidth', src, v)"
         @set-dot-scale="(src: DataSource, v: number) => emit('setDotScale', src, v)"
         @toggle-batch-panel="emit('toggleBatchPanel')"
@@ -44,6 +45,8 @@
         @reset-view="emit('resetView')"
         @clear-all="emit('clearAll')"
         @reset-all-elevations="emit('resetAllElevations')"
+        @set-source-elevation="(src: DataSource, km: number) => emit('setSourceElevation', src, km)"
+        @reset-source-elevation="(src: DataSource) => emit('resetSourceElevation', src)"
       />
     </div>
 
@@ -77,6 +80,7 @@ defineProps<{
   trackCount: number
   tileSources: TileSourceInfo[]
   activeSource: string
+  sourceElevations: Record<string, number>
 }>()
 
 const emit = defineEmits<{
@@ -91,6 +95,8 @@ const emit = defineEmits<{
   resetView: []
   clearAll: []
   resetAllElevations: []
+  setSourceElevation: [src: DataSource, km: number]
+  resetSourceElevation: [src: DataSource]
   switchTileSource: [fileName: string]
 }>()
 

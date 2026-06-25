@@ -71,6 +71,39 @@
       </div>
     </div>
 
+    <!-- ═══ 航迹高度偏移 ═══ -->
+    <div class="settings-group">
+      <div class="group-header" @click="toggleSection('sourceElevation')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('sourceElevation') }" />
+        <ArrowUp :size="13" class="group-icon" />
+        <span>航迹高度偏移</span><HelpTip text="按数据源批量设置航迹渲染高度偏移量。输入 0 表示使用默认高度（10km）。新导入的航迹会自动应用对应数据源的偏移量。" />
+      </div>
+      <div class="group-body" v-show="!isCollapsed('sourceElevation')">
+        <div v-for="src in dataSources" :key="'sel-'+src" class="setting-row">
+          <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+          <div class="elevation-input-group">
+            <input
+              type="number"
+              class="elevation-input"
+              :value="sourceElevations[src] ?? 0"
+              min="0"
+              step="0.5"
+              @change="onSourceElevationChange(src, ($event.target as HTMLInputElement).value)"
+            />
+            <span class="elevation-unit">km</span>
+          </div>
+          <button
+            class="reset-btn"
+            :class="{ show: (sourceElevations[src] ?? 0) > 0 }"
+            :title="`重置 ${sourceLabel(src)} 为默认高度`"
+            @click="emit('resetSourceElevation', src)"
+          >
+            <RotateCcw :size="12" />
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ 旗标大小 ═══ -->
     <div class="settings-group">
       <div class="group-header" @click="toggleSection('flagScale')">
@@ -214,7 +247,7 @@ import { getRawSetting, scheduleSave } from '../../composables/useSettingsPersis
 import {
   Palette, GripHorizontal, CircleDot, Flag,
   Type, Eraser, PaintBucket, Wrench, Database, Eye,
-  Maximize2, Trash2, RotateCcw, Dot, ChevronDown,
+  Maximize2, Trash2, RotateCcw, Dot, ChevronDown, ArrowUp,
 } from '@lucide/vue'
 
 defineProps<{
@@ -222,9 +255,10 @@ defineProps<{
   dotScale: Record<DataSource, number>
   batchCount: number
   trackCount: number
+  sourceElevations: Record<string, number>
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   setLineWidth: [src: DataSource, v: number]
   setDotScale: [src: DataSource, v: number]
   toggleBatchPanel: []
@@ -232,6 +266,8 @@ defineEmits<{
   resetView: []
   clearAll: []
   resetAllElevations: []
+  setSourceElevation: [src: DataSource, km: number]
+  resetSourceElevation: [src: DataSource]
 }>()
 
 const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
@@ -249,7 +285,7 @@ const trackPointDotScaleVal = computed(() => trackPointDotScale.value)
 // ── Collapsible sections (persisted) ──
 
 const SETTINGS_COLLAPSE_KEY = 'settings.collapsed_sections'
-const collapsedSections = ref<Set<string>>(new Set(['pointDots', 'pointDotColors', 'fontSize', 'flagScale', 'dotScale']))
+const collapsedSections = ref<Set<string>>(new Set(['pointDots', 'pointDotColors', 'fontSize', 'flagScale', 'dotScale', 'sourceElevation']))
 
 function loadCollapsedState() {
   const raw = getRawSetting(SETTINGS_COLLAPSE_KEY)
@@ -310,6 +346,13 @@ function onPointDotColorChange(src: DataSource, hex: string) {
 }
 function onResetPointDotColor(src: DataSource) {
   setPointDotColor(src, null)
+}
+
+function onSourceElevationChange(src: DataSource, raw: string) {
+  const km = parseFloat(raw)
+  if (!isNaN(km)) {
+    emit('setSourceElevation', src, Math.max(0, km))
+  }
 }
 </script>
 
@@ -406,6 +449,39 @@ function onResetPointDotColor(src: DataSource) {
   font-size: 0.714rem;
   color: var(--text-tertiary);
   min-width: 18px;
+  flex-shrink: 0;
+}
+
+/* ── Elevation input ── */
+.elevation-input-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+}
+
+.elevation-input {
+  width: 64px;
+  height: 24px;
+  padding: 2px 6px;
+  font-size: 0.786rem;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  outline: none;
+  text-align: right;
+}
+
+.elevation-input:focus {
+  border-color: var(--accent-primary);
+}
+
+.elevation-unit {
+  font-size: 0.714rem;
+  color: var(--text-tertiary);
   flex-shrink: 0;
 }
 
