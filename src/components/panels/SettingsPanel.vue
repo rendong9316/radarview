@@ -26,8 +26,9 @@
             </button>
           </div>
           <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
-            <div v-for="f in getFilesForSrc(src)" :key="'lc-'+src+'-'+f.fileName" class="setting-row file-row">
-              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+            <div v-for="f in getFilesForSrc(src)" :key="'lc-'+src+'-'+f.fileName" class="setting-row">
+              <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
               <div class="color-control">
                 <input type="color" class="color-input" :value="fileEffectiveColor(src, f.fileName)"
                   @input="onFileColorChange(src, f.fileName, ($event.target as HTMLInputElement).value)" />
@@ -64,8 +65,9 @@
             <span class="row-value">{{ lineWidths[src] }}</span>
           </div>
           <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
-            <div v-for="f in getFilesForSrc(src)" :key="'lw-'+src+'-'+f.fileName" class="setting-row file-row">
-              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+            <div v-for="f in getFilesForSrc(src)" :key="'lw-'+src+'-'+f.fileName" class="setting-row">
+              <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
               <input type="range" class="row-slider" min="0.5" max="8" step="0.5"
                 :value="fileEffectiveWidth(src, f.fileName)"
                 @input="onFileWidthChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级线宽" />
@@ -101,8 +103,9 @@
             <span class="row-value">{{ dotScale[src].toFixed(1) }}</span>
           </div>
           <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
-            <div v-for="f in getFilesForSrc(src)" :key="'ds-'+src+'-'+f.fileName" class="setting-row file-row">
-              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+            <div v-for="f in getFilesForSrc(src)" :key="'ds-'+src+'-'+f.fileName" class="setting-row">
+              <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
               <input type="range" class="row-slider" min="0.2" max="3.0" step="0.1"
                 :value="fileEffectiveScale(src, f.fileName, dotScale[src])"
                 @input="onFileScaleChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级圆球大小" />
@@ -143,8 +146,9 @@
             </button>
           </div>
           <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
-            <div v-for="f in getFilesForSrc(src)" :key="'sel-'+src+'-'+f.fileName" class="setting-row file-row">
-              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+            <div v-for="f in getFilesForSrc(src)" :key="'sel-'+src+'-'+f.fileName" class="setting-row">
+              <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
               <div class="elevation-input-group">
                 <input type="number" class="elevation-input" :value="getFileElevationKm(src, f.fileName)"
                   min="0" step="0.5" placeholder="0"
@@ -190,13 +194,26 @@
               </button>
             </div>
           </template>
-          <!-- Multiple files: source label row + expandable file rows -->
+          <!-- Multiple files: source row with controls + expandable file rows -->
           <template v-else-if="getFilesForSrc(src).length > 1">
-            <div class="setting-row has-sub">
+            <div class="setting-row has-sub time-offset-row">
               <span class="expand-arrow" @click="toggleSrcExpanded(src)">
                 <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
               </span>
               <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+              <div class="time-range-inputs">
+                <input type="datetime-local" class="time-input"
+                  :value="getSourceStartDisplay(src)"
+                  @change="onSourceTimeStartChange(src, $event)" />
+                <span class="time-sep">至</span>
+                <input type="datetime-local" class="time-input"
+                  :value="getSourceEndDisplay(src)"
+                  @change="onSourceTimeEndChange(src, $event)" />
+              </div>
+              <button class="reset-btn" :class="{ show: hasSourceTimeOffset(src) }"
+                :title="`重置 ${sourceLabel(src)} 时间偏移`" @click="onResetSourceTimeOffset(src)">
+                <RotateCcw :size="12" />
+              </button>
             </div>
             <div v-if="expandedSources.has(src)" class="file-rows">
               <div v-for="f in getFilesForSrc(src)" :key="'to-'+src+'-'+f.fileName" class="setting-row time-offset-row">
@@ -400,7 +417,7 @@ import { useFileLineColor } from '../../composables/useFileLineColor'
 import { useFileLineWidth } from '../../composables/useFileLineWidth'
 import { useFileDotScale } from '../../composables/useFileDotScale'
 import { setFileElevation, resetFileElevation, getFileElevationKm } from '../../composables/useTrackElevation'
-import { getFileEffectiveTimeRange, setFileTimeStart, setFileTimeEnd, resetFileTimeOffset, hasFileTimeOffset } from '../../composables/useTrackTimeOffset'
+import { getSourceEffectiveTimeRange, setSourceTimeStart, setSourceTimeEnd, resetSourceTimeOffset, hasSourceTimeOffset, getFileEffectiveTimeRange, setFileTimeStart, setFileTimeEnd, resetFileTimeOffset, hasFileTimeOffset } from '../../composables/useTrackTimeOffset'
 import { useTracks } from '../../composables/useTracks'
 import { getFileLabel } from '../../composables/useFileLabels'
 
@@ -523,6 +540,38 @@ function onFileTimeEndChange(src: DataSource, fn: string, event: Event) {
 
 function onResetFileTimeOffset(src: DataSource, fn: string) {
   resetFileTimeOffset(src, fn, tracks.value)
+}
+
+// ── Source-level time offset helpers ──
+
+function getSourceStartDisplay(src: DataSource): string {
+  const range = getSourceEffectiveTimeRange(src, tracks.value)
+  return range ? msToDatetimeLocal(range.min) : ''
+}
+
+function getSourceEndDisplay(src: DataSource): string {
+  const range = getSourceEffectiveTimeRange(src, tracks.value)
+  return range ? msToDatetimeLocal(range.max) : ''
+}
+
+function onSourceTimeStartChange(src: DataSource, event: Event) {
+  const input = (event.target as HTMLInputElement).value
+  if (!input) return
+  const ms = new Date(input + '+08:00').getTime()
+  if (isNaN(ms)) return
+  setSourceTimeStart(src, ms, tracks.value)
+}
+
+function onSourceTimeEndChange(src: DataSource, event: Event) {
+  const input = (event.target as HTMLInputElement).value
+  if (!input) return
+  const ms = new Date(input + '+08:00').getTime()
+  if (isNaN(ms)) return
+  setSourceTimeEnd(src, ms, tracks.value)
+}
+
+function onResetSourceTimeOffset(src: DataSource) {
+  resetSourceTimeOffset(src, tracks.value)
 }
 
 const flagScaleVal = computed(() => flagScale.value)
