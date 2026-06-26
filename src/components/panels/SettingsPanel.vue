@@ -20,7 +20,7 @@
                 @input="onColorChange(src, ($event.target as HTMLInputElement).value)" />
               <span class="color-hex">{{ effectiveColor(src) }}</span>
             </div>
-            <button class="reset-btn" :class="{ show: hasCustomColor(src) }"
+            <button class="reset-btn"
               :title="`重置 ${sourceLabel(src)} 为默认颜色`" @click="onResetColor(src)">
               <RotateCcw :size="12" />
             </button>
@@ -34,7 +34,7 @@
                   @input="onFileColorChange(src, f.fileName, ($event.target as HTMLInputElement).value)" />
                 <span class="color-hex">{{ fileEffectiveColor(src, f.fileName) }}</span>
               </div>
-              <button class="reset-btn" :class="{ show: hasFileColor(src, f.fileName) }"
+              <button class="reset-btn"
                 :title="`重置 ${f.fileName} 跟随数据源颜色`" @click="onFileResetColor(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
@@ -63,6 +63,10 @@
               :value="lineWidths[src]"
               @input="$emit('setLineWidth', src, Number(($event.target as HTMLInputElement).value))" title="调整航迹线宽" />
             <span class="row-value">{{ lineWidths[src] }}</span>
+            <button class="reset-btn"
+              :title="`重置 ${sourceLabel(src)} 为默认线宽`" @click="$emit('setLineWidth', src, 2.0)" style="margin-left:4px">
+              <RotateCcw :size="12" />
+            </button>
           </div>
           <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
             <div v-for="f in getFilesForSrc(src)" :key="'lw-'+src+'-'+f.fileName" class="setting-row">
@@ -72,7 +76,7 @@
                 :value="fileEffectiveWidth(src, f.fileName)"
                 @input="onFileWidthChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级线宽" />
               <span class="row-value">{{ fileEffectiveWidth(src, f.fileName) }}</span>
-              <button class="reset-btn" :class="{ show: hasFileWidth(src, f.fileName) }"
+              <button class="reset-btn"
                 :title="`重置 ${f.fileName} 跟随数据源线宽`" @click="onFileResetWidth(src, f.fileName)" style="margin-left:4px">
                 <RotateCcw :size="12" />
               </button>
@@ -101,6 +105,10 @@
               :value="dotScale[src]"
               @input="$emit('setDotScale', src, Number(($event.target as HTMLInputElement).value))" title="调整终点圆球大小" />
             <span class="row-value">{{ dotScale[src].toFixed(1) }}</span>
+            <button class="reset-btn"
+              :title="`重置 ${sourceLabel(src)} 为默认大小`" @click="$emit('setDotScale', src, 1.0)" style="margin-left:4px">
+              <RotateCcw :size="12" />
+            </button>
           </div>
           <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
             <div v-for="f in getFilesForSrc(src)" :key="'ds-'+src+'-'+f.fileName" class="setting-row">
@@ -110,7 +118,7 @@
                 :value="fileEffectiveScale(src, f.fileName, dotScale[src])"
                 @input="onFileScaleChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级圆球大小" />
               <span class="row-value">{{ fileEffectiveScale(src, f.fileName, dotScale[src]).toFixed(1) }}</span>
-              <button class="reset-btn" :class="{ show: hasFileScale(src, f.fileName) }"
+              <button class="reset-btn"
                 :title="`重置 ${f.fileName} 跟随数据源大小`" @click="onFileResetScale(src, f.fileName)" style="margin-left:4px">
                 <RotateCcw :size="12" />
               </button>
@@ -140,7 +148,7 @@
                 min="0" step="0.5" @change="onSourceElevationChange(src, ($event.target as HTMLInputElement).value)" />
               <span class="elevation-unit">km</span>
             </div>
-            <button class="reset-btn" :class="{ show: (sourceElevations[src] ?? 0) > 0 }"
+            <button class="reset-btn"
               :title="`重置 ${sourceLabel(src)} 为默认高度`" @click="emit('resetSourceElevation', src)">
               <RotateCcw :size="12" />
             </button>
@@ -155,7 +163,7 @@
                   @change="onFileElevationChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" />
                 <span class="elevation-unit">km</span>
               </div>
-              <button class="reset-btn" :class="{ show: getFileElevationKm(src, f.fileName) > 0 }"
+              <button class="reset-btn"
                 :title="`重置 ${f.displayLabel} 为默认高度`" @click="onResetFileElevation(src, f.fileName)" style="margin-left:4px">
                 <RotateCcw :size="12" />
               </button>
@@ -170,7 +178,7 @@
       <div class="group-header" @click="toggleSection('time-offset')">
         <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: isCollapsed('time-offset') }" />
         <Clock :size="13" class="group-icon" />
-        <span>时间偏移</span><HelpTip text="按文件设置时间偏移量。修改起始或结束时间后，系统自动计算偏移并应用到该文件的所有航迹点。点击重置按钮恢复原始时间。" />
+        <span>时间偏移</span><HelpTip text="按数据源或文件设置时间偏移量。修改起始或结束时间后，系统自动计算偏移并应用到对应航迹点。点击重置按钮恢复原始时间。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('time-offset')">
         <template v-for="src in dataSources" :key="'to-'+src">
@@ -188,7 +196,7 @@
                   :value="getFileEndDisplay(src, f.fileName)"
                   @change="onFileTimeEndChange(src, f.fileName, $event)" />
               </div>
-              <button class="reset-btn" :class="{ show: hasFileTimeOffset(src, f.fileName) }"
+              <button class="reset-btn"
                 :title="`重置 ${f.displayLabel} 时间偏移`" @click="onResetFileTimeOffset(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
@@ -210,7 +218,7 @@
                   :value="getSourceEndDisplay(src)"
                   @change="onSourceTimeEndChange(src, $event)" />
               </div>
-              <button class="reset-btn" :class="{ show: hasSourceTimeOffset(src) }"
+              <button class="reset-btn"
                 :title="`重置 ${sourceLabel(src)} 时间偏移`" @click="onResetSourceTimeOffset(src)">
                 <RotateCcw :size="12" />
               </button>
@@ -228,7 +236,7 @@
                     :value="getFileEndDisplay(src, f.fileName)"
                     @change="onFileTimeEndChange(src, f.fileName, $event)" />
                 </div>
-                <button class="reset-btn" :class="{ show: hasFileTimeOffset(src, f.fileName) }"
+                <button class="reset-btn"
                   :title="`重置 ${f.displayLabel} 时间偏移`" @click="onResetFileTimeOffset(src, f.fileName)">
                   <RotateCcw :size="12" />
                 </button>
@@ -313,23 +321,41 @@
         <span>点迹颜色</span><HelpTip text="设置各数据源航迹点迹的颜色。默认使用与对应线条颜色互补的自动对比色，便于区分轨迹线和采样点。" />
       </div>
       <div class="group-body" v-show="!isCollapsed('pointDotColors')">
-        <div v-for="src in dataSources" :key="'pdc-'+src" class="setting-row">
-          <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
-          <div class="color-control">
-            <input type="color" class="color-input"
-              :value="effectivePointDotColor(src)"
-              @input="onPointDotColorChange(src, ($event.target as HTMLInputElement).value)" />
-            <span class="color-hex">{{ effectivePointDotColor(src) }}</span>
+        <template v-for="src in dataSources" :key="'pdc-'+src">
+          <div class="setting-row" :class="{ 'has-sub': getFilesForSrc(src).length > 1 }">
+            <span v-if="getFilesForSrc(src).length > 1" class="expand-arrow" @click="toggleSrcExpanded(src)">
+              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
+            </span>
+            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+            <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+            <div class="color-control">
+              <input type="color" class="color-input"
+                :value="effectivePointDotColor(src)"
+                @input="onPointDotColorChange(src, ($event.target as HTMLInputElement).value)" />
+              <span class="color-hex">{{ effectivePointDotColor(src) }}</span>
+            </div>
+            <button class="reset-btn"
+              :title="`重置 ${sourceLabel(src)} 点迹为自动对比色`" @click="onResetPointDotColor(src)">
+              <RotateCcw :size="12" />
+            </button>
           </div>
-          <button
-            class="reset-btn"
-            :class="{ show: hasCustomPointDotColor(src) }"
-            :title="`重置 ${sourceLabel(src)} 点迹为自动对比色`"
-            @click="onResetPointDotColor(src)"
-          >
-            <RotateCcw :size="12" />
-          </button>
-        </div>
+          <div v-if="getFilesForSrc(src).length > 1 && expandedSources.has(src)" class="file-rows">
+            <div v-for="f in getFilesForSrc(src)" :key="'pdc-'+src+'-'+f.fileName" class="setting-row">
+              <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+              <div class="color-control">
+                <input type="color" class="color-input"
+                  :value="fileEffectivePointDotColor(src, f.fileName)"
+                  @input="onFilePointDotColorChange(src, f.fileName, ($event.target as HTMLInputElement).value)" />
+                <span class="color-hex">{{ fileEffectivePointDotColor(src, f.fileName) }}</span>
+              </div>
+              <button class="reset-btn"
+                :title="`重置 ${f.fileName} 跟随数据源颜色`" @click="onFileResetPointDotColor(src, f.fileName)">
+                <RotateCcw :size="12" />
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -409,21 +435,23 @@ const dataSources: DataSource[] = ['adsb', 'radar', 'radar_raw']
 
 const { flagScale, setFlagScale } = useFlagScale()
 const { fontSize, setFontSize } = useFontSize()
-const { getEffectiveHex, setLineColor, hasCustomColor } = useLineColor()
-const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor, hasCustomPointDotColor } = useTrackPointDots()
+const { getEffectiveHex, setLineColor } = useLineColor()
+const { trackPointDotScale, setTrackPointDotScale, showAllPointDots, toggleAllPointDots, requestClearAll, pointDotColors, setPointDotColor } = useTrackPointDots()
 
 // File-level overrides
 import { useFileLineColor } from '../../composables/useFileLineColor'
 import { useFileLineWidth } from '../../composables/useFileLineWidth'
 import { useFileDotScale } from '../../composables/useFileDotScale'
+import { useFilePointDotColor } from '../../composables/useFilePointDotColor'
 import { setFileElevation, resetFileElevation, getFileElevationKm } from '../../composables/useTrackElevation'
-import { getSourceEffectiveTimeRange, setSourceTimeStart, setSourceTimeEnd, resetSourceTimeOffset, hasSourceTimeOffset, getFileEffectiveTimeRange, setFileTimeStart, setFileTimeEnd, resetFileTimeOffset, hasFileTimeOffset } from '../../composables/useTrackTimeOffset'
+import { getSourceEffectiveTimeRange, setSourceTimeStart, setSourceTimeEnd, resetSourceTimeOffset, getFileEffectiveTimeRange, setFileTimeStart, setFileTimeEnd, resetFileTimeOffset } from '../../composables/useTrackTimeOffset'
 import { useTracks } from '../../composables/useTracks'
 import { getFileLabel } from '../../composables/useFileLabels'
 
-const { getEffectiveFileColor, setFileColor, resetFileColor, hasFileColor } = useFileLineColor()
-const { getEffectiveFileWidth, setFileWidth, resetFileWidth, hasFileWidth } = useFileLineWidth()
-const { getEffectiveFileScale, setFileScale, resetFileScale, hasFileScale } = useFileDotScale()
+const { getEffectiveFileColor, setFileColor, resetFileColor } = useFileLineColor()
+const { getEffectiveFileWidth, setFileWidth, resetFileWidth } = useFileLineWidth()
+const { getEffectiveFileScale, setFileScale, resetFileScale } = useFileDotScale()
+const { getEffectiveFilePointDotColor, setFilePointDotColor, resetFilePointDotColor } = useFilePointDotColor()
 const { tracks } = useTracks()
 
 interface FileInfo { fileName: string; displayLabel: string; count: number }
@@ -475,6 +503,16 @@ function onFileColorChange(src: DataSource, fn: string, hex: string) {
 }
 function onFileResetColor(src: DataSource, fn: string) {
   resetFileColor(src, fn)
+}
+
+function fileEffectivePointDotColor(src: DataSource, fn: string): string {
+  return getEffectiveFilePointDotColor(src, fn, null) ?? effectivePointDotColor(src)
+}
+function onFilePointDotColorChange(src: DataSource, fn: string, hex: string) {
+  setFilePointDotColor(src, fn, hex)
+}
+function onFileResetPointDotColor(src: DataSource, fn: string) {
+  resetFilePointDotColor(src, fn)
 }
 
 function fileEffectiveWidth(src: DataSource, fn: string): number {
@@ -855,20 +893,13 @@ function onSourceElevationChange(src: DataSource, raw: string) {
   opacity: 0;
   transition: opacity 0.15s, border-color 0.15s, color 0.15s;
 }
-.setting-row:hover .reset-btn,
-.reset-btn.show {
+.setting-row:hover .reset-btn {
   opacity: 1;
 }
 .reset-btn:hover {
   color: var(--accent-primary);
   border-color: var(--accent-primary);
   background: rgba(0, 122, 204, 0.1);
-}
-
-/* Spacer for rows without reset button */
-.reset-slot {
-  width: 20px;
-  flex-shrink: 0;
 }
 
 /* ── File-level expand ── */
@@ -880,7 +911,6 @@ function onSourceElevationChange(src: DataSource, raw: string) {
 /* ── Time offset row ── */
 .time-offset-row {
   flex-wrap: nowrap;
-  gap: 2px;
 }
 
 .time-range-inputs {
@@ -914,10 +944,6 @@ function onSourceElevationChange(src: DataSource, raw: string) {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
-.file-row { padding-left: 4px; }
-.file-label { font-size: 0.714rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 120px; }
-.row-label.file-label { width: auto; flex: 0 0 120px; }
-
 /* ── Toggle switch ── */
 .toggle-switch {
   position: relative;

@@ -86,7 +86,7 @@ export function isTrackShowingDots(trackKey: string): boolean {
 export function rebuildPointDotsForTrack(
   trackId: string,
   tracks: Track[],
-  getColor: (source: DataSource) => string,
+  getColor: (source: DataSource, fileName: string) => string,
   dotPixelSize: number,
 ) {
   if (!ctx || !ctx.pointDotsCollection || !ctx.viewer) return
@@ -97,7 +97,7 @@ export function rebuildPointDotsForTrack(
   const track = tracks.find(t => trackKey(t.id, t.source, t.fileName) === trackId)
   if (!track || track.positions.length === 0) return
 
-  const color = Cesium.Color.fromCssColorString(getColor(track.source))
+  const color = Cesium.Color.fromCssColorString(getColor(track.source, track.fileName))
   const primitives: Cesium.PointPrimitive[] = []
 
   for (let i = 0; i < track.positions.length; i++) {
@@ -140,7 +140,7 @@ export function removePointDotsForTrack(trackId: string) {
 export function showManualPointDots(
   trackId: string,
   tracks: Track[],
-  getColor: (source: DataSource) => string,
+  getColor: (source: DataSource, fileName: string) => string,
   dotPixelSize: number,
   manualPointDotsTrackIds: { value: Set<string> },
   globalHiddenTrackKeys: { value: Set<string> },
@@ -181,7 +181,7 @@ export function hidePointDotsForTrack(
 /** Sync global point dots: apply showAllPointDots + manual overrides + hidden list */
 export function syncGlobalPointDots(
   tracks: Track[],
-  getColor: (source: DataSource) => string,
+  getColor: (source: DataSource, fileName: string) => string,
   dotPixelSize: number,
   showAllPointDots: boolean,
   manualPointDotsTrackIds: Set<string>,
@@ -235,12 +235,12 @@ export function clearAllPointDots(
 /** Update color of all rendered point dots */
 export function refreshPointDotColors(
   tracks: Track[],
-  getColor: (source: DataSource) => string,
+  getColor: (source: DataSource, fileName: string) => string,
 ) {
   for (const [tKey, primitives] of pointDotEntityMap) {
     const track = tracks.find(t => trackKey(t.id, t.source, t.fileName) === tKey)
     if (!track) continue
-    const color = Cesium.Color.fromCssColorString(getColor(track.source))
+    const color = Cesium.Color.fromCssColorString(getColor(track.source, track.fileName))
     for (const prim of primitives) {
       prim.color = color
     }

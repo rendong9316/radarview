@@ -77,6 +77,7 @@ import { useFileVisibility } from '../composables/useFileVisibility'
 import { useFileLineColor } from '../composables/useFileLineColor'
 import { useFileLineWidth } from '../composables/useFileLineWidth'
 import { useFileDotScale } from '../composables/useFileDotScale'
+import { useFilePointDotColor } from '../composables/useFilePointDotColor'
 import { useLabelVisibility } from '../composables/useLabelVisibility'
 import { useFlags } from '../composables/useFlags'
 import { useFlagScale } from '../composables/useFlagScale'
@@ -139,6 +140,7 @@ const { flags, addFlag, removeFlag, renameFlag, setFlagStyle, selectedPair } = u
 const { flagScale } = useFlagScale()
 const { addHighlight } = useTrackHighlight()
 const { trackPointDotScale, showAllPointDots, clearAllCounter, pointDotColors } = useTrackPointDots()
+const { getEffectiveFilePointDotColor, filePointDotColors } = useFilePointDotColor()
 const { activeTheme, getThemeVar } = useTheme()
 const { boundaryVisible, boundaryWidths, boundaryColors } = useBoundaryLayers()
 const { cityLayer } = useCityLayer()
@@ -194,7 +196,9 @@ function getLineColor(source: DataSource): Cesium.Color {
   return Cesium.Color.fromCssColorString(getEffectiveHex(source))
 }
 
-function getPointDotColor(source: DataSource): string {
+function getPointDotColor(source: DataSource, fileName: string): string {
+  const fileOverride = getEffectiveFilePointDotColor(source, fileName, null)
+  if (fileOverride) return fileOverride
   const custom = pointDotColors[source]
   if (custom) return custom
   return contrastColor(getEffectiveHex(source))
@@ -1179,7 +1183,7 @@ watch(trackPointDotScale, (newScale) => {
   DotR.refreshPointDotSizes(pointDotPixelSize)
 })
 
-watch([pointDotColors, lineColors], () => {
+watch([pointDotColors, lineColors, filePointDotColors], () => {
   DotR.refreshPointDotColors(props.tracks, getPointDotColor)
 }, { deep: true })
 

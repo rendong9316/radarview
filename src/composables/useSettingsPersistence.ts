@@ -240,6 +240,8 @@ async function applySettings(raw: Record<string, string>) {
   // ── File-level style overrides ──
   const { loadFileColors } = await import('./useFileLineColor')
   loadFileColors(raw)
+  const { loadFilePointDotColors } = await import('./useFilePointDotColor')
+  loadFilePointDotColors(raw)
   const { loadFileWidths } = await import('./useFileLineWidth')
   loadFileWidths(raw)
   const { loadFileScales } = await import('./useFileDotScale')
