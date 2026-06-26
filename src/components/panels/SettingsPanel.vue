@@ -170,16 +170,11 @@
       </div>
       <div class="group-body" v-show="!isCollapsed('time-offset')">
         <template v-for="src in dataSources" :key="'to-'+src">
-          <div class="setting-row" :class="{ 'has-sub': getFilesForSrc(src).length >= 1 }">
-            <span v-if="getFilesForSrc(src).length >= 1" class="expand-arrow" @click="toggleSrcExpanded(src)">
-              <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
-            </span>
-            <span v-else class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
-            <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
-          </div>
-          <div v-if="expandedSources.has(src)" class="file-rows">
-            <div v-for="f in getFilesForSrc(src)" :key="'to-'+src+'-'+f.fileName" class="setting-row file-row time-offset-row">
-              <span class="row-label file-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+          <!-- Single file: show directly, no expand needed -->
+          <template v-if="getFilesForSrc(src).length === 1">
+            <div v-for="f in getFilesForSrc(src)" :key="'to-'+src+'-'+f.fileName" class="setting-row time-offset-row">
+              <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
               <div class="time-range-inputs">
                 <input type="datetime-local" class="time-input"
                   :value="getFileStartDisplay(src, f.fileName)"
@@ -194,7 +189,35 @@
                 <RotateCcw :size="12" />
               </button>
             </div>
-          </div>
+          </template>
+          <!-- Multiple files: source label row + expandable file rows -->
+          <template v-else-if="getFilesForSrc(src).length > 1">
+            <div class="setting-row has-sub">
+              <span class="expand-arrow" @click="toggleSrcExpanded(src)">
+                <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(src) }" />
+              </span>
+              <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ sourceLabel(src) }}</span>
+            </div>
+            <div v-if="expandedSources.has(src)" class="file-rows">
+              <div v-for="f in getFilesForSrc(src)" :key="'to-'+src+'-'+f.fileName" class="setting-row time-offset-row">
+                <span class="expand-arrow" style="visibility:hidden"><ChevronDown :size="10" /></span>
+                <span class="row-label" :style="{ color: `var(--source-${src})` }">{{ f.displayLabel }}</span>
+                <div class="time-range-inputs">
+                  <input type="datetime-local" class="time-input"
+                    :value="getFileStartDisplay(src, f.fileName)"
+                    @change="onFileTimeStartChange(src, f.fileName, $event)" />
+                  <span class="time-sep">至</span>
+                  <input type="datetime-local" class="time-input"
+                    :value="getFileEndDisplay(src, f.fileName)"
+                    @change="onFileTimeEndChange(src, f.fileName, $event)" />
+                </div>
+                <button class="reset-btn" :class="{ show: hasFileTimeOffset(src, f.fileName) }"
+                  :title="`重置 ${f.displayLabel} 时间偏移`" @click="onResetFileTimeOffset(src, f.fileName)">
+                  <RotateCcw :size="12" />
+                </button>
+              </div>
+            </div>
+          </template>
         </template>
       </div>
     </div>
