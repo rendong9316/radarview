@@ -29,13 +29,13 @@ fn greet(name: &str) -> String {
 }
 
 #[tauri::command]
-fn import_adsb_file(
+async fn import_adsb_file(
     app_handle: tauri::AppHandle,
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
     let t0 = Instant::now();
-    let mut tracks = adsb::parse_adsb_csv(&file_path)?;
+    let mut tracks = adsb::parse_adsb_csv(&file_path).await?;
     let t1 = Instant::now();
     eprintln!("[perf] CSV parse: {:?}", t1 - t0);
 

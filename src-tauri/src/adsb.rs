@@ -8,7 +8,14 @@ use crate::track::{Track, TrackPosition};
 
 type MetaTuple = (String, String, String, String, String, String, String);
 
-pub fn parse_adsb_csv(file_path: &str) -> Result<Vec<Track>, String> {
+pub async fn parse_adsb_csv(file_path: &str) -> Result<Vec<Track>, String> {
+    let path = file_path.to_string();
+    tauri::async_runtime::spawn_blocking(move || parse_adsb_csv_sync(&path))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+fn parse_adsb_csv_sync(file_path: &str) -> Result<Vec<Track>, String> {
     let path = PathBuf::from(file_path);
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
