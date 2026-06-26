@@ -46,11 +46,9 @@ fn datenum_to_timestamp(datenum: f64) -> String {
         .to_string()
 }
 
-pub fn parse_mat_file(app_handle: &AppHandle, file_path: &str) -> Result<Vec<Track>, String> {
-    parse_mat_file_with_source(app_handle, file_path, None)
-}
+// ── Sync implementation (runs on blocking thread) ─────────────────────
 
-pub fn parse_mat_file_with_source(
+fn parse_mat_sync(
     app_handle: &AppHandle,
     file_path: &str,
     source_override: Option<&str>,
@@ -73,7 +71,6 @@ pub fn parse_mat_file_with_source(
         dims[0]
     };
 
-    // Determine which point list field to read
     let is_raw = source_override.is_some();
     let field_name = if is_raw {
         "asscPointList"
@@ -86,12 +83,13 @@ pub fn parse_mat_file_with_source(
         _ => "Radar".to_string(),
     };
 
+    let id_prefix = if is_raw { "RAW" } else { "RADAR" };
+
     let mut tracks: Vec<Track> = Vec::with_capacity(num_tracks);
 
     for i in 0..num_tracks {
         let track_struct = &track_list[i];
 
-        // All numeric values are stored as f64 (MATLAB default)
         let batch_no = track_struct["BatchNo"].to_f64().unwrap_or(0.0) as i32;
         let flight_type = track_struct["Type"].to_f64().unwrap_or(0.0) as i32;
 
@@ -120,18 +118,14 @@ pub fn parse_mat_file_with_source(
         let mut positions = Vec::with_capacity(num_pts);
         for j in 0..num_pts {
             let pt = &pt_list[j];
-            let ts = datenum_to_timestamp(pt["time"].to_f64().unwrap_or(0.0));
-            let lat = pt["lat"].to_f64().unwrap_or(0.0);
-            let lon = pt["lon"].to_f64().unwrap_or(0.0);
-
             positions.push(TrackPosition {
-                latitude: lat,
-                longitude: lon,
+                latitude: pt["lat"].to_f64().unwrap_or(0.0),
+                longitude: pt["lon"].to_f64().unwrap_or(0.0),
                 altitude: 0.0,
                 heading: 0.0,
                 ground_speed: 0.0,
                 vertical_rate: 0.0,
-                timestamp: ts,
+                timestamp: datenum_to_timestamp(pt["time"].to_f64().unwrap_or(0.0)),
             });
         }
 
@@ -139,13 +133,9 @@ pub fn parse_mat_file_with_source(
             continue;
         }
 
-        let id_prefix = if is_raw { "RAW" } else { "RADAR" };
-        let icao_address = format!("{}-{:04}", id_prefix, batch_no);
-        let flight_no = format!("TGT-{:04}", batch_no);
-
         tracks.push(Track {
-            icao_address,
-            flight_no,
+            icao_address: format!("{}-{:04}", id_prefix, batch_no),
+            flight_no: format!("TGT-{:04}", batch_no),
             icao_flight_no: String::new(),
             aircraft_type: aircraft_type.to_string(),
             registration: String::new(),
@@ -157,7 +147,6 @@ pub fn parse_mat_file_with_source(
             file_name: String::new(),
         });
 
-        // Emit progress periodically
         if num_tracks > 10 && i % (num_tracks / 10).max(1) == 0 {
             let pct = 20 + ((i as f64 / num_tracks as f64) * 60.0) as u32;
             emit_progress(app_handle, "converting", pct.min(80));
@@ -166,4 +155,35 @@ pub fn parse_mat_file_with_source(
 
     emit_progress(app_handle, "done", 80);
     Ok(tracks)
+}
+
+// ── Async wrappers (public API for Tauri commands) ────────────────────
+
+/// Parse a radar MAT file (smooth mode — reads `outputPointList`).
+/// Runs on a blocking thread to avoid freezing the UI.
+pub async fn parse_mat_file(
+    app_handle: &AppHandle,
+    file_path: &str,
+) -> Result<Vec<Track>, String> {
+    parse_mat_file_with_source(app_handle, file_path, None).await
+}
+
+/// Parse a radar MAT file with optional source override.
+/// `source_override = Some("RadarRaw")` switches to raw mode
+/// (reads `asscPointList` instead of `outputPointList`).
+/// Runs on a blocking thread to avoid freezing the UI.
+pub async fn parse_mat_file_with_source(
+    app_handle: &AppHandle,
+    file_path: &str,
+    source_override: Option<&str>,
+) -> Result<Vec<Track>, String> {
+    let handle = app_handle.clone();
+    let path = file_path.to_string();
+    let src = source_override.map(|s| s.to_string());
+
+    tauri::async_runtime::spawn_blocking(move || {
+        parse_mat_sync(&handle, &path, src.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

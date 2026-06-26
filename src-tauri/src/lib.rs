@@ -99,12 +99,12 @@ fn import_adsb_file(
 }
 
 #[tauri::command]
-fn import_radar_file(
+async fn import_radar_file(
     app_handle: tauri::AppHandle,
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
-    let mut tracks = radar::parse_mat_file(&app_handle, &file_path)?;
+    let mut tracks = radar::parse_mat_file(&app_handle, &file_path).await?;
 
     let db_path_buf = db_path.0.lock().map_err(|e| e.to_string())?.clone();
     let file_name = std::path::Path::new(&file_path)
@@ -159,12 +159,12 @@ fn import_radar_file(
 }
 
 #[tauri::command]
-fn import_radar_raw_file(
+async fn import_radar_raw_file(
     app_handle: tauri::AppHandle,
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
-    let mut tracks = radar::parse_mat_file_with_source(&app_handle, &file_path, Some("RadarRaw"))?;
+    let mut tracks = radar::parse_mat_file_with_source(&app_handle, &file_path, Some("RadarRaw")).await?;
 
     let db_path_buf = db_path.0.lock().map_err(|e| e.to_string())?.clone();
     let file_name = std::path::Path::new(&file_path)
