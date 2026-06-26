@@ -18,7 +18,7 @@ static TILE_SOURCES: RwLock<Vec<InternalTileSource>> = RwLock::new(Vec::new());
 /// Stored scan directories so rescan_tile_sources can re-scan later.
 static SCAN_DIRS: std::sync::OnceLock<(PathBuf, PathBuf)> = std::sync::OnceLock::new();
 
-/// Recommended directory for users to place .mbtiles files (app_data_dir).
+/// Recommended directory for users to place .mbtiles files (resource_dir = install directory).
 static RECOMMENDED_TILE_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Cached SQLite connection for the active mbtiles file. Reused across tile requests
@@ -158,7 +158,7 @@ pub fn init_and_start_tile_server(
 
     // Store dirs for later re-scan
     let _ = SCAN_DIRS.set((resource_dir.clone(), app_data_dir.clone()));
-    let _ = RECOMMENDED_TILE_DIR.set(app_data_dir.to_string_lossy().to_string());
+    let _ = RECOMMENDED_TILE_DIR.set(resource_dir.to_string_lossy().to_string());
 
     start_tile_server(sources)
 }
