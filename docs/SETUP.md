@@ -124,26 +124,7 @@ ls -lh src-tauri/natural_earth.mbtiles
 
 ---
 
-## 5. 获取 MAT 文件转换工具（可选）
-
-### 5.1 用途
-
-`convert_mat.exe` 用于将雷达 MAT 格式文件转换为 RadraView 可导入的 JSON。仅当需要导入 **Radar 数据** 时才需要。
-
-### 5.2 放置位置
-
-```powershell
-# 将 convert_mat.exe 复制到
-src-tauri/resources/convert_mat.exe
-```
-
-### 5.3 如果不需要
-
-可以跳过此步骤。ADS-B CSV 导入功能不依赖此工具。如果放置了但程序仍报错，检查文件路径是否正确。
-
----
-
-## 6. 启动开发环境
+## 5. 启动开发环境
 
 ```bash
 pnpm tauri dev
@@ -155,13 +136,13 @@ pnpm tauri dev
 2. Cargo 编译 Rust 后端（首次需下载并编译依赖，耗时约 3~10 分钟）
 3. Tauri 启动应用窗口
 
-### 6.1 首次编译注意事项
+### 5.1 首次编译注意事项
 
 - Rust 依赖 `rusqlite` 带有 `bundled` feature，会在编译时从源码构建 SQLite，需要 C 编译器（VS Build Tools 已提供）
 - `tiny_http`、`chrono` 等 crate 首次会被 Cargo 下载缓存
 - 编译产物在 `src-tauri/target/` 下，约 15 GB，已在 `.gitignore` 排除
 
-### 6.2 常见问题
+### 5.2 常见问题
 
 | 问题 | 原因 | 解决方案 |
 |------|------|----------|
@@ -173,20 +154,20 @@ pnpm tauri dev
 
 ---
 
-## 7. 数据导入
+## 6. 数据导入
 
 程序启动后，界面右侧会显示操作面板：
 
 | 按钮 | 功能 | 需要额外文件 |
 |------|------|-------------|
 | **Import ADS-B** | 导入 ADS-B CSV 文件 | 无 |
-| **Import Radar** | 导入 Radar MAT 文件 | `convert_mat.exe` |
+| **Import Radar** | 导入 Radar MAT 文件 | 无（内置解析） |
 
 导入后的数据会自动存入 SQLite 数据库（位于系统应用数据目录），下次启动自动加载。
 
 ---
 
-## 8. 构建生产包
+## 7. 构建生产包
 
 ```bash
 pnpm tauri build
@@ -207,4 +188,3 @@ pnpm tauri build
 | 文件 | 大小 | 必需 | 放置位置 | 说明 |
 |------|------|------|----------|------|
 | `natural_earth.mbtiles` | 1.14 GB | **是** | `src-tauri/` | 离线地图瓦片数据库 |
-| `convert_mat.exe` | 71 MB | 否 | `src-tauri/resources/` | Radar MAT 格式转换工具 |

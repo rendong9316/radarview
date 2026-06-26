@@ -1,16 +1,7 @@
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
-use std::sync::mpsc;
-use std::thread;
-use std::time::Duration;
-
 use tauri::AppHandle;
 use tauri::Emitter;
-use tauri::Manager;
 
-use crate::track::Track;
-
-const CONVERTER_TIMEOUT_SECS: u64 = 120;
+use crate::track::{Track, TrackPosition};
 
 /// Emit a progress event to the frontend. Failure is non-fatal.
 fn emit_progress(app_handle: &AppHandle, stage: &str, percent: u32) {
@@ -20,23 +11,39 @@ fn emit_progress(app_handle: &AppHandle, stage: &str, percent: u32) {
     );
 }
 
-fn kill_process(pid: u32) {
-    #[cfg(windows)]
-    {
-        let _ = Command::new("taskkill")
-            .args(["/F", "/PID", &pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
+/// Convert MATLAB datenum (days since 0000-01-01 00:00:00) to
+/// "YYYY-MM-DD HH:MM:SS" string. Returns empty string on invalid input.
+fn datenum_to_timestamp(datenum: f64) -> String {
+    if datenum <= 0.0 || !datenum.is_finite() {
+        return String::new();
     }
-    #[cfg(not(windows))]
-    {
-        let _ = Command::new("kill")
-            .args(["-9", &pid.to_string()])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn();
-    }
+
+    let days = datenum as i64;
+    let frac = datenum - (days as f64);
+
+    // MATLAB datenum 1 = 0000-01-01 (year 0 has 366 days in MATLAB)
+    // chrono CE ordinal 1 = 0001-01-01
+    // → CE ordinal = MATLAB days - 366
+    let ce_days = (days - 366) as i32;
+
+    let date = match chrono::NaiveDate::from_num_days_from_ce_opt(ce_days) {
+        Some(d) => d,
+        None => return String::new(),
+    };
+
+    let seconds_in_day = (frac * 86400.0).round() as u64;
+    let h = (seconds_in_day / 3600) as u32;
+    let m = ((seconds_in_day % 3600) / 60) as u32;
+    let s = (seconds_in_day % 60) as u32;
+
+    let time = match chrono::NaiveTime::from_hms_opt(h, m, s) {
+        Some(t) => t,
+        None => return String::new(),
+    };
+
+    chrono::NaiveDateTime::new(date, time)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
 }
 
 pub fn parse_mat_file(app_handle: &AppHandle, file_path: &str) -> Result<Vec<Track>, String> {
@@ -48,127 +55,115 @@ pub fn parse_mat_file_with_source(
     file_path: &str,
     source_override: Option<&str>,
 ) -> Result<Vec<Track>, String> {
-    let resource_dir = app_handle
-        .path()
-        .resource_dir()
-        .map_err(|e| format!("无法获取资源目录: {}", e))?;
+    emit_progress(app_handle, "loading", 5);
 
-    let converter_path = find_converter(&resource_dir)?;
-    let is_py = is_python_script(&converter_path);
+    let mat = matrw::load_matfile(file_path)
+        .map_err(|e| format!("无法读取 MAT 文件: {}", e))?;
 
-    emit_progress(app_handle, "converting", 10);
+    emit_progress(app_handle, "parsing", 20);
 
-    let mut cmd = if is_py {
-        let mut c = Command::new("python");
-        c.arg(&converter_path);
-        c
+    let track_list = &mat["trackList"];
+
+    let dims = track_list.dim();
+    let num_tracks = if dims.is_empty() {
+        return Ok(Vec::new());
+    } else if dims.len() >= 2 {
+        dims[1]
     } else {
-        Command::new(&converter_path)
+        dims[0]
     };
-    cmd.arg(file_path);
-    if source_override.is_some() {
-        cmd.arg("--mode").arg("raw");
-    }
-    let child = cmd
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("无法启动转换器: {}", e))?;
 
-    let pid = child.id();
+    // Determine which point list field to read
+    let is_raw = source_override.is_some();
+    let field_name = if is_raw {
+        "asscPointList"
+    } else {
+        "outputPointList"
+    };
 
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        let result = child.wait_with_output();
-        let _ = tx.send(result);
-    });
+    let default_source = match source_override {
+        Some("RadarRaw") => "RadarRaw".to_string(),
+        _ => "Radar".to_string(),
+    };
 
-    match rx.recv_timeout(Duration::from_secs(CONVERTER_TIMEOUT_SECS)) {
-        Ok(Ok(output)) => {
-            if !output.status.success() {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("数据转换失败: {}", stderr));
-            }
+    let mut tracks: Vec<Track> = Vec::with_capacity(num_tracks);
 
-            emit_progress(app_handle, "parsing", 80);
+    for i in 0..num_tracks {
+        let track_struct = &track_list[i];
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let mut tracks: Vec<Track> = serde_json::from_str(&stdout)
-                .map_err(|e| format!("解析转换数据失败: {}", e))?;
+        // All numeric values are stored as f64 (MATLAB default)
+        let batch_no = track_struct["BatchNo"].to_f64().unwrap_or(0.0) as i32;
+        let flight_type = track_struct["Type"].to_f64().unwrap_or(0.0) as i32;
 
-            // Override source if specified
-            if let Some(src) = source_override {
-                for t in &mut tracks {
-                    t.source = src.to_string();
+        let aircraft_type = if flight_type == 1 { "RADAR" } else { "UNKNOWN" };
+
+        let pt_list = &track_struct[field_name];
+
+        let num_pts = match pt_list {
+            matrw::MatVariable::StructureArray(_) => {
+                let d = pt_list.dim();
+                if d.len() >= 2 {
+                    d[1]
+                } else if d.len() == 1 {
+                    d[0]
+                } else {
+                    0
                 }
             }
+            _ => 0,
+        };
 
-            emit_progress(app_handle, "done", 90);
-            Ok(tracks)
+        if num_pts == 0 {
+            continue;
         }
-        Ok(Err(e)) => Err(format!("转换器运行异常: {}", e)),
-        Err(_timeout) => {
-            kill_process(pid);
-            Err("数据转换超时，请检查文件是否损坏或重新尝试。".to_string())
+
+        let mut positions = Vec::with_capacity(num_pts);
+        for j in 0..num_pts {
+            let pt = &pt_list[j];
+            let ts = datenum_to_timestamp(pt["time"].to_f64().unwrap_or(0.0));
+            let lat = pt["lat"].to_f64().unwrap_or(0.0);
+            let lon = pt["lon"].to_f64().unwrap_or(0.0);
+
+            positions.push(TrackPosition {
+                latitude: lat,
+                longitude: lon,
+                altitude: 0.0,
+                heading: 0.0,
+                ground_speed: 0.0,
+                vertical_rate: 0.0,
+                timestamp: ts,
+            });
         }
-    }
-}
 
-fn find_converter(resource_dir: &PathBuf) -> Result<PathBuf, String> {
-    // 0. Prefer Python script in dev mode (always up-to-date, supports --mode raw)
-    if let Some(p) = find_python_script() {
-        return Ok(p);
-    }
-
-    // 1. Production: NSIS/MSI puts convert_mat.exe directly in resource_dir root
-    let prod_path = resource_dir.join("convert_mat.exe");
-    if prod_path.exists() {
-        return Ok(prod_path);
-    }
-
-    // 2. Dev mode with compiled exe: resource_dir is src-tauri/, file lives in resources/
-    let dev_path = resource_dir.join("resources").join("convert_mat.exe");
-    if dev_path.exists() {
-        return Ok(dev_path);
-    }
-
-    // 3. Walk-up fallback from current directory
-    let mut dir = std::env::current_dir().unwrap_or_default();
-    for _ in 0..5 {
-        let path = dir.join("src-tauri/resources/convert_mat.exe");
-        if path.exists() {
-            return Ok(path);
+        if positions.is_empty() {
+            continue;
         }
-        if let Some(parent) = dir.parent() {
-            dir = parent.to_path_buf();
-        } else {
-            break;
-        }
-    }
 
-    Err("雷达数据转换组件未找到，请重新安装应用。".to_string())
-}
+        let id_prefix = if is_raw { "RAW" } else { "RADAR" };
+        let icao_address = format!("{}-{:04}", id_prefix, batch_no);
+        let flight_no = format!("TGT-{:04}", batch_no);
 
-/// Search for the Python converter script in project-relative paths
-fn find_python_script() -> Option<PathBuf> {
-    let mut dir = std::env::current_dir().ok()?;
-    for _ in 0..6 {
-        let path = dir.join("scripts/convert_mat.py");
-        if path.exists() {
-            return Some(path);
-        }
-        if let Some(parent) = dir.parent() {
-            dir = parent.to_path_buf();
-        } else {
-            break;
+        tracks.push(Track {
+            icao_address,
+            flight_no,
+            icao_flight_no: String::new(),
+            aircraft_type: aircraft_type.to_string(),
+            registration: String::new(),
+            airline: String::new(),
+            origin: String::new(),
+            destination: String::new(),
+            source: default_source.clone(),
+            positions,
+            file_name: String::new(),
+        });
+
+        // Emit progress periodically
+        if num_tracks > 10 && i % (num_tracks / 10).max(1) == 0 {
+            let pct = 20 + ((i as f64 / num_tracks as f64) * 60.0) as u32;
+            emit_progress(app_handle, "converting", pct.min(80));
         }
     }
-    None
-}
 
-/// Check if a converter path is a Python script (not a compiled exe)
-fn is_python_script(path: &PathBuf) -> bool {
-    path.extension()
-        .map(|e| e == "py")
-        .unwrap_or(false)
+    emit_progress(app_handle, "done", 80);
+    Ok(tracks)
 }

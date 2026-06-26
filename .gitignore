@@ -43,12 +43,6 @@ scripts/temp/
 # Reference projects
 GUI显示/
 
-# PyInstaller build artifacts
-build/
-dist/
-*.spec
-src-tauri/resources/convert_mat.exe
 
 # Reference project (separate repo)
 离线地图预览示例项目/
-.venv-build/

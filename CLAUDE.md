@@ -14,7 +14,6 @@ pnpm tauri build            # 生产打包（MSI + NSIS exe）
 
 cd src-tauri && cargo check # Rust 编译校验
 npx vue-tsc --noEmit        # TypeScript 类型校验（根目录执行）
-pnpm build-converter        # 打包 MATLAB 转换器 exe
 ```
 
 ## 目录结构
@@ -23,8 +22,8 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 |------|------|
 | `src/` | Vue 前端 — 组件(`components/`)、组合式函数(`composables/`)、类型(`types/`) |
 | `src-tauri/src/` | Rust 后端 — `lib.rs`(命令注册)、`adsb.rs`(CSV解析)、`radar.rs`(MAT导入)、`track.rs`(数据模型)、`db.rs`(SQLite)、`settings.rs`(设置持久化)、`tile_server.rs`(瓦片服务) |
-| `src-tauri/resources/` | 打包资源 — `convert_mat.exe`(MAT转换器)、`natural_earth.mbtiles`(离线地图) |
-| `scripts/` | Python 工具 — `convert_mat.py`(MAT→JSON 转换源码) |
+| `src-tauri/resources/` | 打包资源 — `natural_earth.mbtiles`(离线地图) |
+| `scripts/` | Python 工具 — 地图数据下载脚本 |
 
 ## 编码规范
 
@@ -46,7 +45,7 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 - 禁止升级 Cesium 版本（锁定 1.140.0）
 - 禁止在 Rust 命令中使用无超时的同步阻塞调用（如 `Command::output()`）
 - 禁止修改 `tauri.conf.json` 的 `bundle.resources` 配置
-- 禁止删除 `natural_earth.mbtiles` 或 `convert_mat.exe`
+- 禁止删除 `natural_earth.mbtiles`
 - 禁止引入新的前端框架或后端 ORM 库
 - 禁止自行提交代码，必须等用户确认或明确要求后才能 `git commit`
 
@@ -65,8 +64,6 @@ pnpm build-converter        # 打包 MATLAB 转换器 exe
 
 ## 常见坑
 
-- **MAT 导入卡死在进度 10%**：`convert_mat.exe` 是 74MB PyInstaller 打包的 Python 程序，冷启动耗时 10-30s。超时 120s 后自动杀进程，不要误判为假死。
-- **打包后 MAT 转换器找不到**：`find_converter()` 必须用 `AppHandle.path().resource_dir()` 获取资源路径，禁止用 `current_exe()` 拼路径（打包后 exe 位置与开发期不同）。
 - **Cesium 实体修改后不刷新**：开启 `requestRenderMode` 后 Cesium 不会自动重绘，必须在修改实体属性后显式调用 `viewer.scene.requestRender()`。
 - **首次导入后时间过滤不生效**：`track_points` 表在后台线程异步填充，可能在过滤查询时尚未完成。下次启动 `init_db` 的 backfill 会自动补齐。
 - **导入按钮长时间显示"保存中"不复原**：后台线程写 DB 时遇到锁竞争会等待 `busy_timeout(30s)`。检查终端 `eprintln!` 日志中的 `background save failed` 定位原因。
