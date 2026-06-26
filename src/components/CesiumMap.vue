@@ -70,6 +70,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import * as Cesium from 'cesium'
 import { invoke } from '@tauri-apps/api/core'
+import { message, ask } from '@tauri-apps/plugin-dialog'
 import type { Track, DataSource } from '../types/track'
 import { useLineColor } from '../composables/useLineColor'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
@@ -364,20 +365,22 @@ function isTrackShowingDots(trackKey: string): boolean {
   return DotR.isTrackShowingDots(trackKey)
 }
 
-function handleContextRename() {
+async function handleContextRename() {
   const flag = flags.value.find((f) => f.id === contextMenu.value.flagId)
   if (!flag) return
-  const newLabel = prompt('请输入新名称：', flag.label)
+  const { showPrompt } = await import('../composables/useDialogPrompt')
+  const newLabel = await showPrompt('请输入新名称：', flag.label)
   if (newLabel && newLabel.trim()) {
     renameFlag(flag.id, newLabel.trim())
   }
   contextMenu.value.visible = false
 }
 
-function handleContextDelete() {
+async function handleContextDelete() {
   const flag = flags.value.find((f) => f.id === contextMenu.value.flagId)
   if (!flag) return
-  if (confirm(`确定要删除旗标「${flag.label}」吗？`)) {
+  const ok = await ask(`确定要删除旗标「${flag.label}」吗？`, { title: '删除旗标' })
+  if (ok) {
     removeFlag(flag.id)
   }
   contextMenu.value.visible = false
@@ -453,13 +456,14 @@ function refreshTrackDisplay(_trackKey: string) {
   cesiumCtx?.viewer?.scene.requestRender()
 }
 
-function handleContextElevate() {
+async function handleContextElevate() {
   const trackId = contextMenu.value.trackId
-  const input = prompt('请输入抬升高度 (km)：', '0')
+  const { showPrompt } = await import('../composables/useDialogPrompt')
+  const input = await showPrompt('请输入抬升高度 (km)：', '0')
   if (input === null) return
   const km = parseFloat(input)
   if (isNaN(km) || km <= 0) {
-    alert('请输入有效的正数（单位：km）')
+    await message('请输入有效的正数（单位：km）', { title: '输入错误' })
     return
   }
   setElevationOffset(trackId, km * 1000)
@@ -467,14 +471,15 @@ function handleContextElevate() {
   refreshTrackDisplay(trackId)
 }
 
-function handleContextAdjustElevation() {
+async function handleContextAdjustElevation() {
   const trackId = contextMenu.value.trackId
   const currentKm = (getElevationOffset(trackId) / 1000).toFixed(1)
-  const input = prompt(`当前抬升高度：${currentKm} km\n请输入调整量（km，负值表示下降）：`, '0')
+  const { showPrompt } = await import('../composables/useDialogPrompt')
+  const input = await showPrompt(`当前抬升高度：${currentKm} km\n请输入调整量（km，负值表示下降）：`, '0')
   if (input === null) return
   const deltaKm = parseFloat(input)
   if (isNaN(deltaKm)) {
-    alert('请输入有效数值（单位：km）')
+    await message('请输入有效数值（单位：km）', { title: '输入错误' })
     return
   }
   adjustElevation(trackId, deltaKm * 1000)

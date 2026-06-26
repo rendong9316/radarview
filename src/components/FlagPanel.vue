@@ -131,6 +131,7 @@ import { useRuler } from '../composables/useRuler'
 import { vincentyKm, initialBearing, bearingToCardinal } from '../composables/useGeoCalc'
 import HelpTip from './HelpTip.vue'
 import { Trash2, Pencil, X } from '@lucide/vue'
+import { ask } from '@tauri-apps/plugin-dialog'
 
 const { flags, selectedFlagIds, selectedPair, toggleSelectFlag, addFlag, removeFlag, renameFlag, clearAllFlags } = useFlags()
 const ruler = useRuler()
@@ -182,9 +183,9 @@ function handlePlaceFlag() {
 }
 
 function onClearAll() {
-  if (confirm('确定要清除地图上所有旗标吗？此操作不可撤销。')) {
-    clearAllFlags()
-  }
+  ask('确定要清除地图上所有旗标吗？此操作不可撤销。', { title: '清除旗标' }).then(ok => {
+    if (ok) clearAllFlags()
+  })
 }
 
 function fmt(v: number | undefined | null) {

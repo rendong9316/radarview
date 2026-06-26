@@ -124,6 +124,7 @@
 
     <!-- Confirm dialog (used for close confirmation and other confirmations) -->
     <ConfirmDialog />
+    <PromptModal />
   </div>
 </template>
 
@@ -143,7 +144,9 @@ import ShortcutsDialog from './components/dialogs/ShortcutsDialog.vue'
 import DocsDialog from './components/dialogs/DocsDialog.vue'
 import TrackPointDialog from './components/dialogs/TrackPointDialog.vue'
 import ConfirmDialog from './components/dialogs/ConfirmDialog.vue'
+import PromptModal from './components/PromptModal.vue'
 import { useConfirmDialog } from './composables/useConfirmDialog'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { viewingTrack, viewingTrackLoading, closeTrackPointViewer, openTrackPointViewer } from './composables/useTrackPointViewer'
 import { deletedTrackKeys } from './composables/useTrackManagement'
 import { useTrackLoader } from './composables/useTrackLoader'
@@ -326,7 +329,7 @@ function onMenuAction(action: string) {
     case 'toggle-labels': toggleLabels(); break
     case 'toggle-batch-panel': batchPanelOpen.value = !batchPanelOpen.value; break
     case 'clear-all-flags': {
-      if (confirm('确定要清除地图上所有旗标吗？此操作不可撤销。')) clearAllFlags()
+      ask('确定要清除地图上所有旗标吗？此操作不可撤销。', { title: '清除旗标' }).then(ok => { if (ok) clearAllFlags() })
       break
     }
     case 'about': showAbout.value = true; break
@@ -584,7 +587,8 @@ async function handleImportRadarRaw() {
 
 async function handleDeleteBatch(id: number) {
   const batch = batches.value.find(b => b.id === id)
-  if (!confirm(`确定从数据库中删除 "${batch?.file_name}"？\n\n该操作不可撤销。`)) return
+  const ok = await ask(`确定从数据库中删除 "${batch?.file_name}"？\n\n该操作不可撤销。`, { title: '删除确认' })
+  if (!ok) return
   deletingBatchId.value = id
   try {
     await invoke('delete_batch_cmd', { batchId: id })
