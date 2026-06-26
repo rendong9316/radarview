@@ -166,6 +166,7 @@ import { loadAllSettings, getRawSetting, flushSaves, scheduleSave } from './comp
 import { useRuler } from './composables/useRuler'
 import { useSpatialLasso } from './composables/useSpatialLasso'
 import { resetElevation, getSourceElevationKm, setSourceElevation, resetSourceElevation, applySourceOffsetToTrack, clearAllFileElevations } from './composables/useTrackElevation'
+import { applyPersistedOffsets, getFileTimeDelta, applyDeltaToSingleTrack } from './composables/useTrackTimeOffset'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -410,7 +411,10 @@ onMounted(async () => {
     const savedSelectedId = selectedId.value
     const savedIsolatedId = isolatedTrackId.value
 
-    if (saved.length > 0) setAll(fromBackendTracks(saved))
+    if (saved.length > 0) {
+      setAll(fromBackendTracks(saved))
+      applyPersistedOffsets(tracks.value)
+    }
 
     // Restore only if referenced tracks still exist in the loaded data
     if (savedSelectedId) {
@@ -521,6 +525,11 @@ async function handleImportAdsb() {
     const result = await loader.loadAdsbFile()
     console.log('[import:ADS-B] loaded', result.length, 'tracks')
     if (result.length) {
+      // Apply existing time offsets to newly imported tracks before merging
+      for (const t of result) {
+        const delta = getFileTimeDelta(t.source, t.fileName)
+        if (delta !== 0) applyDeltaToSingleTrack(t, delta)
+      }
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
       autoApplySourceElevation(result)
@@ -537,6 +546,11 @@ async function handleImportRadar() {
     const result = await loader.loadRadarFile()
     console.log('[import:Radar] loaded', result.length, 'tracks')
     if (result.length) {
+      // Apply existing time offsets to newly imported tracks before merging
+      for (const t of result) {
+        const delta = getFileTimeDelta(t.source, t.fileName)
+        if (delta !== 0) applyDeltaToSingleTrack(t, delta)
+      }
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
       autoApplySourceElevation(result)
@@ -552,6 +566,11 @@ async function handleImportRadarRaw() {
     const result = await loader.loadRadarRawFile()
     console.log('[import:RadarRaw] loaded', result.length, 'tracks')
     if (result.length) {
+      // Apply existing time offsets to newly imported tracks before merging
+      for (const t of result) {
+        const delta = getFileTimeDelta(t.source, t.fileName)
+        if (delta !== 0) applyDeltaToSingleTrack(t, delta)
+      }
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
       autoApplySourceElevation(result)
@@ -569,6 +588,7 @@ async function handleDeleteBatch(id: number) {
     await invoke('delete_batch_cmd', { batchId: id })
     const saved = await invoke('load_persisted_tracks') as any[]
     setAll(fromBackendTracks(saved))
+    applyPersistedOffsets(tracks.value)
     await refreshBatches()
   } catch (e) { errorMsg.value = String(e) }
   finally { deletingBatchId.value = null }
@@ -579,6 +599,11 @@ async function handleLoadBatch(id: number) {
     const raw = await invoke('load_batch_tracks_cmd', { batchId: id }) as any[]
     if (raw.length) {
       const loaded = fromBackendTracks(raw)
+      // Apply existing time offsets before merging into tracks
+      for (const t of loaded) {
+        const delta = getFileTimeDelta(t.source, t.fileName)
+        if (delta !== 0) applyDeltaToSingleTrack(t, delta)
+      }
       addTracks(loaded)
       autoApplySourceElevation(loaded)
     }

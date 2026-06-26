@@ -233,6 +233,10 @@ async function applySettings(raw: Record<string, string>) {
   const { loadElevationOffsets } = await import('./useTrackElevation')
   loadElevationOffsets(raw)
 
+  // ── Time offsets ──
+  const { loadTimeOffsets } = await import('./useTrackTimeOffset')
+  loadTimeOffsets(raw)
+
   // ── File-level style overrides ──
   const { loadFileColors } = await import('./useFileLineColor')
   loadFileColors(raw)
