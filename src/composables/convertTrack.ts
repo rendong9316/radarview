@@ -52,7 +52,8 @@ function parseTimestamp(raw: string): number {
   const h = (raw.charCodeAt(11) - 48) * 10 + (raw.charCodeAt(12) - 48)
   const mi = (raw.charCodeAt(14) - 48) * 10 + (raw.charCodeAt(15) - 48)
   const s = (raw.charCodeAt(17) - 48) * 10 + (raw.charCodeAt(18) - 48)
-  return new Date(Y, M - 1, D, h, mi, s).getTime()
+  // Beijing time (UTC+8) → epoch ms, independent of browser timezone
+  return Date.UTC(Y, M - 1, D, h, mi, s) - 8 * 3600 * 1000
 }
 
 function mapSource(backendSource: string): DataSource {

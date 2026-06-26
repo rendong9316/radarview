@@ -115,7 +115,10 @@ function sourceLabel(s: string): string {
 const formatTimeRange = computed(() => {
   const s = stats.value; if (!s) return '—'
   if (s.time_min_ms == null || s.time_max_ms == null) return '—'
-  const f = (ms: number) => new Date(ms).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' })
+  const f = (ms: number) => {
+    const d = new Date(ms + 8 * 3600 * 1000)
+    return `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  }
   return `${f(s.time_min_ms)} ~ ${f(s.time_max_ms)}`
 })
 

@@ -120,15 +120,15 @@ export function useReplay(tracks: Ref<Track[]>, initialSpeed?: number) {
 
   const hasData = computed(() => duration.value > 0)
 
-  // ── 时间格式化 ──
+  // ── 时间格式化（北京时间，与浏览器时区无关）──
   function formatTime(ms: number): string {
-    const d = new Date(ms)
-    const Y = d.getFullYear()
-    const M = (d.getMonth() + 1).toString().padStart(2, '0')
-    const D = d.getDate().toString().padStart(2, '0')
-    const h = d.getHours().toString().padStart(2, '0')
-    const mi = d.getMinutes().toString().padStart(2, '0')
-    const s = d.getSeconds().toString().padStart(2, '0')
+    const d = new Date(ms + 8 * 3600 * 1000)
+    const Y = d.getUTCFullYear()
+    const M = (d.getUTCMonth() + 1).toString().padStart(2, '0')
+    const D = d.getUTCDate().toString().padStart(2, '0')
+    const h = d.getUTCHours().toString().padStart(2, '0')
+    const mi = d.getUTCMinutes().toString().padStart(2, '0')
+    const s = d.getUTCSeconds().toString().padStart(2, '0')
     return `${Y} ${M} ${D} ${h}:${mi}:${s}`
   }
 

@@ -210,9 +210,10 @@ const endInput = ref('')
 const errorMsg = ref('')
 
 function msToDatetimeLocal(ms: number): string {
-  const d = new Date(ms)
+  // Beijing time, independent of browser timezone
+  const d = new Date(ms + 8 * 3600 * 1000)
   const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
 }
 
 // 组件挂载时从全局筛选状态同步时间输入框，避免切换面板后显示空白占位符
@@ -237,24 +238,24 @@ const layerItems = [
 
 const dtMin = computed(() => {
   if (!props.timeRange) return ''
-  const d = new Date(props.timeRange.min - 3600000)
+  const d = new Date(props.timeRange.min - 3600000 + 8 * 3600 * 1000)
   const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
 })
 
 const dtMax = computed(() => {
   if (!props.timeRange) return ''
-  const d = new Date(props.timeRange.max + 3600000)
+  const d = new Date(props.timeRange.max + 3600000 + 8 * 3600 * 1000)
   const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
 })
 
 const canApply = computed(() => startInput.value && endInput.value)
 
 function fmtTime(ms: number) {
-  const d = new Date(ms)
+  const d = new Date(ms + 8 * 3600 * 1000)
   const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}`
 }
 
 function apply() {
@@ -263,8 +264,9 @@ function apply() {
     errorMsg.value = '请设置起始和结束时间'
     return
   }
-  const start = new Date(startInput.value).getTime()
-  const end = new Date(endInput.value).getTime()
+  // Parse datetime-local input as explicit Beijing time (UTC+8)
+  const start = new Date(startInput.value + '+08:00').getTime()
+  const end = new Date(endInput.value + '+08:00').getTime()
   if (isNaN(start) || isNaN(end)) {
     errorMsg.value = '时间格式无效'
     return
