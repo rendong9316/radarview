@@ -371,7 +371,13 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
       const last = track.positions[track.positions.length - 1]
       const lastPos = Cesium.Cartesian3.fromDegrees(last.longitude, last.latitude, getEffectiveAltitude(tKey))
       if (existing.label) existing.label.position = lastPos
-      if (existing.pointPrimitive) existing.pointPrimitive.position = lastPos
+      if (existing.pointPrimitive) {
+        existing.pointPrimitive.position = lastPos
+        // Update pixelSize to reflect file-level dot scale overrides
+        const isRaw = track.source === 'radar_raw'
+        const base = isRaw ? 0.4 : 0.7
+        existing.pointPrimitive.pixelSize = pointPrimSize(base, track.source, state.dotScale, track.fileName)
+      }
     }
   } finally {
     ctx.viewer.entities.resumeEvents()

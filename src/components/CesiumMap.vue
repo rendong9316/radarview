@@ -334,8 +334,8 @@ function buildInteractionCallbacks(): Interaction.InteractionCallbacks {
     getHoveredPointDotId: () => DotR.getHoveredId(),
     setHoveredPointDotId: (id) => DotR.setHoveredPointDotId(id),
     checkPointDotHit: (trackId, pos) => DotR.checkPointDotHit(trackId, pos, pointDotPixelSize),
-    applyHoverHighlight: (id) => TrackR.applyHoverHighlight(id, { dotScale: props.dotScale, lineWidths: props.lineWidths }),
-    removeHoverHighlight: () => TrackR.removeHoverHighlight(previousSelectedId, buildTrackState().getLineColor, { dotScale: props.dotScale }),
+    applyHoverHighlight: (id) => TrackR.applyHoverHighlight(id, { dotScale: buildTrackState().dotScale, lineWidths: props.lineWidths }),
+    removeHoverHighlight: () => TrackR.removeHoverHighlight(previousSelectedId, buildTrackState().getLineColor, { dotScale: buildTrackState().dotScale }),
     getHoveredTrackId: () => TrackR.getHoveredTrackId(),
     setHoveredTrackId: (id) => TrackR.setHoveredTrackId(id),
     hasEntity: (key) => TrackR.getEntityMap().has(key),
@@ -442,7 +442,7 @@ function refreshTrackDisplay(_trackKey: string) {
   // 如果当前悬停的正是这条航迹，也需要更新高亮线
   if (TrackR.getHoveredTrackId() === _trackKey) {
     TrackR.applyHoverHighlight(_trackKey, {
-      dotScale: props.dotScale,
+      dotScale: buildTrackState().dotScale,
       lineWidths: props.lineWidths,
     })
   }
@@ -1051,10 +1051,11 @@ watch(
   { deep: true },
 )
 
-// ── 端点圆点缩放 ──
+// ── 端点圆点缩放（source-level + file-level） ──
 watch(
-  () => props.dotScale,
+  () => [props.dotScale, fileScales.value],
   () => {
+    const state = buildTrackState()
     const entityMap = TrackR.getEntityMap_mutable()
     for (const [tKey, entry] of entityMap) {
       if (!entry.pointPrimitive) continue
@@ -1062,7 +1063,7 @@ watch(
       const isHovered = TrackR.getHoveredTrackId() === tKey
       const isRaw = entry.source === 'radar_raw'
       const base = isHovered ? 1.3 : isSelected ? 1.2 : isRaw ? 0.4 : 0.7
-      entry.pointPrimitive.pixelSize = TrackR.pointPrimSize(base, entry.source, props.dotScale)
+      entry.pointPrimitive.pixelSize = TrackR.pointPrimSize(base, entry.source, state.dotScale, entry.fileName)
     }
     cesiumCtx?.viewer?.scene.requestRender()
   },
