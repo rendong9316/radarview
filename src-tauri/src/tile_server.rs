@@ -12,8 +12,14 @@ static TILE_SERVER_PORT: AtomicU16 = AtomicU16::new(0);
 /// Active tile source path. Initialized at startup, switchable at runtime via set_active_tile_source.
 static ACTIVE_SOURCE: std::sync::OnceLock<Arc<RwLock<PathBuf>>> = std::sync::OnceLock::new();
 
-/// Full list of available tile sources (file_name → path). Initialized at startup.
-static TILE_SOURCES: std::sync::OnceLock<Vec<InternalTileSource>> = std::sync::OnceLock::new();
+/// Full list of available tile sources (file_name → path). Initialized at startup, mutable for rescan.
+static TILE_SOURCES: RwLock<Vec<InternalTileSource>> = RwLock::new(Vec::new());
+
+/// Stored scan directories so rescan_tile_sources can re-scan later.
+static SCAN_DIRS: std::sync::OnceLock<(PathBuf, PathBuf)> = std::sync::OnceLock::new();
+
+/// Recommended directory for users to place .mbtiles files (app_data_dir).
+static RECOMMENDED_TILE_DIR: std::sync::OnceLock<String> = std::sync::OnceLock::new();
 
 /// Cached SQLite connection for the active mbtiles file. Reused across tile requests
 /// to avoid per-request Connection::open overhead. Invalidated when source changes.
@@ -77,56 +83,82 @@ fn tile_display_name(file_name: &str) -> String {
     }
 }
 
-/// Scan the directory for all .mbtiles files, initialize global state,
-/// and start the embedded tile HTTP server. Returns the server port.
+/// Scan multiple directories for .mbtiles files, deduplicating by file_name
+/// (first directory wins). Each directory's results are sorted with natural_earth
+/// preferred before merging.
+fn collect_tile_sources(dirs: &[&PathBuf]) -> Vec<InternalTileSource> {
+    use std::collections::HashSet;
+    let mut seen: HashSet<String> = HashSet::new();
+    let mut all: Vec<InternalTileSource> = Vec::new();
+    for dir in dirs {
+        eprintln!("[tile_server] scanning: {}", dir.display());
+        if let Ok(mut dir_sources) = scan_mbtiles_internal(dir) {
+            // natural_earth sort within each dir (preserve existing behavior)
+            dir_sources.sort_by(|a, b| {
+                let a_is_ne = a.file_name.starts_with("natural_earth");
+                let b_is_ne = b.file_name.starts_with("natural_earth");
+                match (a_is_ne, b_is_ne) {
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    _ => a.file_name.cmp(&b.file_name),
+                }
+            });
+            for s in dir_sources {
+                if seen.insert(s.file_name.clone()) {
+                    all.push(s);
+                }
+            }
+        } else {
+            eprintln!("[tile_server] failed to read dir: {}", dir.display());
+        }
+    }
+    all
+}
+
+/// Scan the resource directory and app data directory for all .mbtiles files,
+/// initialize global state, and start the embedded tile HTTP server.
+/// Returns the server port.
 ///
 /// This is the single entry point for lib.rs setup().
 /// In dev mode, also scans the src-tauri/ directory as a fallback,
 /// since newly added .mbtiles may not have been copied to target/debug/.
 pub fn init_and_start_tile_server(
-    base_dir: &PathBuf,
+    resource_dir: &PathBuf,
+    app_data_dir: &PathBuf,
 ) -> Result<u16, Box<dyn std::error::Error + Send + Sync>> {
-    eprintln!("[tile_server] scanning resource_dir: {}", base_dir.display());
-    let mut sources = scan_mbtiles_internal(base_dir).unwrap_or_default();
-    eprintln!("[tile_server] primary scan found {} sources", sources.len());
+    eprintln!("[tile_server] scanning resource_dir: {}", resource_dir.display());
+    eprintln!("[tile_server] scanning app_data_dir: {}", app_data_dir.display());
+
+    let mut dirs: Vec<&PathBuf> = vec![resource_dir, app_data_dir];
 
     // Fallback: in dev mode (target/debug or target/release), also scan src-tauri/
     // where newly added .mbtiles files reside before being copied by the build system.
-    if let Some(parent) = base_dir.parent() {
+    let mut extra_dirs: Vec<PathBuf> = Vec::new();
+    if let Some(parent) = resource_dir.parent() {
         let parent_name = parent
             .file_name()
             .and_then(|s| s.to_str())
             .unwrap_or("");
-        eprintln!("[tile_server] parent dir: {}", parent_name);
         if parent_name == "target" {
             // resource_dir is .../src-tauri/target/debug → grandparent is src-tauri
             if let Some(grandparent) = parent.parent() {
                 eprintln!("[tile_server] fallback scanning grandparent: {}", grandparent.display());
-                if let Ok(extra) = scan_mbtiles_internal(&grandparent.to_path_buf()) {
-                    eprintln!("[tile_server] fallback found {} extra sources", extra.len());
-                    let existing: Vec<String> =
-                        sources.iter().map(|s| s.file_name.clone()).collect();
-                    for s in extra {
-                        if !existing.contains(&s.file_name) {
-                            eprintln!("[tile_server] adding fallback source: {}", s.file_name);
-                            sources.push(s);
-                        }
-                    }
-                }
+                extra_dirs.push(grandparent.to_path_buf());
             }
         }
     }
+    let extra_refs: Vec<&PathBuf> = extra_dirs.iter().collect();
+    dirs.extend(&extra_refs);
 
-    eprintln!("[tile_server] total sources: {:?}", sources.iter().map(|s| &s.file_name).collect::<Vec<_>>());
+    let mut sources = collect_tile_sources(&dirs);
+    eprintln!("[tile_server] total sources before filter: {:?}", sources.iter().map(|s| &s.file_name).collect::<Vec<_>>());
 
-    // Filter: if both a zoom-6 version and a zoom-8 version of the same base exist,
-    // keep only the zoom-6 version (the smaller, faster one).
     sources = filter_prefer_zoom6(sources);
     eprintln!("[tile_server] after filter: {:?}", sources.iter().map(|s| &s.file_name).collect::<Vec<_>>());
 
-    if sources.is_empty() {
-        return Err("No .mbtiles file found in resource directory".into());
-    }
+    // Store dirs for later re-scan
+    let _ = SCAN_DIRS.set((resource_dir.clone(), app_data_dir.clone()));
+    let _ = RECOMMENDED_TILE_DIR.set(app_data_dir.to_string_lossy().to_string());
 
     start_tile_server(sources)
 }
@@ -152,9 +184,6 @@ fn scan_mbtiles_internal(base_dir: &PathBuf) -> Result<Vec<InternalTileSource>, 
                 max_zoom,
             });
         }
-    }
-    if sources.is_empty() {
-        return Err("No .mbtiles file found in resource directory".to_string());
     }
     // Prefer natural_earth (分层设色) as the default tile source.
     // GRAY_HR sorts before natural_earth alphabetically, so a plain
@@ -304,16 +333,20 @@ fn handle_tile_request(request: tiny_http::Request) {
 fn start_tile_server(
     sources: Vec<InternalTileSource>,
 ) -> Result<u16, Box<dyn std::error::Error + Send + Sync>> {
-    if sources.is_empty() {
-        return Err("No tile sources provided".into());
+    let default_path = if let Some(first) = sources.first() {
+        first.path.clone()
+    } else {
+        eprintln!("[tile_server] WARNING: no tile sources found, tiles will return 404");
+        PathBuf::new()
+    };
+
+    // Cache the full source list (may be empty on first launch)
+    {
+        let mut lock = TILE_SOURCES
+            .write()
+            .map_err(|_| "TILE_SOURCES lock poisoned")?;
+        *lock = sources;
     }
-
-    let default_path = sources[0].path.clone();
-
-    // Cache the full source list
-    TILE_SOURCES
-        .set(sources)
-        .map_err(|_| "TILE_SOURCES already initialized")?;
 
     // Set default active source
     init_active_source(default_path);
@@ -356,8 +389,8 @@ pub fn get_tile_server_port() -> u16 {
 #[tauri::command]
 pub fn list_tile_sources() -> Result<Vec<TileSource>, String> {
     let internal = TILE_SOURCES
-        .get()
-        .ok_or("Tile sources not initialized")?;
+        .read()
+        .map_err(|e| format!("lock error: {}", e))?;
     let result: Vec<TileSource> = internal
         .iter()
         .map(|s| TileSource {
@@ -373,8 +406,11 @@ pub fn list_tile_sources() -> Result<Vec<TileSource>, String> {
 #[tauri::command]
 pub fn set_active_tile_source(file_name: String) -> Result<(), String> {
     let internal = TILE_SOURCES
-        .get()
-        .ok_or("Tile sources not initialized")?;
+        .read()
+        .map_err(|e| format!("lock error: {}", e))?;
+    if internal.is_empty() {
+        return Err("No tile sources available".to_string());
+    }
     let found = internal
         .iter()
         .find(|s| s.file_name == file_name)
@@ -387,4 +423,64 @@ pub fn set_active_tile_source(file_name: String) -> Result<(), String> {
     *lock = found.path.clone();
     println!("[tile_server] switched active source to: {}", file_name);
     Ok(())
+}
+
+#[tauri::command]
+pub fn has_tile_sources() -> bool {
+    TILE_SOURCES
+        .read()
+        .map(|s| !s.is_empty())
+        .unwrap_or(false)
+}
+
+#[tauri::command]
+pub fn get_recommended_tile_dir() -> String {
+    RECOMMENDED_TILE_DIR
+        .get()
+        .cloned()
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn rescan_tile_sources() -> Result<Vec<TileSource>, String> {
+    let (resource_dir, app_data_dir) = SCAN_DIRS
+        .get()
+        .ok_or("Scan directories not initialized")?;
+
+    let dirs: Vec<&PathBuf> = vec![resource_dir, app_data_dir];
+    let sources = collect_tile_sources(&dirs);
+    let sources = filter_prefer_zoom6(sources);
+
+    let result: Vec<TileSource> = sources
+        .iter()
+        .map(|s| TileSource {
+            file_name: s.file_name.clone(),
+            display_name: s.display_name.clone(),
+            max_zoom: s.max_zoom,
+        })
+        .collect();
+
+    // Remember first path before moving sources into the lock
+    let first_path = sources.first().map(|s| s.path.clone());
+
+    // Update global state
+    {
+        let mut lock = TILE_SOURCES
+            .write()
+            .map_err(|e| format!("lock error: {}", e))?;
+        *lock = sources;
+    }
+
+    // If we now have sources, switch active
+    if let Some(path) = first_path {
+        let arc = ACTIVE_SOURCE
+            .get()
+            .ok_or("Active source not initialized")?;
+        let mut active = arc.write().map_err(|e| format!("lock error: {}", e))?;
+        *active = path;
+        eprintln!("[tile_server] rescan: active source set to {}", result[0].file_name);
+    }
+
+    eprintln!("[tile_server] rescan: {} sources found", result.len());
+    Ok(result)
 }

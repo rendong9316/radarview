@@ -16,7 +16,7 @@ use tauri::Manager;
 use tauri::Emitter;
 use tauri::WebviewUrl;
 use tauri::WebviewWindowBuilder;
-use tile_server::{init_and_start_tile_server, get_tile_server_port, list_tile_sources, set_active_tile_source};
+use tile_server::{init_and_start_tile_server, get_tile_server_port, list_tile_sources, set_active_tile_source, has_tile_sources, get_recommended_tile_dir, rescan_tile_sources};
 use track::Track;
 use track::TrackDto;
 
@@ -460,12 +460,6 @@ pub fn run() {
                 .expect("Failed to resolve resource directory");
 
             splash_log(app, &format!("资源目录: {}", resource_dir.display()));
-            splash_log(app, "正在扫描 .mbtiles 瓦片文件...");
-
-            init_and_start_tile_server(&resource_dir)
-                .expect("Failed to initialize tile server");
-
-            splash_log(app, &format!("瓦片服务已启动 (端口 {})", get_tile_server_port()));
             splash_log(app, "正在解析数据目录...");
 
             let data_dir = app
@@ -474,6 +468,12 @@ pub fn run() {
                 .expect("Failed to resolve app data directory");
 
             splash_log(app, &format!("数据目录: {}", data_dir.display()));
+            splash_log(app, "正在扫描 .mbtiles 瓦片文件...");
+
+            init_and_start_tile_server(&resource_dir, &data_dir)
+                .expect("Failed to initialize tile server");
+
+            splash_log(app, &format!("瓦片服务已启动 (端口 {})", get_tile_server_port()));
 
             let db_file = db::db_path(&data_dir);
 
@@ -509,6 +509,9 @@ pub fn run() {
             get_tile_server_port,
             list_tile_sources,
             set_active_tile_source,
+            has_tile_sources,
+            get_recommended_tile_dir,
+            rescan_tile_sources,
             import_adsb_file,
             import_radar_file,
             import_radar_raw_file,

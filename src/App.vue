@@ -122,6 +122,9 @@
     <DocsDialog v-if="showDocs" @close="showDocs = false" />
     <TrackPointDialog v-if="viewingTrack" :track="viewingTrack" :loading="viewingTrackLoading" @close="closeTrackPointViewer" />
 
+    <!-- No tiles dialog (first launch without offline map data) -->
+    <NoTilesDialog v-if="showNoTiles" :app-data-dir="recommendedTileDir" @close="onNoTilesClose" />
+
     <!-- Confirm dialog (used for close confirmation and other confirmations) -->
     <ConfirmDialog />
     <PromptModal />
@@ -144,6 +147,7 @@ import ShortcutsDialog from './components/dialogs/ShortcutsDialog.vue'
 import DocsDialog from './components/dialogs/DocsDialog.vue'
 import TrackPointDialog from './components/dialogs/TrackPointDialog.vue'
 import ConfirmDialog from './components/dialogs/ConfirmDialog.vue'
+import NoTilesDialog from './components/dialogs/NoTilesDialog.vue'
 import PromptModal from './components/PromptModal.vue'
 import { useConfirmDialog } from './composables/useConfirmDialog'
 import { ask } from '@tauri-apps/plugin-dialog'
@@ -188,7 +192,7 @@ const { visibility, toggle: toggleVisible } = useLayerVisibility()
 const { clearAllFlags } = useFlags()
 const { activate: activatePanel, isActive } = useActivityBar()
 const { cycleTheme } = useTheme()
-const { tileSources, activeSource, fetchTileSources, setActiveSource, onSourceChanged } = useTileSource()
+const { tileSources, activeSource, hasTiles, fetchTileSources, rescanTileSources, setActiveSource, onSourceChanged, getRecommendedDir } = useTileSource()
 const errorMsg = ref('')
 const batches = ref<Batch[]>([])
 const deletingBatchId = ref<number | null>(null)
@@ -197,6 +201,9 @@ const showShortcuts = ref(false)
 const showDocs = ref(false)
 const confirmDialog = useConfirmDialog()
 const closeConfirmEnabled = ref(true)
+const showNoTiles = ref(false)
+const noTilesDismissed = ref(false)
+const recommendedTileDir = ref('')
 const ruler = useRuler()
 const lasso = useSpatialLasso()
 
@@ -359,6 +366,12 @@ onMounted(async () => {
     try { closeConfirmEnabled.value = JSON.parse(closeConfirmRaw) } catch { /* keep default */ }
   }
 
+  // Restore "don't show no-tiles dialog again" preference
+  const noTilesRaw = getRawSetting('no_tiles_dialog.dismissed')
+  if (noTilesRaw !== undefined) {
+    try { noTilesDismissed.value = JSON.parse(noTilesRaw) } catch { /* keep default */ }
+  }
+
   // ── Initialize tile sources ──
   await fetchTileSources()
   invoke('push_splash_log', { message: '发现 ' + tileSources.value.length + ' 个地图源' })
@@ -501,6 +514,12 @@ onMounted(async () => {
   invoke('push_splash_log', { message: '三维地图就绪' })
   // Notify Rust: show main window, close splash
   invoke('app_ready').catch(e => console.error('[App] app_ready failed:', e))
+
+  // ── Show no-tiles dialog after main window is visible ──
+  if (!hasTiles.value && !noTilesDismissed.value) {
+    recommendedTileDir.value = await getRecommendedDir()
+    showNoTiles.value = true
+  }
 })
 
 async function refreshBatches() {
@@ -690,6 +709,21 @@ async function onSwitchTileSource(fileName: string) {
   await setActiveSource(fileName)
   const info = tileSources.value.find(s => s.file_name === fileName)
   mapRef.value?.switchTileLayer(info?.max_zoom)
+}
+
+async function onNoTilesClose(dontShowAgain: boolean) {
+  showNoTiles.value = false
+  if (dontShowAgain) {
+    noTilesDismissed.value = true
+    scheduleSave('no_tiles_dialog.dismissed', JSON.stringify(true))
+  }
+  // Re-scan in case user placed files while the dialog was open
+  const newList = await rescanTileSources()
+  if (newList.length > 0) {
+    await invoke('set_active_tile_source', { fileName: newList[0].file_name })
+    activeSource.value = newList[0].file_name
+    mapRef.value?.switchTileLayer(newList[0].max_zoom)
+  }
 }
 
 const dragOver = ref(false)

@@ -19,7 +19,6 @@
     "active": true,
     "targets": "all",
     "resources": {
-      "*.mbtiles": "./",
       "resources/*": "./"
     },
     "icon": [
