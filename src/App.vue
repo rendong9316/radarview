@@ -446,6 +446,8 @@ onMounted(async () => {
   listen('batch-saved', () => {
     loader.onPersistComplete()
     refreshBatches()
+    // Invalidate manage panel cache so next open fetches fresh data
+    import('./composables/useTrackManagement').then(m => m.markManageDataStale())
   })
 
   // Background DB save failure → notify user (silent data loss prevention)
@@ -590,6 +592,7 @@ async function handleDeleteBatch(id: number) {
     setAll(fromBackendTracks(saved))
     applyPersistedOffsets(tracks.value)
     await refreshBatches()
+    import('./composables/useTrackManagement').then(m => m.markManageDataStale())
   } catch (e) { errorMsg.value = String(e) }
   finally { deletingBatchId.value = null }
 }

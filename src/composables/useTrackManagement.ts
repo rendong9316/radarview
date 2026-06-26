@@ -43,6 +43,14 @@ const loadedTrackKeys = ref<Set<string>>(new Set())
  *  Data stays in DB; restore via undo or re-import. */
 export const deletedTrackKeys = ref<Set<string>>(new Set())
 
+// ── Cache versioning (module-level, survives component mount/unmount) ──
+// Data version is bumped on import/delete/undo; fetch functions skip when up-to-date.
+let _manageDataVersion = 0
+let _statsFetchVersion = -1
+let _distinctFetchVersion = -1
+let _distinctFetchSrc = '__uninit__'
+let _metadataFetchSig = ''
+
 // ── Persistence: filter, sortConfig, pageSize ──
 
 let _persistEnabled = false
@@ -124,6 +132,7 @@ export function restoreSoftDeletedTracks(icaos: string[], dbSource: string, file
   }
   if (count > 0) {
     deletedTrackKeys.value = newDel
+    _manageDataVersion++
   }
   return count
 }
@@ -222,9 +231,11 @@ export function useTrackManagement() {
   // ── Data loading ──
 
   async function fetchStats() {
+    if (_statsFetchVersion === _manageDataVersion && stats.value) return
     statsLoading.value = true
     try {
       stats.value = await invoke<TrackStats>('get_track_statistics_cmd')
+      _statsFetchVersion = _manageDataVersion
     } catch (e) {
       console.error('[manage] fetchStats failed:', e)
     } finally {
@@ -233,18 +244,34 @@ export function useTrackManagement() {
   }
 
   async function fetchDistinctOptions() {
+    const src = filter.value.source ?? '__all__'
+    if (_distinctFetchVersion === _manageDataVersion && _distinctFetchSrc === src && distinctOptions.value) return
     try {
-      // Pass source filter if active, otherwise null to get all
-      const src = filter.value.source ?? null
       distinctOptions.value = await invoke<DistinctOptions>('get_distinct_options_cmd', {
-        source: src ?? undefined,
+        source: filter.value.source ?? undefined,
       })
+      _distinctFetchVersion = _manageDataVersion
+      _distinctFetchSrc = src
     } catch (e) {
       console.error('[manage] fetchDistinctOptions failed:', e)
     }
   }
 
+  function _metadataSignature(): string {
+    return JSON.stringify({
+      v: _manageDataVersion,
+      f: filter.value,
+      s: sortConfig.value,
+      ps: pageSize.value,
+      p: currentPage.value,
+    })
+  }
+
   async function fetchMetadata() {
+    // Check cache — skip fetch if nothing changed since last load
+    const sig = _metadataSignature()
+    if (sig === _metadataFetchSig && rows.value.length > 0) return
+
     loading.value = true
     try {
       const f = filter.value
@@ -274,6 +301,8 @@ export function useTrackManagement() {
         r => !deletedTrackKeys.value.has(`${r.icao_address}::${r.source}::${r.batch_file_name}`)
       )
       totalCount.value = resp.total_count
+      // Cache successful fetch signature
+      _metadataFetchSig = sig
     } catch (e) {
       console.error('[manage] fetchMetadata failed:', e)
       rows.value = []
@@ -470,6 +499,7 @@ export function useTrackManagement() {
       row,
     }])
 
+    _manageDataVersion++
     await fetchStats()
     fetchMetadata()
   }
@@ -525,6 +555,7 @@ export function useTrackManagement() {
       trKey: trKey(icao, source, fileName),
     }])
 
+    _manageDataVersion++
     await fetchStats()
     fetchMetadata()
     return true
@@ -587,6 +618,7 @@ export function useTrackManagement() {
     const { useUndoStack } = await import('./useUndoStack')
     useUndoStack().push(`${toDelete.length} 条航迹`, undoItems)
 
+    _manageDataVersion++
     await fetchStats()
     fetchMetadata()
   }
@@ -632,6 +664,7 @@ export function useTrackManagement() {
       tr.addToVisibleSet(item.trKey)
     }
 
+    _manageDataVersion++
     await fetchStats()
     fetchMetadata()
     return true
@@ -688,4 +721,15 @@ export function useTrackManagement() {
     // Export
     exportVisibleTracks,
   }
+}
+
+/** Invalidate all cached manage-panel data.
+ *  Call after import/delete/undo so the next panel open fetches fresh data. */
+export function markManageDataStale() {
+  _manageDataVersion++
+}
+
+/** Current data version — used by ManageFilterBar to check batch cache validity. */
+export function getManageDataVersion(): number {
+  return _manageDataVersion
 }

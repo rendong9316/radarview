@@ -35,7 +35,7 @@
                 <span class="color-hex">{{ fileEffectiveColor(src, f.fileName) }}</span>
               </div>
               <button class="reset-btn"
-                :title="`重置 ${f.fileName} 跟随数据源颜色`" @click="onFileResetColor(src, f.fileName)">
+                :title="`重置 ${f.displayLabel} 跟随数据源颜色`" @click="onFileResetColor(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
             </div>
@@ -64,7 +64,7 @@
               @input="$emit('setLineWidth', src, Number(($event.target as HTMLInputElement).value))" title="调整航迹线宽" />
             <span class="row-value">{{ lineWidths[src] }}</span>
             <button class="reset-btn"
-              :title="`重置 ${sourceLabel(src)} 为默认线宽`" @click="$emit('setLineWidth', src, 2.0)" style="margin-left:4px">
+              :title="`重置 ${sourceLabel(src)} 为默认线宽`" @click="$emit('setLineWidth', src, 2.0)">
               <RotateCcw :size="12" />
             </button>
           </div>
@@ -77,7 +77,7 @@
                 @input="onFileWidthChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级线宽" />
               <span class="row-value">{{ fileEffectiveWidth(src, f.fileName) }}</span>
               <button class="reset-btn"
-                :title="`重置 ${f.fileName} 跟随数据源线宽`" @click="onFileResetWidth(src, f.fileName)" style="margin-left:4px">
+                :title="`重置 ${f.displayLabel} 跟随数据源线宽`" @click="onFileResetWidth(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
             </div>
@@ -106,7 +106,7 @@
               @input="$emit('setDotScale', src, Number(($event.target as HTMLInputElement).value))" title="调整终点圆球大小" />
             <span class="row-value">{{ dotScale[src].toFixed(1) }}</span>
             <button class="reset-btn"
-              :title="`重置 ${sourceLabel(src)} 为默认大小`" @click="$emit('setDotScale', src, 1.0)" style="margin-left:4px">
+              :title="`重置 ${sourceLabel(src)} 为默认大小`" @click="$emit('setDotScale', src, 1.0)">
               <RotateCcw :size="12" />
             </button>
           </div>
@@ -119,7 +119,7 @@
                 @input="onFileScaleChange(src, f.fileName, Number(($event.target as HTMLInputElement).value))" title="调整文件级圆球大小" />
               <span class="row-value">{{ fileEffectiveScale(src, f.fileName, dotScale[src]).toFixed(1) }}</span>
               <button class="reset-btn"
-                :title="`重置 ${f.fileName} 跟随数据源大小`" @click="onFileResetScale(src, f.fileName)" style="margin-left:4px">
+                :title="`重置 ${f.displayLabel} 跟随数据源大小`" @click="onFileResetScale(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
             </div>
@@ -164,7 +164,7 @@
                 <span class="elevation-unit">km</span>
               </div>
               <button class="reset-btn"
-                :title="`重置 ${f.displayLabel} 为默认高度`" @click="onResetFileElevation(src, f.fileName)" style="margin-left:4px">
+                :title="`重置 ${f.displayLabel} 为默认高度`" @click="onResetFileElevation(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
             </div>
@@ -350,7 +350,7 @@
                 <span class="color-hex">{{ fileEffectivePointDotColor(src, f.fileName) }}</span>
               </div>
               <button class="reset-btn"
-                :title="`重置 ${f.fileName} 跟随数据源颜色`" @click="onFileResetPointDotColor(src, f.fileName)">
+                :title="`重置 ${f.displayLabel} 跟随数据源颜色`" @click="onFileResetPointDotColor(src, f.fileName)">
                 <RotateCcw :size="12" />
               </button>
             </div>
@@ -944,6 +944,7 @@ function onSourceElevationChange(src: DataSource, raw: string) {
   color: var(--text-tertiary);
   flex-shrink: 0;
 }
+
 /* ── Toggle switch ── */
 .toggle-switch {
   position: relative;

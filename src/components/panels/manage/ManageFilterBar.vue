@@ -50,10 +50,18 @@
   </div>
 </template>
 
+<script lang="ts">
+// Module-level batch cache — survives component unmount/remount
+interface BatchInfo { id: number; file_name: string; source: string; track_count: number; imported_at: string }
+
+let _cachedBatches: BatchInfo[] | null = null
+let _batchesVersion = -1
+</script>
+
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
-import { useTrackManagement } from '../../../composables/useTrackManagement'
+import { useTrackManagement, getManageDataVersion } from '../../../composables/useTrackManagement'
 import { getFileLabel, setBatchOrder } from '../../../composables/useFileLabels'
 import { X, Clock, BarChart3, RotateCcw } from '@lucide/vue'
 
@@ -61,13 +69,20 @@ const {
   filter, distinctOptions, setFilter, setSearchText, applySearch, clearFilters,
 } = useTrackManagement()
 
-interface BatchInfo { id: number; file_name: string; source: string; track_count: number; imported_at: string }
 const batches = ref<BatchInfo[]>([])
 
 onMounted(async () => {
+  const currentVersion = getManageDataVersion()
+  if (_batchesVersion === currentVersion && _cachedBatches) {
+    batches.value = _cachedBatches
+    setBatchOrder(batches.value)
+    return
+  }
   try {
     batches.value = await invoke<BatchInfo[]>('get_batches_cmd')
     setBatchOrder(batches.value)
+    _cachedBatches = batches.value
+    _batchesVersion = currentVersion
   } catch { /* ignore */ }
 })
 
