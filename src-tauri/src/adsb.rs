@@ -3,22 +3,41 @@ use std::fs;
 use std::path::PathBuf;
 
 use rayon::prelude::*;
+use tauri::AppHandle;
+use tauri::Emitter;
 
 use crate::track::{Track, TrackPosition};
 
+/// Emit a progress event to the frontend. Failure is non-fatal.
+fn emit_progress(app_handle: &AppHandle, stage: &str, percent: u32) {
+    let _ = app_handle.emit(
+        "convert-progress",
+        serde_json::json!({ "stage": stage, "percent": percent }),
+    );
+}
+
 type MetaTuple = (String, String, String, String, String, String, String);
 
-pub async fn parse_adsb_csv(file_path: &str) -> Result<Vec<Track>, String> {
+pub async fn parse_adsb_csv(
+    app_handle: &AppHandle,
+    file_path: &str,
+) -> Result<Vec<Track>, String> {
+    let handle = app_handle.clone();
     let path = file_path.to_string();
-    tauri::async_runtime::spawn_blocking(move || parse_adsb_csv_sync(&path))
+    tauri::async_runtime::spawn_blocking(move || parse_adsb_csv_sync(&handle, &path))
         .await
         .map_err(|e| e.to_string())?
 }
 
-fn parse_adsb_csv_sync(file_path: &str) -> Result<Vec<Track>, String> {
+fn parse_adsb_csv_sync(
+    app_handle: &AppHandle,
+    file_path: &str,
+) -> Result<Vec<Track>, String> {
     let path = PathBuf::from(file_path);
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read file: {}", e))?;
+
+    emit_progress(app_handle, "reading", 10);
 
     // Collect non‑empty lines (references into `content`)
     let lines: Vec<&str> = content
@@ -85,6 +104,8 @@ fn parse_adsb_csv_sync(file_path: &str) -> Result<Vec<Track>, String> {
             },
         );
 
+    emit_progress(app_handle, "grouping", 40);
+
     // ── Phase 2: Parallel sort positions + assemble Track structs ──
     let mut tracks: Vec<Track> = groups
         .into_par_iter()
@@ -109,5 +130,7 @@ fn parse_adsb_csv_sync(file_path: &str) -> Result<Vec<Track>, String> {
 
     // Stable sorted output
     tracks.sort_by(|a, b| a.icao_address.cmp(&b.icao_address));
+
+    emit_progress(app_handle, "done", 90);
     Ok(tracks)
 }

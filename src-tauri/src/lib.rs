@@ -35,7 +35,7 @@ async fn import_adsb_file(
     file_path: String,
 ) -> Result<Vec<TrackDto>, String> {
     let t0 = Instant::now();
-    let mut tracks = adsb::parse_adsb_csv(&file_path).await?;
+    let mut tracks = adsb::parse_adsb_csv(&app_handle, &file_path).await?;
     let t1 = Instant::now();
     eprintln!("[perf] CSV parse: {:?}", t1 - t0);
 

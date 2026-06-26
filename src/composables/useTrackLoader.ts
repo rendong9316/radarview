@@ -66,14 +66,15 @@ export function useTrackLoader() {
     loading.value = true
     persisting.value = true // set before IPC — batch-saved may fire before we return
     progress.value = 0
+    await startProgressListener()
     const t0 = performance.now()
     try {
       const raw = await invoke('import_adsb_file', { filePath: selected as string }) as any[]
       const t1 = performance.now()
       console.log(`[perf] IPC call (parse+DTO+transfer): ${(t1 - t0).toFixed(0)}ms  |  tracks=${raw.length}`)
       // Tracks parsed — loading done, persisting stays true until batch-saved fires
-      loading.value = false
       const tracks = await convertInChunks(raw)
+      loading.value = false
       const t2 = performance.now()
       console.log(`[perf] convertInChunks: ${(t2 - t1).toFixed(0)}ms`)
       return tracks
@@ -82,6 +83,8 @@ export function useTrackLoader() {
       persisting.value = false
       console.error('[loadAdsbFile] import failed:', e)
       throw e
+    } finally {
+      stopProgressListener()
     }
   }
 
@@ -100,8 +103,9 @@ export function useTrackLoader() {
     try {
       const raw = await invoke('import_radar_file', { filePath: selected as string }) as any[]
       progress.value = 90
+      const tracks = await convertInChunks(raw)
       loading.value = false
-      return await convertInChunks(raw)
+      return tracks
     } catch (e) {
       loading.value = false
       persisting.value = false
@@ -126,8 +130,9 @@ export function useTrackLoader() {
     try {
       const raw = await invoke('import_radar_raw_file', { filePath: selected as string }) as any[]
       progress.value = 90
+      const tracks = await convertInChunks(raw)
       loading.value = false
-      return await convertInChunks(raw)
+      return tracks
     } catch (e) {
       loading.value = false
       persisting.value = false
