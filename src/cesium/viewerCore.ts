@@ -187,31 +187,12 @@ export function setupFpsTracking(ctx: CesiumContext): () => void {
 // ═══════════════════════════════════════════
 
 export function setupSteplessZoom(ctx: CesiumContext): () => void {
-  // 3D 模式：禁用 Cesium 内置滚轮缩放，由自定义处理器接管（无极缩放）
-  // 2D 模式：启用 Cesium 内置滚轮缩放（cam.zoomIn() 在正射投影下行为不可靠，交还 Cesium 处理）
   const ctrl = ctx.viewer.scene.screenSpaceCameraController
+  // 禁用 Cesium 内置滚轮缩放（3D/2D 均由自定义无极缩放接管），保留右键拖拽缩放
   ctrl.zoomEventTypes = [Cesium.CameraEventType.RIGHT_DRAG]
-
-  let _lastWheelMode: Cesium.SceneMode | null = null
 
   const zoomCanvas = ctx.viewer.scene.canvas
   const onWheel = (event: WheelEvent) => {
-    const mode = ctx.viewer.scene.mode
-
-    // 2D 模式：交给 Cesium 内置 WHEEL 处理器，不做任何拦截
-    if (mode === Cesium.SceneMode.SCENE2D) {
-      if (_lastWheelMode !== Cesium.SceneMode.SCENE2D) {
-        ctrl.zoomEventTypes = [Cesium.CameraEventType.WHEEL, Cesium.CameraEventType.RIGHT_DRAG]
-        _lastWheelMode = Cesium.SceneMode.SCENE2D
-      }
-      return
-    }
-
-    if (_lastWheelMode !== Cesium.SceneMode.SCENE3D) {
-      ctrl.zoomEventTypes = [Cesium.CameraEventType.RIGHT_DRAG]
-      _lastWheelMode = Cesium.SceneMode.SCENE3D
-    }
-
     event.preventDefault()
 
     let deltaPx = event.deltaY
@@ -223,6 +204,20 @@ export function setupSteplessZoom(ctx: CesiumContext): () => void {
 
     const cam = ctx.viewer.camera
     const { globe } = ctx.viewer.scene
+
+    // 2D 正交投影：通过 moveForward/moveBackward 调整相机高度来缩放
+    // Cesium 2D 模式内部根据相机高度自动管理正交视锥体，比直接改 position 或 frustum 可靠
+    if (ctx.viewer.scene.mode === Cesium.SceneMode.SCENE2D) {
+      const h = ctx.viewer.camera.positionCartographic.height
+      const distance = h * deltaPx * 0.001
+      if (distance > 0) {
+        cam.moveBackward(distance)
+      } else if (distance < 0) {
+        cam.moveForward(-distance)
+      }
+      ctx.viewer.scene.requestRender()
+      return
+    }
 
     // 3D 透视：移动相机靠近/远离椭球面目标点
     const sensitivity = 0.0005

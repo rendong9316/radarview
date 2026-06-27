@@ -634,7 +634,12 @@ export function applyHoverHighlight(
     ?? (entry.entity.polyline as any).positions
   if (!srcPositions || !Array.isArray(srcPositions) || srcPositions.length < 2) return
 
-  const hoverAlt = getEffectiveAltitude(trackId) + 1500
+  // 2D 正交投影：摄像机贴近地表，高度越大→离摄像机越远，hover 必须降高度才能在 track 前面
+  // 3D 透视投影：摄像机在百万米高空，height 增大→离摄像机越近，hover 必须抬高度才能在 track 前面
+  const is2D = ctx.viewer.scene.mode === Cesium.SceneMode.SCENE2D
+  const hoverAlt = is2D
+    ? getEffectiveAltitude(trackId) - 1500
+    : getEffectiveAltitude(trackId) + 1500
   const elevatedPositions = srcPositions.map((p: Cesium.Cartesian3) => {
     const cartographic = Cesium.Cartographic.fromCartesian(p)
     return Cesium.Cartesian3.fromDegrees(
