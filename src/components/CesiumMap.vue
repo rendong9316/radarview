@@ -189,6 +189,7 @@ let zoomCleanup: (() => void) | null = null
 let cityDebounce: ReturnType<typeof setTimeout> | null = null
 let boundaryWidthDebounce: ReturnType<typeof setTimeout> | null = null
 let boundaryColorDebounce: ReturnType<typeof setTimeout> | null = null
+let viewportCullDebounce: ReturnType<typeof setTimeout> | null = null
 let removeCityCameraChanged: (() => void) | null = null
 
 // ═══════════════════════════════════════════
@@ -798,12 +799,23 @@ watch(
   () => syncLassoEntities(),
 )
 
-// 地图模式切换时重建标尺/套索 entity（clampToGround 需随模式变化）
+// 地图模式切换时重建标尺/套索 entity（clampToGround 需随模式变化）+ 更新视口裁剪
 watch(
   () => sceneModeCtrl.sceneMode.value,
-  () => {
+  (mode) => {
     syncRulerEntities()
     syncLassoEntities()
+    if (cesiumCtx) {
+      // 2D 正交投影：FXAA 收益极小但消耗 GPU，关掉节省 ~15% 帧时
+      const fxaaEnabled = mode !== Cesium.SceneMode.SCENE2D
+      ;(cesiumCtx.viewer.scene as any).fxaa = fxaaEnabled
+      // 兜底：旧版 Cesium 用 postProcessStages.fxaa
+      if (cesiumCtx.viewer.scene.postProcessStages) {
+        const stages = cesiumCtx.viewer.scene.postProcessStages as any
+        if (stages.fxaa) stages.fxaa.enabled = fxaaEnabled
+      }
+      TrackR.updateViewportCulling2D(cesiumCtx.viewer, { ...visibility.value }, props.replayTime)
+    }
   },
 )
 
@@ -871,11 +883,20 @@ onMounted(async () => {
     if (cityLayer.visible) {
       CityR.scheduleCityLayerRender(0, cityLayer as any)
     }
+    // 2D 视口裁剪：防抖 50ms，避免快速拖拽时频繁计算
+    if (viewportCullDebounce) clearTimeout(viewportCullDebounce)
+    viewportCullDebounce = setTimeout(() => {
+      viewportCullDebounce = null
+      TrackR.updateViewportCulling2D(cesiumCtx!.viewer, { ...visibility.value }, props.replayTime)
+    }, 50)
   })
 
   // 12. 初始同步航迹与旗标
   TrackR.syncEntities(props.tracks, buildTrackState())
   FlagR.syncFlagEntities(flags.value, flagScale.value)
+
+  // 12.5 初始视口裁剪（2D 模式下首次启动）
+  TrackR.updateViewportCulling2D(cesiumCtx.viewer, { ...visibility.value }, props.replayTime)
 
   // 13. 注册事件处理器
   handlersCleanup = Interaction.setupHandlers(buildInteractionCallbacks())
@@ -933,6 +954,7 @@ onUnmounted(() => {
   CityR.cancelCityLayerDebounce()
   if (boundaryWidthDebounce) { clearTimeout(boundaryWidthDebounce); boundaryWidthDebounce = null }
   if (boundaryColorDebounce) { clearTimeout(boundaryColorDebounce); boundaryColorDebounce = null }
+  if (viewportCullDebounce) { clearTimeout(viewportCullDebounce); viewportCullDebounce = null }
 
   // 移除监听器
   if (removeCityCameraChanged) { removeCityCameraChanged(); removeCityCameraChanged = null }

@@ -50,8 +50,35 @@ let wasReplaying = false
 /** 悬停状态 */
 let hoveredTrackId: string | null = null
 
+/** hover 期间保存的原始线外观，用于 unhover 时恢复 */
+interface HoverLineSave {
+  entityMaterial: Cesium.MaterialProperty
+  entityWidth: Cesium.Property | undefined
+  trailColor: Cesium.Color | null
+  trailWidth: number | null
+}
+let _hoverLineSave: HoverLineSave | null = null
+
 /** 预解析的 HOVER_COLOR */
 let HOVER_COLOR: Cesium.Color
+
+// ═══════════════════════════════════════════
+// 2D 视口裁剪
+// ═══════════════════════════════════════════
+
+/** 经纬度包围盒 */
+interface TrackExtent {
+  minLng: number
+  maxLng: number
+  minLat: number
+  maxLat: number
+}
+
+/** trackKey → 包围盒（createTrackEntities / syncEntities 时维护） */
+const trackExtents = new Map<string, TrackExtent>()
+
+/** 当前视口可见范围（2D 模式有值，3D 模式 null = 不做裁剪） */
+let currentViewportExtent: TrackExtent | null = null
 
 // ═══════════════════════════════════════════
 // 初始化
@@ -65,6 +92,8 @@ export function init(context: CesiumContext) {
 export function reset() {
   clearAllEntities()
   entityMap.clear()
+  trackExtents.clear()
+  currentViewportExtent = null
   labelRebuildCounter = 0
   wasReplaying = false
   hoveredTrackId = null
@@ -148,6 +177,40 @@ export function extractTrackKeyFromPolylineId(polylineId: string): string | null
     return parts.length >= 4 ? parts.slice(1, -1).join('::') : null
   }
   return null
+}
+
+/** 计算一条航迹的经纬度包围盒（O(n)，仅在创建/更新时调用一次） */
+export function computeTrackExtent(positions: TrackPoint[]): TrackExtent {
+  let minLng = Infinity, maxLng = -Infinity
+  let minLat = Infinity, maxLat = -Infinity
+  for (const p of positions) {
+    if (!isFinitePoint(p)) continue
+    if (p.longitude < minLng) minLng = p.longitude
+    if (p.longitude > maxLng) maxLng = p.longitude
+    if (p.latitude < minLat) minLat = p.latitude
+    if (p.latitude > maxLat) maxLat = p.latitude
+  }
+  return { minLng, maxLng, minLat, maxLat }
+}
+
+/** 判断两个包围盒是否相交（正确处理反子午线跨越） */
+function extentsOverlap(a: TrackExtent, b: TrackExtent): boolean {
+  // 纬度：直接判断区间重叠
+  if (a.maxLat < b.minLat || b.maxLat < a.minLat) return false
+  // 经度：需处理 -180°/180° 边界跨越
+  const aCross = a.minLng > a.maxLng // a 跨越反子午线
+  const bCross = b.minLng > b.maxLng // b 跨越反子午线
+  if (!aCross && !bCross) {
+    return a.minLng <= b.maxLng && a.maxLng >= b.minLng
+  }
+  if (aCross && bCross) {
+    // 两者都跨越 → 必然相交（全球覆盖）
+    return true
+  }
+  // 一个跨越、一个不跨越
+  const cross = aCross ? a : b
+  const normal = aCross ? b : a
+  return normal.minLng <= cross.maxLng || normal.maxLng >= cross.minLng
 }
 
 // ═══════════════════════════════════════════
@@ -235,6 +298,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
     cachedPositions: toCartesianArray(track.positions, tKey),
     _trailCache: [],
   })
+  trackExtents.set(tKey, computeTrackExtent(track.positions))
 }
 
 // ═══════════════════════════════════════════
@@ -256,6 +320,7 @@ export function removeTrackEntities(id: string) {
     if (entry.label && ctx.trackLabels) ctx.trackLabels.remove(entry.label)
     if (entry.pointPrimitive) ctx.pointPrimitives?.remove(entry.pointPrimitive)
     entityMap.delete(id)
+    trackExtents.delete(id)
   }
 }
 
@@ -280,9 +345,13 @@ export function reapplyVisibility(
   replayTime: number | null,
 ) {
   const replaying = replayTime !== null
-  for (const [, entities] of entityMap) {
+  const vpExt = currentViewportExtent // 2D 裁剪范围，3D 模式下为 null
+  for (const [tKey, entities] of entityMap) {
     const fileKey = `${entities.source}::${entities.fileName}`
-    const vis = visibility[entities.source] !== false && visibility[fileKey] !== false
+    const layerVis = visibility[entities.source] !== false && visibility[fileKey] !== false
+    // 2D 模式下额外检查视口裁剪：包围盒与视口无交集 → 隐藏
+    const inViewport = !vpExt || extentsOverlap(trackExtents.get(tKey) ?? { minLng: -180, maxLng: 180, minLat: -90, maxLat: 90 }, vpExt)
+    const vis = layerVis && inViewport
     if (entities.entity) entities.entity.show = replaying ? false : vis
     if (entities.trailLine) entities.trailLine.show = vis
     if (entities.label) entities.label.show = vis
@@ -290,9 +359,66 @@ export function reapplyVisibility(
   }
 }
 
-// ═══════════════════════════════════════════
-// 全量同步
-// ═══════════════════════════════════════════
+/**
+ * 2D 视口裁剪：计算当前相机可见地理范围，隐藏视口外实体。
+ * 3D 模式下直接清空裁剪范围（Cesium 内置 frustum + horizon culling 足够）。
+ *
+ * 调用时机：camera.moveEnd（防抖 ~50ms）、初始同步后、模式切换后。
+ */
+export function updateViewportCulling2D(
+  viewer: Cesium.Viewer,
+  visibility: Record<string, boolean>,
+  replayTime: number | null,
+) {
+  if (viewer.scene.mode !== Cesium.SceneMode.SCENE2D) {
+    // 3D 模式：交给 Cesium 原生裁剪，不做额外隐藏
+    if (currentViewportExtent !== null) {
+      currentViewportExtent = null
+      reapplyVisibility(visibility, replayTime)
+      viewer.scene.requestRender()
+    }
+    return
+  }
+
+  // 2D 模式：用 computeViewRectangle 获取当前视野的地理范围
+  const rect = viewer.camera.computeViewRectangle(viewer.scene.globe.ellipsoid)
+  let extent: TrackExtent
+
+  if (!rect) {
+    // 视野覆盖全球（缩放层级很低时 rect 返回 undefined）→ 全部可见
+    extent = { minLng: -180, maxLng: 180, minLat: -90, maxLat: 90 }
+  } else {
+    const west = Cesium.Math.toDegrees(rect.west)
+    const south = Cesium.Math.toDegrees(rect.south)
+    const east = Cesium.Math.toDegrees(rect.east)
+    const north = Cesium.Math.toDegrees(rect.north)
+    // 加 15% 边距防止边缘实体反复 pop-in/out
+    const lngMargin = (east - west) * 0.15
+    const latMargin = (north - south) * 0.15
+    extent = {
+      minLng: west - lngMargin,
+      maxLng: east + lngMargin,
+      minLat: Math.max(-90, south - latMargin),
+      maxLat: Math.min(90, north + latMargin),
+    }
+  }
+
+  // 仅在范围真正变化时才更新（避免无意义的全量遍历）
+  const prev = currentViewportExtent
+  if (
+    prev &&
+    Math.abs(prev.minLng - extent.minLng) < 0.01 &&
+    Math.abs(prev.maxLng - extent.maxLng) < 0.01 &&
+    Math.abs(prev.minLat - extent.minLat) < 0.01 &&
+    Math.abs(prev.maxLat - extent.maxLat) < 0.01
+  ) {
+    return // 视口几乎没变，跳过
+  }
+
+  currentViewportExtent = extent
+  reapplyVisibility(visibility, replayTime)
+  viewer.scene.requestRender()
+}
 
 export function syncEntities(newTracks: Track[], state: TrackState) {
   if (!ctx?.viewer) return
@@ -377,6 +503,11 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
         const isRaw = track.source === 'radar_raw'
         const base = isRaw ? 0.4 : 0.7
         existing.pointPrimitive.pixelSize = pointPrimSize(base, track.source, state.dotScale, track.fileName)
+      }
+
+      // 2D 裁剪：航迹位置更新后刷新包围盒
+      if (!replaying) {
+        trackExtents.set(tKey, computeTrackExtent(track.positions))
       }
     }
   } finally {
@@ -628,46 +759,46 @@ export function applyHoverHighlight(
 ) {
   if (!ctx?.viewer) return
   const entry = entityMap.get(trackId)
-  if (!entry || !entry.entity?.polyline) return
+  if (!entry) return
 
-  const srcPositions = (entry.entity.polyline as any).positions?.getValue?.()
-    ?? (entry.entity.polyline as any).positions
-  if (!srcPositions || !Array.isArray(srcPositions) || srcPositions.length < 2) return
-
-  // 2D 正交投影：摄像机贴近地表，高度越大→离摄像机越远，hover 必须降高度才能在 track 前面
-  // 3D 透视投影：摄像机在百万米高空，height 增大→离摄像机越近，hover 必须抬高度才能在 track 前面
-  const is2D = ctx.viewer.scene.mode === Cesium.SceneMode.SCENE2D
-  const hoverAlt = is2D
-    ? getEffectiveAltitude(trackId) - 1500
-    : getEffectiveAltitude(trackId) + 1500
-  const elevatedPositions = srcPositions.map((p: Cesium.Cartesian3) => {
-    const cartographic = Cesium.Cartographic.fromCartesian(p)
-    return Cesium.Cartesian3.fromDegrees(
-      Cesium.Math.toDegrees(cartographic.longitude),
-      Cesium.Math.toDegrees(cartographic.latitude),
-      hoverAlt,
-    )
-  })
-
-  if (!ctx.activeOverlayLine) {
-    ctx.activeOverlayLine = ctx.hoverOverlayLines!.add({
-      id: 'hover-overlay',
-      positions: elevatedPositions,
-      width: HOVER_WIDTH,
-      material: Cesium.Material.fromType('Color', { color: HOVER_COLOR }),
-    })
-  } else {
-    ctx.activeOverlayLine.positions = elevatedPositions
-    ctx.activeOverlayLine.show = true
-    if ((ctx.activeOverlayLine.material as any)?.uniforms) {
-      ;(ctx.activeOverlayLine.material as any).uniforms.color = HOVER_COLOR
+  // ── 直接修改 entity polyline 外观（PolylineGraphics.material/width） ──
+  // 不创建独立 overlay polyline，从根本上消除 2D/3D 深度竞争问题。
+  if (entry.entity?.polyline) {
+    const pg = entry.entity.polyline
+    // 保存原始状态用于后续恢复（总是覆盖，因为 syncEntities 或 remove 之后状态已过时）
+    _hoverLineSave = {
+      entityMaterial: pg.material,
+      entityWidth: pg.width,
+      trailColor: null,
+      trailWidth: null,
     }
+    pg.material = new Cesium.ColorMaterialProperty(HOVER_COLOR)
+    pg.width = new Cesium.ConstantProperty(HOVER_WIDTH)
   }
 
+  // ── 回放期间也要修改 trailLine（PolylineCollection 中的线） ──
+  if (entry.trailLine?.show && _hoverLineSave) {
+    const mat = entry.trailLine.material as Cesium.Material
+    if (mat?.uniforms?.color) {
+      _hoverLineSave.trailColor = Cesium.Color.clone(mat.uniforms.color)
+    }
+    _hoverLineSave.trailWidth = entry.trailLine.width
+    entry.trailLine.material = Cesium.Material.fromType('Color', { color: HOVER_COLOR })
+    entry.trailLine.width = HOVER_WIDTH
+  }
+
+  // ── 端点高亮（PointPrimitive） ──
   if (entry.pointPrimitive) {
     entry.pointPrimitive.pixelSize = pointPrimSize(DOT_HOVER, entry.source, state.dotScale, entry.fileName)
     entry.pointPrimitive.color = HOVER_COLOR
   }
+
+  // 兼容：隐藏旧的 overlay line（如果存在）
+  if (ctx.activeOverlayLine) {
+    ctx.activeOverlayLine.show = false
+  }
+
+  ctx.viewer.scene.requestRender()
 }
 
 export function removeHoverHighlight(
@@ -675,9 +806,32 @@ export function removeHoverHighlight(
   getLineColor: (source: DataSource, fileName?: string) => Cesium.Color,
   state: { dotScale: Record<DataSource, number> },
 ) {
+  // ── 恢复 entity polyline / trailLine 到 hover 前的原始外观 ──
+  if (_hoverLineSave && hoveredTrackId) {
+    const entry = entityMap.get(hoveredTrackId)
+    if (entry?.entity?.polyline) {
+      entry.entity.polyline.material = _hoverLineSave.entityMaterial
+      entry.entity.polyline.width = _hoverLineSave.entityWidth
+    }
+    if (entry?.trailLine) {
+      if (_hoverLineSave.trailColor) {
+        const mat = entry.trailLine.material as Cesium.Material
+        if (mat?.uniforms?.color) {
+          mat.uniforms.color = _hoverLineSave.trailColor
+        }
+      }
+      if (_hoverLineSave.trailWidth !== null) {
+        entry.trailLine.width = _hoverLineSave.trailWidth
+      }
+    }
+    _hoverLineSave = null
+  }
+
+  // 兼容：隐藏旧的 overlay line
   if (ctx?.activeOverlayLine) {
     ctx.activeOverlayLine.show = false
   }
+
   if (!hoveredTrackId) return
   const entry = entityMap.get(hoveredTrackId)
   if (entry?.pointPrimitive) {
