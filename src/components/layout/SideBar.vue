@@ -202,8 +202,11 @@ function onResizeEnd() {
   height: 100%;
   cursor: col-resize;
   z-index: 5;
+  transition: width 0.15s, background 0.15s;
 }
 .sidebar-resize:hover {
+  width: 6px;
+  right: -3px;
   background: var(--accent-primary);
 }
 </style>

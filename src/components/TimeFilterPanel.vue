@@ -388,6 +388,7 @@ function fmtArea(sqKm: number): string {
   border: 1px solid var(--input-border);
   border-radius: 2px;
   color: var(--input-fg);
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   font-size: 0.786rem;
   outline: none;
   min-width: 0;
@@ -731,6 +732,7 @@ function fmtArea(sqKm: number): string {
 
 .lasso-radius-val {
   font-size: 0.714rem;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   color: var(--text-primary);
   font-weight: 600;
   min-width: 30px;
@@ -837,6 +839,7 @@ function fmtArea(sqKm: number): string {
 .lri-area-val {
   color: var(--text-primary);
   font-weight: 600;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   font-size: 0.857rem;
 }
 </style>

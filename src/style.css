@@ -33,9 +33,11 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--scrollbar-thumb);
   border-radius: 5px;
+  transition: background 0.15s;
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-tertiary);
+  border-color: transparent;
 }
 ::-webkit-scrollbar-corner {
   background: transparent;
@@ -55,10 +57,20 @@ button {
   background: none;
   cursor: pointer;
   color: inherit;
+  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.1s, opacity 0.15s;
+}
+button:active:not(:disabled) {
+  transform: scale(0.97);
 }
 button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+/* ── Monospace utility for numeric data ── */
+.mono-data {
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 /* ── Input reset ── */
@@ -70,10 +82,26 @@ input, select, textarea {
   border: 1px solid var(--input-border);
   border-radius: 2px;
   padding: 2px 6px;
+  caret-color: var(--accent-primary);
 }
 input:focus, select:focus {
   outline: 1px solid var(--accent-primary);
   outline-offset: -1px;
+}
+input::placeholder, textarea::placeholder {
+  color: var(--text-tertiary);
+  opacity: 0.6;
+}
+
+/* ── Text selection ── */
+::selection {
+  background: var(--accent-primary);
+  color: #fff;
+}
+
+/* ── Smooth scrolling in panels ── */
+html {
+  scroll-behavior: smooth;
 }
 
 /* ── Toast / overlay z-index scale ── */

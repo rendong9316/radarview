@@ -290,7 +290,7 @@ function exportCSV() {
 
 .col-seq { text-align: center; color: var(--text-tertiary); width: 48px; }
 .col-ts { text-align: left; font-family: 'Consolas', monospace; }
-.col-num { text-align: right; }
+.col-num { text-align: right; font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-variant-numeric: tabular-nums; }
 
 /* Pagination */
 .tpd-pagination {

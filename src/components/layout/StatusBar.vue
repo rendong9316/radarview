@@ -325,6 +325,7 @@ onUnmounted(() => {
 
 .status-time {
   font-size: 0.786rem;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -338,6 +339,7 @@ onUnmounted(() => {
 .status-speed-select {
   height: 16px;
   font-size: 0.714rem;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   padding: 0 2px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
@@ -354,6 +356,7 @@ onUnmounted(() => {
   width: 64px;
   height: 16px;
   font-size: 0.714rem;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   padding: 0 4px;
   background: rgba(255,255,255,0.08);
   border: 1px solid rgba(255,255,255,0.15);
@@ -397,6 +400,7 @@ onUnmounted(() => {
 
 .status-view {
   font-size: 0.786rem;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   opacity: 0.85;
@@ -405,6 +409,8 @@ onUnmounted(() => {
 
 .status-count {
   font-size: 0.786rem;
+  font-family: 'Cascadia Code', 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
   opacity: 0.8;
 }
