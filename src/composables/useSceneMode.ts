@@ -8,7 +8,7 @@
 
 import { ref, computed } from 'vue'
 import * as Cesium from 'cesium'
-import { scheduleSave, getRawSetting } from './useSettingsPersistence'
+import { scheduleSave } from './useSettingsPersistence'
 
 const SETTINGS_KEY = 'map.scene_mode'
 
@@ -22,20 +22,13 @@ let _viewer: Cesium.Viewer | null = null
 export function useSceneMode() {
   const is3D = computed(() => sceneMode.value === Cesium.SceneMode.SCENE3D)
 
-  /** CesiumMap onMounted 调用，传入 viewer 并应用持久化的模式 */
+  /** CesiumMap onMounted 调用，传入 viewer 并把当前 sceneMode.value 同步到 viewer */
   function init(viewer: Cesium.Viewer) {
     _viewer = viewer
-    const raw = getRawSetting(SETTINGS_KEY)
-    if (raw !== undefined) {
-      try {
-        const parsed = JSON.parse(raw)
-        if (parsed === '2d') {
-          sceneMode.value = Cesium.SceneMode.SCENE2D
-          viewer.scene.mode = Cesium.SceneMode.SCENE2D
-          viewer.scene.requestRender()
-        }
-      } catch { /* keep default 3D */ }
-    }
+    // sceneMode.value 作为唯一真相来源：applySettings 中的 setModeValue() 已经
+    // 把持久化的值写入 ref，这里只需把 viewer.scene.mode 对齐 ref 即可。
+    viewer.scene.mode = sceneMode.value
+    viewer.scene.requestRender()
   }
 
   /** 在 2D / 3D 之间切换 */
@@ -54,10 +47,16 @@ export function useSceneMode() {
     )
   }
 
-  /** 仅设置 ref 值（settings 加载时用，此时 viewer 可能未创建） */
+  /** 仅设置 ref 值（settings 加载时用，此时 viewer 可能未创建）。
+   *  如果 viewer 已存在，同步更新 scene.mode 确保不会出现 ref/viewer 不一致。 */
   function setModeValue(mode: '2d' | '3d') {
-    sceneMode.value =
+    const newMode =
       mode === '2d' ? Cesium.SceneMode.SCENE2D : Cesium.SceneMode.SCENE3D
+    sceneMode.value = newMode
+    if (_viewer) {
+      _viewer.scene.mode = newMode
+      _viewer.scene.requestRender()
+    }
   }
 
   return { sceneMode, is3D, init, toggleSceneMode, setModeValue }

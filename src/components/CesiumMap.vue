@@ -831,10 +831,7 @@ onMounted(async () => {
   // 1. 创建 Viewer + 所有 Collection
   cesiumCtx = ViewerCore.createViewer(containerRef.value, port)
 
-  // 1.5. 应用持久化的地图模式（2D/3D）
-  sceneModeCtrl.init(cesiumCtx.viewer)
-
-  // 2. 初始化所有渲染模块
+  // 2. 初始化所有渲染模块（不依赖场景模式）
   DotR.init(cesiumCtx)
   FlagR.init(cesiumCtx)
   BoundaryR.init(cesiumCtx)
@@ -854,6 +851,12 @@ onMounted(async () => {
 
   // 5. 等待设置加载
   await whenSettingsLoaded()
+
+  // 5.5. 应用持久化的地图模式（2D/3D）。
+  // 必须在 whenSettingsLoaded() 之后：applySettings 已将持久化值写入 sceneMode.value，
+  // init() 只需把 viewer.scene.mode 对齐 ref。随后显式调用视口裁剪确保 2D 模式生效。
+  sceneModeCtrl.init(cesiumCtx.viewer)
+  TrackR.updateViewportCulling2D(cesiumCtx.viewer, { ...visibility.value }, props.replayTime)
 
   // 6. 边界层
   BoundaryR.applyBoundaryVisibility(boundaryVisible, boundaryColors, boundaryWidths)
