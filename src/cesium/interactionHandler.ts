@@ -31,6 +31,17 @@ let pendingClearTimeout: ReturnType<typeof setTimeout> | null = null
 // 套索拖拽/自由绘制状态
 let lassoDragActive = false  // true while lasso drag or freehand draw is in progress
 
+// 通用拖拽检测：区分"点击"与"拖拽"，防止平移/缩放操作误触发拾取/右键菜单
+const DRAG_THRESHOLD_PX = 4
+let _leftDownPos: Cesium.Cartesian2 | null = null
+let _rightDownPos: Cesium.Cartesian2 | null = null
+function isDrag(start: Cesium.Cartesian2 | null, end: Cesium.Cartesian2): boolean {
+  if (!start) return false
+  const dx = end.x - start.x
+  const dy = end.y - start.y
+  return Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD_PX
+}
+
 // 事件处理器
 let clickHandler: Cesium.ScreenSpaceEventHandler | null = null
 let dblClickHandler: Cesium.ScreenSpaceEventHandler | null = null
@@ -407,6 +418,9 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
   // LEFT_CLICK handler for track picking
   clickHandler = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    // ── 拖拽（平移/旋转）后不触发点击 ──
+    if (isDrag(_leftDownPos, movement.position)) { _leftDownPos = null; return }
+
     // ── Lasso mode: left-click adds a vertex (vertex mode only, skip if drag/freehand handled) ──
     if (cb.isLassoActive?.() && cb.getLassoMode?.() === 'vertex') {
       // If LEFT_DOWN started a drag/freehand, LEFT_UP already handled it — skip LEFT_CLICK
@@ -490,9 +504,10 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
     }, 300)
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
 
-  // LEFT_DOWN handler — lasso freehand start / vertex drag start
+  // LEFT_DOWN handler — lasso freehand start / vertex drag start + 通用拖拽检测
   let downHandler: Cesium.ScreenSpaceEventHandler | null = new Cesium.ScreenSpaceEventHandler(viewer.scene.canvas)
   downHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    _leftDownPos = movement.position.clone()
     const lassoActive = cb.isLassoActive?.() ?? false
     const mode = cb.getLassoMode?.() ?? 'vertex'
     const cartesian = viewer.camera.pickEllipsoid(movement.position, viewer.scene.globe.ellipsoid)
@@ -568,10 +583,18 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
     cb.addFlag(lat, lng)
   }, Cesium.ScreenSpaceEventType.LEFT_DOUBLE_CLICK)
 
-  // RIGHT_CLICK handler for context menu
+  // RIGHT_DOWN — 记录右键按下位置，用于区分"点击"与"拖拽缩放"
   const canvas = viewer.scene.canvas
+  let rightDownHandler: Cesium.ScreenSpaceEventHandler | null = new Cesium.ScreenSpaceEventHandler(canvas)
+  rightDownHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    _rightDownPos = movement.position.clone()
+  }, Cesium.ScreenSpaceEventType.RIGHT_DOWN)
+
+  // RIGHT_CLICK handler for context menu (2D 右键缩放由 ScreenSpaceCameraController 处理)
   rightClickHandler = new Cesium.ScreenSpaceEventHandler(canvas)
   rightClickHandler.setInputAction((movement: Cesium.ScreenSpaceEventHandler.PositionedEvent) => {
+    // 右键拖拽（2D 缩放 / 3D 倾斜）不弹出菜单
+    if (isDrag(_rightDownPos, movement.position)) { _rightDownPos = null; return }
     // ── Ruler mode: suppress right-click context menu ──
     if (cb.isRulerActive?.()) {
       return
@@ -683,6 +706,7 @@ export function setupHandlers(cb: InteractionCallbacks): CleanupFns {
     if (downHandler) { downHandler.destroy(); downHandler = null }
     if (upHandler) { upHandler.destroy(); upHandler = null }
     if (dblClickHandler) { dblClickHandler.destroy(); dblClickHandler = null }
+    if (rightDownHandler) { rightDownHandler.destroy(); rightDownHandler = null }
     if (rightClickHandler) { rightClickHandler.destroy(); rightClickHandler = null }
     if (moveHandler) { moveHandler.destroy(); moveHandler = null }
 

@@ -244,6 +244,29 @@
         </div>
       </div>
     </div>
+
+    <!-- ═══ 地图模式 ═══ -->
+    <div class="settings-group">
+      <div class="group-header" @click="toggleSection('mapmode')">
+        <ChevronDown :size="12" class="group-chevron" :class="{ collapsed: collapsedSections.has('mapmode') }" />
+        <MapIcon :size="13" class="group-icon" />
+        <span>地图模式</span><HelpTip text="在 2D 平面地图与 3D 地球之间切换。2D 平面地图适合精确距离测量和区域圈选。" />
+      </div>
+      <div class="group-body" v-show="!collapsedSections.has('mapmode')">
+        <div class="setting-row">
+          <span class="row-label" style="color: var(--accent-primary)">2D / 3D</span>
+          <label class="toggle-switch" title="切换 2D 平面地图 / 3D 地球">
+            <input
+              type="checkbox"
+              :checked="is3DMode"
+              @change="sceneModeCtrl.toggleSceneMode()"
+            />
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="switch-label">{{ is3DMode ? '3D' : '2D' }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -258,6 +281,7 @@ import { useTracks } from '../composables/useTracks'
 import { useBoundaryLayers } from '../composables/useBoundaryLayers'
 import { useCityLayer, type CityLevel, type CityLodLevel } from '../composables/useCityLayer'
 import { getRawSetting, scheduleSave } from '../composables/useSettingsPersistence'
+import { useSceneMode } from '../composables/useSceneMode'
 import HelpTip from './HelpTip.vue'
 import { ChevronDown, Layers, Map as MapIcon, MapPin, Globe, RotateCcw } from '@lucide/vue'
 
@@ -269,6 +293,9 @@ defineProps<{
 defineEmits<{
   switchTileSource: [fileName: string]
 }>()
+
+const sceneModeCtrl = useSceneMode()
+const is3DMode = computed(() => sceneModeCtrl.is3D.value)
 
 const { visibility, toggle: toggleSource } = useLayerVisibility()
 const { isFileVisible, setFileVisible } = useFileVisibility()

@@ -67,6 +67,9 @@ export function reset() {
     cityLayerDebounce = null
   }
   _lastCityState = null
+  _cached2DHeight = 0
+  _cached2DHeightValid = false
+  _cacheInitDone = false
   ctx = null
 }
 
@@ -144,9 +147,42 @@ export function isAdministrativeCity(city: CityFeature) {
 // 相机工具
 // ═══════════════════════════════════════════
 
+// ── 2D computeViewRectangle 缓存（该调用很昂贵，鼠标移动/城市渲染高频触发） ──
+let _cached2DHeight = 0
+let _cached2DHeightValid = false
+let _cacheInitDone = false
+
+/** 在 init 时注册 postRender 钩子，每帧开始时使缓存失效 */
+function ensure2DCacheListener() {
+  if (_cacheInitDone || !ctx?.viewer) return
+  _cacheInitDone = true
+  ctx.viewer.scene.postRender.addEventListener(() => {
+    _cached2DHeightValid = false
+  })
+}
+
 export function currentCameraHeight() {
   if (!ctx?.viewer) return Number.POSITIVE_INFINITY
-  return ctx.viewer.camera.positionCartographic.height
+  const h = ctx.viewer.camera.positionCartographic.height
+  // 2D 正交投影的相机高度数值远小于 3D 等效视野高度，导致城市 LOD 阈值全部失效（所有城市被渲染）。
+  // 通过可视矩形对角线长度估算 3D 等效高度，恢复正确的 LOD 行为。
+  // computeViewRectangle 是昂贵调用 → 同一帧内复用缓存，每帧开始时自动失效。
+  if (ctx.viewer.scene.mode === Cesium.SceneMode.SCENE2D) {
+    ensure2DCacheListener()
+    if (_cached2DHeightValid && _cached2DHeight > 0) {
+      return _cached2DHeight
+    }
+    const rect = ctx.viewer.camera.computeViewRectangle(ctx.viewer.scene.globe.ellipsoid)
+    if (rect) {
+      const centerLat = (Cesium.Math.toDegrees(rect.north) + Cesium.Math.toDegrees(rect.south)) / 2
+      const dLon = (Cesium.Math.toDegrees(rect.east) - Cesium.Math.toDegrees(rect.west)) * 111_320 * Math.cos(centerLat * Math.PI / 180)
+      const dLat = (Cesium.Math.toDegrees(rect.north) - Cesium.Math.toDegrees(rect.south)) * 111_320
+      _cached2DHeight = Math.sqrt(dLon * dLon + dLat * dLat)
+      _cached2DHeightValid = true
+      return _cached2DHeight
+    }
+  }
+  return h
 }
 
 export function isFrontSidePosition(position: Cesium.Cartesian3) {
@@ -166,7 +202,7 @@ export interface ViewStatus {
 export function getViewStatus(screenPosition?: Cesium.Cartesian2 | null): ViewStatus | null {
   if (!ctx?.viewer || ctx.viewer.isDestroyed()) return null
 
-  const cameraHeightKm = Math.max(0, ctx.viewer.camera.positionCartographic.height / 1000)
+  const cameraHeightKm = Math.max(0, currentCameraHeight() / 1000)
   let longitude = 0
   let latitude = 0
 

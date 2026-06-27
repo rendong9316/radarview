@@ -441,4 +441,16 @@ async function applySettings(raw: Record<string, string>) {
       try { seg.bridgeAlpha.value = JSON.parse(raw['segmentation.bridge_alpha']) } catch { /* keep default */ }
     }
   } catch { /* segmentation module not loaded yet, fine */ }
+
+  // ── Scene mode (2D / 3D) ──
+  if (raw['map.scene_mode'] !== undefined) {
+    try {
+      const parsed = JSON.parse(raw['map.scene_mode'])
+      if (parsed === '2d' || parsed === '3d') {
+        import('./useSceneMode').then(({ useSceneMode }) => {
+          useSceneMode().setModeValue(parsed)
+        })
+      }
+    } catch { /* keep default 3D */ }
+  }
 }

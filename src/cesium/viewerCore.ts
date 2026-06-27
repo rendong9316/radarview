@@ -36,9 +36,11 @@ export function createViewer(container: HTMLDivElement, port: number): CesiumCon
     timeline: false,
     navigationHelpButton: false,
     navigationInstructionsInitiallyVisible: false,
-    scene3DOnly: true,
+    scene3DOnly: false,
     requestRenderMode: true,
-    maximumRenderTimeChange: Infinity,
+    // 2D 正射投影下视口内所有实体全量渲染（无地平线裁剪），帧时远大于 3D。
+    // Infinity 会让 Cesium 死磕每一帧 → 帧率断崖下跌。设 1/30s 上限，确保 2D 下 30fps 底线。
+    maximumRenderTimeChange: 1.0 / 30.0,
     skyBox: false,
     skyAtmosphere: false,
     baseLayer: false,
@@ -185,10 +187,31 @@ export function setupFpsTracking(ctx: CesiumContext): () => void {
 // ═══════════════════════════════════════════
 
 export function setupSteplessZoom(ctx: CesiumContext): () => void {
-  ctx.viewer.scene.screenSpaceCameraController.zoomEventTypes = []
+  // 3D 模式：禁用 Cesium 内置滚轮缩放，由自定义处理器接管（无极缩放）
+  // 2D 模式：启用 Cesium 内置滚轮缩放（cam.zoomIn() 在正射投影下行为不可靠，交还 Cesium 处理）
+  const ctrl = ctx.viewer.scene.screenSpaceCameraController
+  ctrl.zoomEventTypes = [Cesium.CameraEventType.RIGHT_DRAG]
+
+  let _lastWheelMode: Cesium.SceneMode | null = null
 
   const zoomCanvas = ctx.viewer.scene.canvas
   const onWheel = (event: WheelEvent) => {
+    const mode = ctx.viewer.scene.mode
+
+    // 2D 模式：交给 Cesium 内置 WHEEL 处理器，不做任何拦截
+    if (mode === Cesium.SceneMode.SCENE2D) {
+      if (_lastWheelMode !== Cesium.SceneMode.SCENE2D) {
+        ctrl.zoomEventTypes = [Cesium.CameraEventType.WHEEL, Cesium.CameraEventType.RIGHT_DRAG]
+        _lastWheelMode = Cesium.SceneMode.SCENE2D
+      }
+      return
+    }
+
+    if (_lastWheelMode !== Cesium.SceneMode.SCENE3D) {
+      ctrl.zoomEventTypes = [Cesium.CameraEventType.RIGHT_DRAG]
+      _lastWheelMode = Cesium.SceneMode.SCENE3D
+    }
+
     event.preventDefault()
 
     let deltaPx = event.deltaY
@@ -198,11 +221,12 @@ export function setupSteplessZoom(ctx: CesiumContext): () => void {
       deltaPx = event.deltaY * 800
     }
 
-    const sensitivity = 0.0005
-    const zoomFactor = 1 + deltaPx * sensitivity
-
     const cam = ctx.viewer.camera
     const { globe } = ctx.viewer.scene
+
+    // 3D 透视：移动相机靠近/远离椭球面目标点
+    const sensitivity = 0.0005
+    const zoomFactor = 1 + deltaPx * sensitivity
     const { width, height } = zoomCanvas
 
     const center = cam.pickEllipsoid(

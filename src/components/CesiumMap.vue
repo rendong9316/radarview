@@ -92,6 +92,7 @@ import { useSpatialLasso } from '../composables/useSpatialLasso'
 import { trackKey } from '../composables/useTracks'
 import { hasElevationOffset, getElevationOffset, setElevationOffset, adjustElevation, resetElevation, fileElevationKm } from '../composables/useTrackElevation'
 import { whenSettingsLoaded } from '../composables/useSettingsPersistence'
+import { useSceneMode } from '../composables/useSceneMode'
 import { Pencil, Trash2, Dot, Circle, FileText, ClipboardList, Flag as FlagIcon, ArrowUp, RotateCcw } from '@lucide/vue'
 import type { Flag } from '../composables/useFlags'
 
@@ -147,6 +148,7 @@ const { boundaryVisible, boundaryWidths, boundaryColors } = useBoundaryLayers()
 const { cityLayer } = useCityLayer()
 const ruler = useRuler()
 const lasso = useSpatialLasso()
+const sceneModeCtrl = useSceneMode()
 
 // ═══════════════════════════════════════════
 // 本地响应式状态
@@ -560,6 +562,12 @@ function buildWaypointCanvas(index: number): string {
   return canvas.toDataURL()
 }
 
+/** 2D 模式下不可用 clampToGround（Cesium 会抛异常） */
+function clampToGroundIf3D(): boolean {
+  if (!cesiumCtx?.viewer) return false
+  return cesiumCtx.viewer.scene.mode !== Cesium.SceneMode.SCENE2D
+}
+
 function syncRulerEntities() {
   if (!cesiumCtx?.viewer) return
   const viewer = cesiumCtx.viewer
@@ -604,7 +612,7 @@ function syncRulerEntities() {
           color: RULER_LINE_COLOR,
           dashLength: 12,
         }),
-        clampToGround: true,
+        clampToGround: clampToGroundIf3D(),
       },
     })
   }
@@ -624,7 +632,7 @@ function syncRulerEntities() {
           color: RULER_PREVIEW_COLOR,
           dashLength: 8,
         }),
-        clampToGround: true,
+        clampToGround: clampToGroundIf3D(),
       },
     })
   }
@@ -731,7 +739,7 @@ function syncLassoEntities() {
       material: closed
         ? LASSO_LINE_COLOR
         : new Cesium.PolylineDashMaterialProperty({ color: LASSO_LINE_COLOR, dashLength: 12 }),
-      clampToGround: true,
+      clampToGround: clampToGroundIf3D(),
     },
   })
 
@@ -750,7 +758,7 @@ function syncLassoEntities() {
           color: LASSO_PREVIEW_COLOR,
           dashLength: 8,
         }),
-        clampToGround: true,
+        clampToGround: clampToGroundIf3D(),
       },
     })
   }
@@ -770,7 +778,7 @@ function syncLassoEntities() {
           color: Cesium.Color.fromCssColorString('#10b981').withAlpha(0.7),
           dashLength: 6,
         }),
-        clampToGround: true,
+        clampToGround: clampToGroundIf3D(),
       },
     })
   }
@@ -790,6 +798,15 @@ watch(
   () => syncLassoEntities(),
 )
 
+// 地图模式切换时重建标尺/套索 entity（clampToGround 需随模式变化）
+watch(
+  () => sceneModeCtrl.sceneMode.value,
+  () => {
+    syncRulerEntities()
+    syncLassoEntities()
+  },
+)
+
 // ═══════════════════════════════════════════
 // onMounted — 初始化一切
 // ═══════════════════════════════════════════
@@ -801,6 +818,9 @@ onMounted(async () => {
 
   // 1. 创建 Viewer + 所有 Collection
   cesiumCtx = ViewerCore.createViewer(containerRef.value, port)
+
+  // 1.5. 应用持久化的地图模式（2D/3D）
+  sceneModeCtrl.init(cesiumCtx.viewer)
 
   // 2. 初始化所有渲染模块
   DotR.init(cesiumCtx)
