@@ -74,6 +74,20 @@ npx vue-tsc --noEmit        # TypeScript 类型校验（根目录执行）
 - **Hover overlay 独立 PolylineCollection 导致点击/右键不稳定**：悬停高亮使用独立 `hoverOverlayLines` 集合（叠加在 `trackLines` 上方），其 id 为 `hover::trackKey`。`scene.pick()` 返回最上层物体，因此会优先捡到 hover overlay。`doPick()`、LEFT_CLICK handler、RIGHT_CLICK handler 都必须识别 `hover::` 前缀并剥离出真实 trackKey，否则 hover overlay 被误判为未知物体 → `removeHoverHighlight()` 删除 → 下一帧又添加 → 无限闪烁，且点击穿透失效。`src/components/CesiumMap.vue:doPick`、LEFT_CLICK `setInputAction`、RIGHT_CLICK `setInputAction`。
 - **WebGL 上下文获取禁止用 canvas.getContext() 与 Cesium 抢**：Cesium 1.140.0 持有 `webgl2` 上下文，同一个 `<canvas>` 只能返回同类型上下文。**禁止**用 `canvas.getContext('webgl')`（类型不匹配，永远返回 null），**禁止**用 `canvas.getContext('webgl2')`（二次调用会干扰 Cesium 对上下文的所有权，导致 3D 场景崩溃只剩底图）。正确做法：直接取 Cesium 内部引用 `(viewer.scene as any).context._gl`，且 postRender 钩子中绘制前保存、绘制后恢复 `CURRENT_PROGRAM` / `ARRAY_BUFFER_BINDING`，`disableVertexAttribArray` 解绑，避免污染 Cesium 的 WebGL 状态机。`src/components/CesiumMap.vue:initDotCloudRenderer`。
 
+## Loop Engineering 框架
+
+本项目采用 Loop Engineering 模式进行自动化开发循环管理。详见：
+- `LOOP.md` — 循环配置（调度、gate、预算）
+- `STATE.md` — 循环状态记忆脊柱
+- `loop-budget.md` — token 预算上限
+- `loop-run-log.md` — 运行历史日志
+- `.claude/skills/` — triage / verifier / budget / minimal-fix skills
+- `.claude/agents/loop-verifier.md` — maker/checker 分离的验证者
+
+### Loop 成熟度目标
+- 当前阶段: **L1 report-only**（triage → state，无自动修复）
+- 下一步: **L2 assisted**（小修复 + verifier + worktree）
+
 ## 用户设置持久化
 
 - **存储**：SQLite 表 `app_settings(key TEXT PK, value TEXT NOT NULL)`，value 由前端 JSON.stringify。

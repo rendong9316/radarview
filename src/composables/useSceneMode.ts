@@ -40,6 +40,10 @@ export function useSceneMode() {
         : Cesium.SceneMode.SCENE3D
     _viewer.scene.mode = newMode
     sceneMode.value = newMode
+    // 2D 正交投影下关闭 globe depthTest — 减少不必要的深度测试开销
+    if (_viewer.scene.globe) {
+      _viewer.scene.globe.depthTestAgainstTerrain = newMode !== Cesium.SceneMode.SCENE2D
+    }
     _viewer.scene.requestRender()
     scheduleSave(
       SETTINGS_KEY,
@@ -55,6 +59,10 @@ export function useSceneMode() {
     sceneMode.value = newMode
     if (_viewer) {
       _viewer.scene.mode = newMode
+      // 2D 正交投影下关闭 globe depthTest
+      if (_viewer.scene.globe) {
+        _viewer.scene.globe.depthTestAgainstTerrain = newMode !== Cesium.SceneMode.SCENE2D
+      }
       _viewer.scene.requestRender()
     }
   }

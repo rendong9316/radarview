@@ -1,5 +1,12 @@
 import type { Track, TrackPoint, DataSource } from '../types/track'
 
+/** Compute a simple hash from positions length + first/last timestamps. */
+function computePositionsHash(positions: TrackPoint[]): number {
+  const n = positions.length
+  if (n === 0) return 0
+  return n * 1000003 + (positions[0].timestamp >>> 0) + (positions[n - 1].timestamp >>> 0)
+}
+
 interface BackendTrack {
   icao_address: string
   flight_no: string
@@ -100,6 +107,7 @@ export function fromTrackDto(td: TrackDto): Track {
     minTimestamp: td.min_ts,
     maxTimestamp: td.max_ts,
     pointCount: td.cnt,
+    positionsHash: computePositionsHash(positions),
     metadata: {
       flightNumber: td.flt || undefined,
       icaoFlightNumber: td.icao || undefined,
@@ -142,6 +150,7 @@ export function fromBackendTrack(bt: BackendTrack): Track {
     minTimestamp: len > 0 ? minTs : 0,
     maxTimestamp: len > 0 ? maxTs : 0,
     pointCount: len,
+    positionsHash: computePositionsHash(positions),
     metadata: {
       flightNumber: bt.flight_no || undefined,
       icaoFlightNumber: bt.icao_flight_no || undefined,

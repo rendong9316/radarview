@@ -35,6 +35,8 @@ export interface Track {
   maxTimestamp: number
   /** 位置点数量 */
   pointCount: number
+  /** 基于 positions 长度+首尾时间戳计算的哈希，用于检测 positions 是否变化 */
+  positionsHash: number
   /** 元数据 */
   metadata: TrackMetadata
 }

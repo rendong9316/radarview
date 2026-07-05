@@ -814,6 +814,26 @@ watch(
         const stages = cesiumCtx.viewer.scene.postProcessStages as any
         if (stages.fxaa) stages.fxaa.enabled = fxaaEnabled
       }
+      // 2D 模式下关闭 globe — 正交投影不需要地球曲率渲染，关闭可减少大量 GPU 开销
+      if (cesiumCtx.viewer.scene.globe) {
+        cesiumCtx.viewer.scene.globe.show = mode !== Cesium.SceneMode.SCENE2D
+      }
+      // 2D 模式下减少 globe 的绘制开销：关闭阴影和光照
+      if (mode === Cesium.SceneMode.SCENE2D && cesiumCtx.viewer.scene.globe) {
+        cesiumCtx.viewer.scene.globe.enableLighting = false
+      }
+      // 2D 正交投影：禁用 rotate（无意义）+ 降低 resolutionScale（省 GPU 填充率）
+      if (mode === Cesium.SceneMode.SCENE2D) {
+        const ctrl = cesiumCtx.viewer.scene.screenSpaceCameraController
+        ctrl.enableRotate = false
+        // 降低渲染分辨率到 0.5x — 2D 正交模式下不需要高分辨率
+        ;(cesiumCtx.viewer.scene as any).resolutionScale = 0.5
+      } else {
+        // 切回 3D 时恢复
+        ;(cesiumCtx.viewer.scene as any).resolutionScale = 1.0
+        const ctrl = cesiumCtx.viewer.scene.screenSpaceCameraController
+        ctrl.enableRotate = true
+      }
       TrackR.updateViewportCulling2D(cesiumCtx.viewer, { ...visibility.value }, props.replayTime)
     }
   },

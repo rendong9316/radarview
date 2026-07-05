@@ -1,6 +1,14 @@
 import { ref, computed, watch } from 'vue'
 import type { Track, DataSource } from '../types/track'
 
+/** Compute a simple hash from positions length + first/last timestamps.
+ *  Used to detect whether Cartesian3 arrays need rebuilding in syncEntities. */
+function computePositionsHash(positions: Track['positions']): number {
+  const n = positions.length
+  if (n === 0) return 0
+  return n * 1000003 + (positions[0].timestamp >>> 0) + (positions[n - 1].timestamp >>> 0)
+}
+
 const tracks = ref<Track[]>([])
 const selectedId = ref<string | null>(null)
 const isolatedTrackId = ref<string | null>(null)
@@ -73,6 +81,7 @@ export function useTracks() {
           merged.minTimestamp = merged.positions[0].timestamp
           merged.maxTimestamp = merged.positions[merged.pointCount - 1].timestamp
         }
+        merged.positionsHash = computePositionsHash(merged.positions)
         for (const k of Object.keys(nt.metadata) as (keyof typeof nt.metadata)[]) {
           if (nt.metadata[k] && !merged.metadata[k]) {
             ;(merged.metadata as Record<string, unknown>)[k] = nt.metadata[k]
@@ -80,7 +89,9 @@ export function useTracks() {
         }
         map.set(key, merged)
       } else {
-        map.set(key, { ...nt, positions: [...nt.positions] })
+        const cloned: Track = { ...nt, positions: [...nt.positions] }
+        cloned.positionsHash = computePositionsHash(cloned.positions)
+        map.set(key, cloned)
       }
     }
     tracks.value = Array.from(map.values())

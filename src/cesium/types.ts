@@ -53,6 +53,8 @@ export interface TrackEntities {
   cachedPositions: Cesium.Cartesian3[]
   /** 回放期间 trail 的 Cartesian3 增量缓存，lo 前进时只追加新点，不再 0→lo 全量重建 */
   _trailCache: Cesium.Cartesian3[]
+  /** positions 变化检测哈希 — 与 Track.positionsHash 同步 */
+  positionsHash: number
 }
 
 // ═══════════════════════════════════════════
@@ -79,7 +81,6 @@ export interface CameraState {
 export interface CesiumContext {
   viewer: Cesium.Viewer
   trackLines: Cesium.PolylineCollection
-  hoverOverlayLines: Cesium.PolylineCollection
   activeOverlayLine: Cesium.Polyline | null
   pointPrimitives: Cesium.PointPrimitiveCollection
   trackLabels: Cesium.LabelCollection

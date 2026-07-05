@@ -43,6 +43,8 @@ const entityMap = new Map<string, TrackEntities>()
 
 /** 周期 LabelCollection 重建计数器 */
 let labelRebuildCounter = 0
+/** LabelCollection 重建阈值（帧数），增大以减少重建频率 */
+const LABEL_REBUILD_INTERVAL = 500
 
 /** 回放状态追踪 */
 let wasReplaying = false
@@ -297,6 +299,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
     lastTrailLo: track.positions.length - 1,
     cachedPositions: toCartesianArray(track.positions, tKey),
     _trailCache: [],
+    positionsHash: track.positionsHash,
   })
   trackExtents.set(tKey, computeTrackExtent(track.positions))
 }
@@ -330,10 +333,7 @@ export function clearAllEntities() {
     removeTrackEntities(id)
   }
   // Remove any leftover hover overlay
-  if (ctx.activeOverlayLine && ctx.hoverOverlayLines) {
-    ctx.hoverOverlayLines.remove(ctx.activeOverlayLine)
-    ctx.activeOverlayLine = null
-  }
+  // (hoverOverlayLines was removed — hover now modifies entity polyline directly)
 }
 
 // ═══════════════════════════════════════════
@@ -458,11 +458,15 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
       if (existing.entity) {
         if (hasEnoughPoints) {
           if (!replaying) {
-            const newPositions = toCartesianArray(track.positions, tKey)
-            existing.trailRef.positions = newPositions
-            existing.cachedPositions = newPositions
-            if (existing.entity.polyline) {
-              ;(existing.entity.polyline as any).positions = newPositions
+            // Only rebuild Cartesian3 arrays when positions actually changed
+            if (existing.positionsHash !== track.positionsHash) {
+              const newPositions = toCartesianArray(track.positions, tKey)
+              existing.trailRef.positions = newPositions
+              existing.cachedPositions = newPositions
+              if (existing.entity.polyline) {
+                ;(existing.entity.polyline as any).positions = newPositions
+              }
+              existing.positionsHash = track.positionsHash
             }
             existing.entity.show = vis
           }
@@ -480,6 +484,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
           const pos = toCartesianArray(track.positions, tKey)
           existing.trailRef.positions = pos
           existing.cachedPositions = pos
+          existing.positionsHash = track.positionsHash
         }
         existing.entity = ctx.viewer.entities.add({
           id: tKey,
@@ -520,7 +525,7 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
 
   // Periodic LabelCollection rebuild to prevent glyph atlas bloat
   labelRebuildCounter = (labelRebuildCounter || 0) + 1
-  if (labelRebuildCounter > 50 && ctx.trackLabels && ctx.viewer) {
+  if (labelRebuildCounter >= LABEL_REBUILD_INTERVAL && ctx.trackLabels && ctx.viewer) {
     labelRebuildCounter = 0
     ctx.viewer.scene.primitives.remove(ctx.trackLabels)
     if (!ctx.trackLabels.isDestroyed()) ctx.trackLabels.destroy()
@@ -793,10 +798,8 @@ export function applyHoverHighlight(
     entry.pointPrimitive.color = HOVER_COLOR
   }
 
-  // 兼容：隐藏旧的 overlay line（如果存在）
-  if (ctx.activeOverlayLine) {
-    ctx.activeOverlayLine.show = false
-  }
+  // 兼容：隐藏旧的 overlay line（hover 已改为直接修改 entity polyline，此处为防御性代码）
+  // ctx.activeOverlayLine 始终为 null，hoverOverlayLines 已被移除
 
   ctx.viewer.scene.requestRender()
 }
@@ -827,10 +830,8 @@ export function removeHoverHighlight(
     _hoverLineSave = null
   }
 
-  // 兼容：隐藏旧的 overlay line
-  if (ctx?.activeOverlayLine) {
-    ctx.activeOverlayLine.show = false
-  }
+  // 兼容：隐藏旧的 overlay line（hover 已改为直接修改 entity polyline，此处为防御性代码）
+  // ctx.activeOverlayLine 始终为 null，hoverOverlayLines 已被移除
 
   if (!hoveredTrackId) return
   const entry = entityMap.get(hoveredTrackId)

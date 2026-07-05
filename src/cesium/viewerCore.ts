@@ -38,9 +38,6 @@ export function createViewer(container: HTMLDivElement, port: number): CesiumCon
     navigationInstructionsInitiallyVisible: false,
     scene3DOnly: false,
     requestRenderMode: true,
-    // 2D 正射投影下视口内所有实体全量渲染（无地平线裁剪），帧时远大于 3D。
-    // Infinity 会让 Cesium 死磕每一帧 → 帧率断崖下跌。设 1/30s 上限，确保 2D 下 30fps 底线。
-    maximumRenderTimeChange: 1.0 / 30.0,
     skyBox: false,
     skyAtmosphere: false,
     baseLayer: false,
@@ -66,9 +63,6 @@ export function createViewer(container: HTMLDivElement, port: number): CesiumCon
   const trackLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
   viewer.scene.primitives.lowerToBottom(trackLines as any)
 
-  // P2: Separate PolylineCollection for hover overlay
-  const hoverOverlayLines = viewer.scene.primitives.add(new Cesium.PolylineCollection()) as unknown as Cesium.PolylineCollection
-
   // P1: LabelCollection for track labels
   const trackLabels = viewer.scene.primitives.add(new Cesium.LabelCollection())
 
@@ -78,7 +72,6 @@ export function createViewer(container: HTMLDivElement, port: number): CesiumCon
   const ctx: CesiumContext = {
     viewer,
     trackLines,
-    hoverOverlayLines,
     activeOverlayLine: null,
     pointPrimitives,
     trackLabels,
@@ -97,10 +90,6 @@ export function createViewer(container: HTMLDivElement, port: number): CesiumCon
 
 export function destroyViewer(ctx: CesiumContext) {
   // Destroy collections in dependency order before viewer.destroy()
-  if (ctx.hoverOverlayLines) {
-    ctx.viewer.scene.primitives.remove(ctx.hoverOverlayLines)
-    if (!ctx.hoverOverlayLines.isDestroyed()) ctx.hoverOverlayLines.destroy()
-  }
   if (ctx.trackLines) {
     ctx.viewer.scene.primitives.remove(ctx.trackLines)
     if (!ctx.trackLines.isDestroyed()) ctx.trackLines.destroy()
