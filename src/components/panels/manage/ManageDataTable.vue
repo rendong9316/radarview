@@ -40,7 +40,7 @@
               <Circle v-else :size="13" />
             </span>
           </td>
-          <td class="col-src"><span class="src-dot" :class="srcClass(row.source)"></span>{{ srcLabel(row.source) }}</td>
+          <td class="col-src"><span class="src-dot" :style="{ background: rowColor(row) }"></span>{{ srcLabel(row.source) }}</td>
           <td class="col-icao">{{ row.icao_address }}</td>
           <td class="col-flt">{{ row.flight_number || '—' }}</td>
           <td class="col-reg">{{ row.registration || '—' }}</td>
@@ -71,10 +71,13 @@
 <script setup lang="ts">
 import { reactive, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import type { TrackMetaInfo } from '../../../types/manage'
+import type { DataSource } from '../../../types/track'
 import { useTrackHighlight } from '../../../composables/useTrackHighlight'
+import { useFileLineColor } from '../../../composables/useFileLineColor'
 import { Eye, Circle, Trash2, ClipboardList } from '@lucide/vue'
 
 const { isHighlighted, highlightedIcaos } = useTrackHighlight()
+const { getEffectiveFileColor } = useFileLineColor()
 
 defineProps<{
   rows: TrackMetaInfo[]
@@ -97,11 +100,14 @@ function srcLabel(s: string): string {
   if (s === 'RadarRaw') return '原始'
   return s
 }
-function srcClass(s: string): string {
-  if (s === 'ADS-B') return 'dot-adsb'
-  if (s === 'Radar') return 'dot-radar'
-  if (s === 'RadarRaw') return 'dot-raw'
-  return ''
+function dbSourceToDataSource(s: string): DataSource {
+  if (s === 'ADS-B') return 'adsb'
+  if (s === 'Radar') return 'radar'
+  if (s === 'RadarRaw') return 'radar_raw'
+  return 'adsb'
+}
+function rowColor(row: TrackMetaInfo): string {
+  return getEffectiveFileColor(dbSourceToDataSource(row.source), row.batch_file_name || '')
 }
 function fmtTime(r: TrackMetaInfo): string {
   if (!r.min_timestamp && !r.max_timestamp) return '—'

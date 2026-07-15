@@ -27,8 +27,10 @@
       <input
         class="custom-speed-input"
         type="number"
-        min="1"
+        min="0.1"
+        step="0.1"
         :value="speed"
+        @input="onCustomSpeed"
         @keydown.enter="onCustomSpeed"
         @blur="onCustomSpeed"
         title="输入自定义回放倍速，按回车键确认"
@@ -81,8 +83,8 @@ function onMouseDown(e: MouseEvent) {
 }
 
 function onCustomSpeed(e: Event) {
-  const val = parseInt((e.target as HTMLInputElement).value, 10)
-  if (val >= 1) emit('speed', val)
+  const val = parseFloat((e.target as HTMLInputElement).value)
+  if (Number.isFinite(val) && val > 0) emit('speed', val)
 }
 </script>
 

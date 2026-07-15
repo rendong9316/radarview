@@ -45,6 +45,8 @@ export interface TrackEntities {
   labelText: string
   /** Mutable holder for full track positions — used to restore after replay */
   trailRef: { positions: Cesium.Cartesian3[] }
+  firstTimestamp: number
+  replayPositionValid: boolean
   /** Current trail positions during replay (incrementally built) */
   trailPositions: Cesium.Cartesian3[]
   /** Last lo index from binary search — replay trail only updated when this advances */

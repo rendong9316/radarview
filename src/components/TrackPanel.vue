@@ -27,7 +27,7 @@
           >
             <div class="track-item-main" @click="$emit('isolate', trackKey(track.id, track.source, track.fileName))" title="点击单独查看此航迹">
               <div class="track-item-top">
-                <span class="track-color" :style="{ background: sourceColors[track.source] }"></span>
+                <span class="track-color" :style="{ background: trackColor(track) }"></span>
                 <span class="track-id">{{ track.metadata.flightNumber || track.id }}</span>
                 <span class="track-type">{{ track.metadata.aircraftType || '' }}</span>
               </div>
@@ -85,6 +85,7 @@
 import { ref, computed } from 'vue'
 import type { Track, DataSource } from '../types/track'
 import { trackKey } from '../composables/useTracks'
+import { useFileLineColor } from '../composables/useFileLineColor'
 import HelpTip from './HelpTip.vue'
 import { X } from '@lucide/vue'
 
@@ -101,6 +102,7 @@ defineEmits<{
 
 const expandedId = ref<string | null>(null)
 const searchQuery = ref('')
+const { getEffectiveFileColor } = useFileLineColor()
 
 const isolatedLabel = computed(() => {
   if (!props.isolatedId) return ''
@@ -127,15 +129,12 @@ const filteredList = computed(() => {
   })
 })
 
-const sourceColors: Record<DataSource, string> = {
-  adsb: 'var(--source-adsb)',
-  radar: 'var(--source-radar)',
-  radar_raw: 'var(--source-radar_raw)',
-  simulation: 'var(--source-simulation)',
-}
-
 function sourceLabel(source: DataSource): string {
   return { adsb: 'ADS-B', radar: '雷达', radar_raw: '雷达原始', simulation: '仿真' }[source]
+}
+
+function trackColor(track: Track): string {
+  return getEffectiveFileColor(track.source, track.fileName)
 }
 
 function toggleExpand(id: string) {

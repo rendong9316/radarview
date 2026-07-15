@@ -14,7 +14,7 @@ export interface ReplayPosition {
   t: number
 }
 
-const SPEED_OPTIONS = [100, 300, 500, 2000] as const
+const SPEED_OPTIONS = [1, 10, 50, 100, 300, 500, 2000] as const
 
 // ============================================================
 // 保留原有的同步计算函数（作为降级方案）

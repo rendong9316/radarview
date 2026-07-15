@@ -62,20 +62,21 @@ fn parse_mat_sync(
 
     let track_list = &mat["trackList"];
 
+    let is_single_track_struct = matches!(track_list, matrw::MatVariable::Structure(_));
     let dims = track_list.dim();
-    let num_tracks = if dims.is_empty() {
+    let num_tracks = if is_single_track_struct {
+        1
+    } else if dims.is_empty() {
         return Ok(Vec::new());
-    } else if dims.len() >= 2 {
-        dims[1]
     } else {
-        dims[0]
+        dims.iter().product()
     };
 
     let is_raw = source_override.is_some();
-    let field_name = if is_raw {
-        "asscPointList"
+    let point_list_fields: &[&str] = if is_raw {
+        &["asscPointList"]
     } else {
-        "outputPointList"
+        &["smoothPointList", "outputPointList"]
     };
 
     let default_source = match source_override {
@@ -88,27 +89,40 @@ fn parse_mat_sync(
     let mut tracks: Vec<Track> = Vec::with_capacity(num_tracks);
 
     for i in 0..num_tracks {
-        let track_struct = &track_list[i];
+        let track_struct = if is_single_track_struct {
+            track_list
+        } else {
+            &track_list[i]
+        };
 
         let batch_no = track_struct["BatchNo"].to_f64().unwrap_or(0.0) as i32;
         let flight_type = track_struct["Type"].to_f64().unwrap_or(0.0) as i32;
 
         let aircraft_type = if flight_type == 1 { "RADAR" } else { "UNKNOWN" };
 
-        let pt_list = &track_struct[field_name];
-
-        let num_pts = match pt_list {
-            matrw::MatVariable::StructureArray(_) => {
-                let d = pt_list.dim();
-                if d.len() >= 2 {
-                    d[1]
-                } else if d.len() == 1 {
-                    d[0]
-                } else {
-                    0
+        let mut selected_pt_list: Option<(&str, &matrw::MatVariable, usize)> = None;
+        for field_name in point_list_fields {
+            let candidate = &track_struct[*field_name];
+            let num_pts = match candidate {
+                matrw::MatVariable::StructureArray(_) => {
+                    let d = candidate.dim();
+                    if d.is_empty() {
+                        0
+                    } else {
+                        d.iter().product()
+                    }
                 }
+                matrw::MatVariable::Structure(_) => 1,
+                _ => 0,
+            };
+            if num_pts > 0 {
+                selected_pt_list = Some((field_name, candidate, num_pts));
+                break;
             }
-            _ => 0,
+        }
+
+        let Some((_field_name, pt_list, num_pts)) = selected_pt_list else {
+            continue;
         };
 
         if num_pts == 0 {

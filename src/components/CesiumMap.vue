@@ -1010,7 +1010,17 @@ onUnmounted(() => {
 watch(
   () => props.tracks,
   (newTracks) => {
-    if (cesiumCtx) TrackR.syncEntities(newTracks, buildTrackState())
+    if (!cesiumCtx) return
+    TrackR.syncEntities(newTracks, buildTrackState())
+    if (props.replayTime !== null) {
+      TrackR.updateReplayPositions(
+        props.replayTime,
+        newTracks,
+        { selectedId: props.selectedId, lineWidths: props.lineWidths, visibility: { ...visibility.value }, getLineColor: buildTrackState().getLineColor },
+        DotR.getEntityMap_mutable(),
+        DotR.getLastLo() as Map<string, number>,
+      )
+    }
   },
   { deep: false },
 )

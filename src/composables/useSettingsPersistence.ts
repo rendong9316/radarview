@@ -248,6 +248,8 @@ async function applySettings(raw: Record<string, string>) {
   loadFileScales(raw)
   const { loadFileVisibility } = await import('./useFileVisibility')
   loadFileVisibility(raw)
+  const { loadFileLabels } = await import('./useFileLabels')
+  loadFileLabels(raw)
 
   // ── Flags ──
   const { useFlags } = await import('./useFlags')

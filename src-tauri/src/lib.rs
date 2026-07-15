@@ -23,6 +23,17 @@ use track::TrackDto;
 struct DbPath(Mutex<PathBuf>);
 struct SplashHandle(Mutex<Option<tauri::WebviewWindow>>);
 
+fn import_file_name(file_path: &str, display_name: Option<String>) -> String {
+    let fallback = std::path::Path::new(file_path)
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    display_name
+        .map(|name| name.trim().to_string())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(fallback)
+}
+
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
@@ -103,14 +114,12 @@ async fn import_radar_file(
     app_handle: tauri::AppHandle,
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
+    display_name: Option<String>,
 ) -> Result<Vec<TrackDto>, String> {
     let mut tracks = radar::parse_mat_file(&app_handle, &file_path).await?;
 
     let db_path_buf = db_path.0.lock().map_err(|e| e.to_string())?.clone();
-    let file_name = std::path::Path::new(&file_path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let file_name = import_file_name(&file_path, display_name);
 
     for t in &mut tracks {
         t.file_name = file_name.clone();
@@ -163,14 +172,12 @@ async fn import_radar_raw_file(
     app_handle: tauri::AppHandle,
     db_path: tauri::State<'_, DbPath>,
     file_path: String,
+    display_name: Option<String>,
 ) -> Result<Vec<TrackDto>, String> {
     let mut tracks = radar::parse_mat_file_with_source(&app_handle, &file_path, Some("RadarRaw")).await?;
 
     let db_path_buf = db_path.0.lock().map_err(|e| e.to_string())?.clone();
-    let file_name = std::path::Path::new(&file_path)
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let file_name = import_file_name(&file_path, display_name);
 
     for t in &mut tracks {
         t.file_name = file_name.clone();

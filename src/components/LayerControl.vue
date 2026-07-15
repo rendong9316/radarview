@@ -8,7 +8,7 @@
         <span>数据源</span><HelpTip text="控制各数据源航迹在地图上的显示或隐藏。关闭后航迹线和终点圆球将不可见，数据仍在内存中。" />
       </div>
       <div class="group-body" v-show="!collapsedSections.has('visibility')">
-        <template v-for="item in layerItems" :key="item.source">
+        <template v-for="item in layerItems" :key="item.key">
           <div class="setting-row" :class="{ 'has-sub': item.files.length > 1 }">
             <span v-if="item.files.length > 1" class="expand-arrow" @click="toggleSourceExpanded(item.source)">
               <ChevronDown :size="10" class="source-chevron" :class="{ collapsed: !expandedSources.has(item.source) }" />
@@ -20,16 +20,16 @@
             <label class="toggle-switch" @click.stop>
               <input
                 type="checkbox"
-                :checked="visibility[item.source]"
-                @change="toggleSourceWithFiles(item)"
+                :checked="item.visible"
+                @change="toggleLayerItem(item)"
               />
               <span class="toggle-slider"></span>
             </label>
           </div>
           <div v-if="item.files.length > 1 && expandedSources.has(item.source)" class="file-rows">
             <div v-for="f in item.files" :key="f.fileName" class="setting-row file-row">
-              <span class="layer-dot" style="visibility:hidden; width:8px"></span>
-              <span class="row-label file-label" :style="{ color: item.color }">{{ f.displayLabel }}</span>
+              <span class="layer-dot" :style="{ background: f.color }"></span>
+              <span class="row-label file-label" :style="{ color: f.color }">{{ f.displayLabel }}</span>
               <span class="row-value" style="min-width: 24px; text-align: right;">{{ f.count }}</span>
               <label class="toggle-switch" @click.stop>
                 <input type="checkbox" :checked="f.visible" @change="toggleFile(item.source, f.fileName)" />
@@ -276,6 +276,7 @@ import type { DataSource } from '../types/track'
 import type { TileSourceInfo } from '../composables/useTileSource'
 import { useLayerVisibility } from '../composables/useLayerVisibility'
 import { useFileVisibility } from '../composables/useFileVisibility'
+import { useFileLineColor } from '../composables/useFileLineColor'
 import { getFileLabel } from '../composables/useFileLabels'
 import { useTracks } from '../composables/useTracks'
 import { useBoundaryLayers } from '../composables/useBoundaryLayers'
@@ -299,6 +300,7 @@ const is3DMode = computed(() => sceneModeCtrl.is3D.value)
 
 const { visibility, toggle: toggleSource } = useLayerVisibility()
 const { isFileVisible, setFileVisible } = useFileVisibility()
+const { getEffectiveFileColor } = useFileLineColor()
 const { tracks } = useTracks()
 const { boundaryVisible, boundaryWidths, boundaryColors, setBoundaryVisible, setBoundaryWidth, setBoundaryColor } = useBoundaryLayers()
 const {
@@ -344,23 +346,24 @@ watch(expandedSources, (val) => {
 }, { deep: true })
 
 interface LayerItem {
+  key: string
   source: DataSource
+  fileName?: string
   label: string
   color: string
   count: number
+  visible: boolean
   files: FileInfo[]
 }
-interface FileInfo { fileName: string; displayLabel: string; count: number; visible: boolean }
+interface FileInfo { fileName: string; displayLabel: string; color: string; count: number; visible: boolean }
 
 const layerItems = computed<LayerItem[]>(() => {
+  const items: LayerItem[] = []
   const sourceInfo: { source: DataSource; label: string; color: string }[] = [
     { source: 'adsb', label: 'ADS-B', color: 'var(--source-adsb)' },
-    { source: 'radar', label: 'Radar', color: 'var(--source-radar)' },
-    { source: 'radar_raw', label: 'Raw', color: 'var(--source-radar_raw)' },
   ]
-  return sourceInfo.map(si => {
+  for (const si of sourceInfo) {
     const srcTracks = tracks.value.filter(t => t.source === si.source)
-    // Group by file
     const fileMap = new Map<string, number>()
     for (const t of srcTracks) {
       const fn = t.fileName || ''
@@ -368,14 +371,55 @@ const layerItems = computed<LayerItem[]>(() => {
     }
     const files: FileInfo[] = []
     fileMap.forEach((count: number, fileName: string) => {
-      files.push({ fileName, displayLabel: getFileLabel(si.source, fileName), count, visible: isFileVisible(si.source, fileName) })
+      files.push({
+        fileName,
+        displayLabel: getFileLabel(si.source, fileName),
+        color: getEffectiveFileColor(si.source, fileName),
+        count,
+        visible: isFileVisible(si.source, fileName),
+      })
     })
-    return { source: si.source, label: si.label, color: si.color, count: srcTracks.length, files }
-  })
+    items.push({
+      key: si.source,
+      source: si.source,
+      label: si.label,
+      color: si.color,
+      count: srcTracks.length,
+      visible: visibility.value[si.source],
+      files,
+    })
+  }
+
+  for (const src of ['radar', 'radar_raw'] as DataSource[]) {
+    const fileMap = new Map<string, number>()
+    for (const t of tracks.value) {
+      if (t.source !== src) continue
+      const fileName = t.fileName || ''
+      fileMap.set(fileName, (fileMap.get(fileName) || 0) + 1)
+    }
+    fileMap.forEach((count, fileName) => {
+      items.push({
+        key: `${src}::${fileName}`,
+        source: src,
+        fileName,
+        label: getFileLabel(src, fileName),
+        color: getEffectiveFileColor(src, fileName),
+        count,
+        visible: visibility.value[src] && isFileVisible(src, fileName),
+        files: [],
+      })
+    })
+  }
+
+  return items
 })
 
 /** Toggle source visibility */
-function toggleSourceWithFiles(item: LayerItem) {
+function toggleLayerItem(item: LayerItem) {
+  if (item.fileName !== undefined) {
+    setFileVisible(item.source, item.fileName, !isFileVisible(item.source, item.fileName))
+    return
+  }
   toggleSource(item.source)
 }
 

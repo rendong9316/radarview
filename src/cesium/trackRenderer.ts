@@ -195,6 +195,36 @@ export function computeTrackExtent(positions: TrackPoint[]): TrackExtent {
   return { minLng, maxLng, minLat, maxLat }
 }
 
+function isReplayTrackActive(entry: TrackEntities, replayTime: number | null): boolean {
+  return replayTime === null || (replayTime >= entry.firstTimestamp && entry.replayPositionValid)
+}
+
+function setTrackPointLikeVisibility(entry: TrackEntities, visible: boolean) {
+  if (entry.label) entry.label.show = visible
+  if (entry.pointPrimitive) entry.pointPrimitive.show = visible
+}
+
+function hideReplayTrackBeforeStart(
+  entry: TrackEntities,
+  pointDots?: Cesium.PointPrimitive[],
+  pointDotLastLo?: Map<string, number>,
+  tKey?: string,
+) {
+  if (entry.entity) entry.entity.show = false
+  if (entry.trailLine) {
+    removeTrailLine(entry.trailLine)
+    entry.trailLine = undefined
+  }
+  setTrackPointLikeVisibility(entry, false)
+  entry.lastTrailLo = -1
+  entry._trailCache = []
+  entry.replayPositionValid = false
+  if (pointDots) {
+    for (const dot of pointDots) dot.show = false
+  }
+  if (pointDotLastLo && tKey) pointDotLastLo.set(tKey, -1)
+}
+
 /** 判断两个包围盒是否相交（正确处理反子午线跨越） */
 function extentsOverlap(a: TrackExtent, b: TrackExtent): boolean {
   // 纬度：直接判断区间重叠
@@ -271,6 +301,7 @@ export function createTrackEntities(track: Track, state: TrackState) {
     const base = isSelected ? DOT_SELECTED : isRaw ? DOT_RAW : DOT_BASE
     pointPrimitive = ctx.pointPrimitives.add({
       id: tKey,
+      show: !replaying || state.replayTime! >= track.positions[0].timestamp,
       position: lastPos,
       color: color,
       pixelSize: pointPrimSize(base, track.source, state.dotScale, track.fileName),
@@ -280,7 +311,9 @@ export function createTrackEntities(track: Track, state: TrackState) {
   // Label in LabelCollection
   const lbl = ctx.trackLabels.add({
     id: `${tKey}::dot`,
-    show: state.visibility[track.source] !== false && state.visibility[`${track.source}::${track.fileName}`] !== false,
+    show: state.visibility[track.source] !== false &&
+      state.visibility[`${track.source}::${track.fileName}`] !== false &&
+      (!replaying || state.replayTime! >= track.positions[0].timestamp),
     position: lastPos,
     text: state.showLabels ? (label || track.id) : '',
     font: state.showLabels ? LABEL_FONT_LARGE : LABEL_FONT_BASE,
@@ -295,6 +328,8 @@ export function createTrackEntities(track: Track, state: TrackState) {
   entityMap.set(tKey, {
     entity, trailLine: undefined, label: lbl, pointPrimitive,
     source: track.source, fileName: track.fileName, labelText: label || track.id, trailRef,
+    firstTimestamp: track.positions[0].timestamp,
+    replayPositionValid: false,
     trailPositions: [],
     lastTrailLo: track.positions.length - 1,
     cachedPositions: toCartesianArray(track.positions, tKey),
@@ -351,11 +386,10 @@ export function reapplyVisibility(
     const layerVis = visibility[entities.source] !== false && visibility[fileKey] !== false
     // 2D 模式下额外检查视口裁剪：包围盒与视口无交集 → 隐藏
     const inViewport = !vpExt || extentsOverlap(trackExtents.get(tKey) ?? { minLng: -180, maxLng: 180, minLat: -90, maxLat: 90 }, vpExt)
-    const vis = layerVis && inViewport
+    const vis = layerVis && inViewport && isReplayTrackActive(entities, replayTime)
     if (entities.entity) entities.entity.show = replaying ? false : vis
-    if (entities.trailLine) entities.trailLine.show = vis
-    if (entities.label) entities.label.show = vis
-    if (entities.pointPrimitive) entities.pointPrimitive.show = vis
+    if (entities.trailLine) entities.trailLine.show = replaying ? vis : false
+    setTrackPointLikeVisibility(entities, vis)
   }
 }
 
@@ -445,11 +479,15 @@ export function syncEntities(newTracks: Track[], state: TrackState) {
         createTrackEntities(track, state)
         continue
       }
+      const nextFirstTimestamp = track.positions[0]?.timestamp ?? existing.firstTimestamp
+      const replayPositionMayChange = nextFirstTimestamp !== existing.firstTimestamp || existing.positionsHash !== track.positionsHash
+      existing.firstTimestamp = nextFirstTimestamp
 
       const hasEnoughPoints = track.positions.length >= 2
       const isRaw = track.source === 'radar_raw'
       const tSel = tKey === state.selectedId
       const replaying = state.replayTime !== null
+      if (replaying && replayPositionMayChange) existing.replayPositionValid = false
       if (!replaying) {
         existing.lastTrailLo = track.positions.length - 1
       }
@@ -625,8 +663,7 @@ export function updateReplayPositions(
 
     if (!cache || cache.length === 0) {
       diagTrailNoCache++
-      if (entities.label) entities.label.position = undefined as any
-      if (entities.pointPrimitive) entities.pointPrimitive.position = undefined as any
+      hideReplayTrackBeforeStart(entities, pointDotEntityMap.get(tKey), pointDotLastLo, tKey)
       continue
     }
 
@@ -645,8 +682,7 @@ export function updateReplayPositions(
     }
 
     if (time < pts[0].timestamp) {
-      if (entities.entity) entities.entity.show = false
-      if (entities.trailLine) { removeTrailLine(entities.trailLine); entities.trailLine = undefined }
+      hideReplayTrackBeforeStart(entities, pointDotEntityMap.get(tKey), pointDotLastLo, tKey)
       continue
     }
 
@@ -659,8 +695,15 @@ export function updateReplayPositions(
     const cpLng = pts[lo].longitude + (pts[hi].longitude - pts[lo].longitude) * t
 
     const cpPos = Cesium.Cartesian3.fromDegrees(cpLng, cpLat, getEffectiveAltitude(tKey))
-    if (entities.label) entities.label.position = cpPos
-    if (entities.pointPrimitive) entities.pointPrimitive.position = cpPos
+    entities.replayPositionValid = true
+    if (entities.label) {
+      entities.label.position = cpPos
+      entities.label.show = vis
+    }
+    if (entities.pointPrimitive) {
+      entities.pointPrimitive.position = cpPos
+      entities.pointPrimitive.show = vis
+    }
 
     // Hide full entity line, show trail in PolylineCollection
     if (entities.entity) entities.entity.show = false
@@ -733,7 +776,7 @@ export function updateReplayPositions(
       if (lo !== prevDotLo) {
         pointDotLastLo.set(tKey, lo)
         for (let i = 0; i < dotPrimitives.length; i++) {
-          dotPrimitives[i].show = i <= lo
+          dotPrimitives[i].show = vis && i <= lo
         }
       }
     }
@@ -902,12 +945,15 @@ export function onReplayStart(
       entities.trailLine = undefined
     }
     entities._trailCache = []
+    entities.lastTrailLo = -1
+    entities.replayPositionValid = false
 
     // Reposition ball & label to track start (first position)
     const first = track.positions[0]
     const firstPos = Cesium.Cartesian3.fromDegrees(first.longitude, first.latitude, getEffectiveAltitude(trackKey(track.id, track.source, track.fileName)))
     if (entities.label) entities.label.position = firstPos
     if (entities.pointPrimitive) entities.pointPrimitive.position = firstPos
+    setTrackPointLikeVisibility(entities, false)
   }
   if (pointDotEntityMap.size > 0) {
     pointDotLastLo.clear()

@@ -88,7 +88,7 @@ export function useTrackLoader() {
     }
   }
 
-  async function loadRadarFile(): Promise<Track[]> {
+  async function loadRadarFile(displayName?: string): Promise<Track[]> {
     const selected = await open({
       title: 'Select Radar MAT File',
       filters: [{ name: 'Radar MAT', extensions: ['mat'] }],
@@ -101,7 +101,7 @@ export function useTrackLoader() {
     progress.value = 0
     await startProgressListener()
     try {
-      const raw = await invoke('import_radar_file', { filePath: selected as string }) as any[]
+      const raw = await invoke('import_radar_file', { filePath: selected as string, displayName }) as any[]
       progress.value = 90
       const tracks = await convertInChunks(raw)
       loading.value = false
@@ -115,7 +115,7 @@ export function useTrackLoader() {
     }
   }
 
-  async function loadRadarRawFile(): Promise<Track[]> {
+  async function loadRadarRawFile(displayName?: string): Promise<Track[]> {
     const selected = await open({
       title: 'Select Raw Radar MAT File',
       filters: [{ name: 'Radar MAT', extensions: ['mat'] }],
@@ -128,7 +128,7 @@ export function useTrackLoader() {
     progress.value = 0
     await startProgressListener()
     try {
-      const raw = await invoke('import_radar_raw_file', { filePath: selected as string }) as any[]
+      const raw = await invoke('import_radar_raw_file', { filePath: selected as string, displayName }) as any[]
       progress.value = 90
       const tracks = await convertInChunks(raw)
       loading.value = false

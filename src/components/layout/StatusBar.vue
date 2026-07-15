@@ -49,8 +49,11 @@
           class="status-speed-input"
           type="number"
           :value="speed"
-          min="1"
+          min="0.1"
+          step="0.1"
+          @input="onCustomSpeed(($event.target as HTMLInputElement).value)"
           @keydown.enter="onCustomSpeed(($event.target as HTMLInputElement).value)"
+          @blur="onCustomSpeed(($event.target as HTMLInputElement).value)"
           title="输入自定义倍速，按回车键确认生效"
         />
       </div>
@@ -85,12 +88,12 @@
         v-for="s in sources"
         :key="s.key"
         class="status-source"
-        :title="(s as any).fileCount > 1 ? `${s.label}: ${s.count} 条航迹 (${(s as any).fileCount} 个文件) — 点击切换` : `点击切换 ${s.label} 可见性`"
+        :title="`点击切换 ${s.label} 可见性`"
         :aria-label="`切换 ${s.label} 可见性`"
-        @click="$emit('toggleSource', s.key)"
+        @click="$emit('toggleSource', s.source, s.fileName)"
       >
-        <span class="source-dot" :style="{ background: `var(--source-${s.key})` }" :class="{ off: !s.visible }" />
-        {{ s.label }}:{{ s.count }}<span v-if="(s as any).fileCount > 1" class="file-count-hint">/{{ (s as any).fileCount }}f</span>
+        <span class="source-dot" :style="{ background: s.color }" :class="{ off: !s.visible }" />
+        {{ s.label }}:{{ s.count }}
       </button>
 
       <!-- Track count -->
@@ -112,6 +115,16 @@ import { useTheme } from '../../composables/useTheme'
 import type { DataSource } from '../../types/track'
 import { Play, Pause, AlertTriangle, Moon, Sun, Contrast } from '@lucide/vue'
 
+interface StatusSourceItem {
+  key: string
+  source: DataSource
+  fileName?: string
+  label: string
+  color: string
+  count: number
+  visible: boolean
+}
+
 const props = defineProps<{
   isPlaying: boolean
   hasData: boolean
@@ -122,7 +135,7 @@ const props = defineProps<{
   durationFormatted: string
   trackCount: number
   errorMsg: string
-  sources: Array<{ key: DataSource; label: string; count: number; visible: boolean }>
+  sources: StatusSourceItem[]
   loading: boolean
   loadingProgress: number
   persisting: boolean
@@ -136,7 +149,7 @@ const emit = defineEmits<{
   togglePlayback: []
   seek: [ratio: number]
   setSpeed: [speed: number]
-  toggleSource: [src: DataSource]
+  toggleSource: [src: DataSource, fileName?: string]
   cycleTheme: []
 }>()
 

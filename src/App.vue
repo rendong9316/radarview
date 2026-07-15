@@ -72,7 +72,7 @@
           <div v-for="b in batches" :key="b.id" class="batch-row" @click="handleLoadBatch(b.id)" title="从数据库加载此批次数据">
             <div class="batch-info">
               <span class="batch-src" :class="b.source.toLowerCase()">{{ b.source }}</span>
-              <span class="batch-file">{{ b.file_name }}</span>
+              <span class="batch-file">{{ batchDisplayName(b) }}</span>
               <span class="batch-meta">{{ b.track_count }} tracks · {{ b.imported_at }}</span>
             </div>
             <button
@@ -112,7 +112,7 @@
       @toggle-playback="replay.isPlaying.value ? replay.pause() : replay.play()"
       @seek="replay.seek($event)"
       @set-speed="replay.setSpeed($event)"
-      @toggle-source="(src: DataSource) => toggleVisible(src)"
+      @toggle-source="onToggleStatusSource"
       @cycle-theme="cycleTheme"
     />
 
@@ -155,12 +155,15 @@ import { viewingTrack, viewingTrackLoading, closeTrackPointViewer, openTrackPoin
 import { deletedTrackKeys } from './composables/useTrackManagement'
 import { useTrackLoader } from './composables/useTrackLoader'
 import { useTracks, trackKey } from './composables/useTracks'
-import { setBatchOrder } from './composables/useFileLabels'
+import { getFileLabel, setBatchOrder, setFileLabel } from './composables/useFileLabels'
 import { useReplay } from './composables/useReplay'
 import { fromBackendTracks } from './composables/convertTrack'
 import { useTrackFilter } from './composables/useTrackFilter'
 import { useLabelVisibility } from './composables/useLabelVisibility'
 import { useLineWidth } from './composables/useLineWidth'
+import { useFileLineColor } from './composables/useFileLineColor'
+import { useFilePointDotColor } from './composables/useFilePointDotColor'
+import { useFileVisibility } from './composables/useFileVisibility'
 import { useDotScale } from './composables/useDotScale'
 import { usePanelStates } from './composables/usePanelStates'
 import { useLayerVisibility } from './composables/useLayerVisibility'
@@ -174,6 +177,7 @@ import { useRuler } from './composables/useRuler'
 import { useSpatialLasso } from './composables/useSpatialLasso'
 import { resetElevation, getSourceElevationKm, setSourceElevation, resetSourceElevation, applySourceOffsetToTrack, clearAllFileElevations } from './composables/useTrackElevation'
 import { applyPersistedOffsets, getFileTimeDelta, applyDeltaToSingleTrack } from './composables/useTrackTimeOffset'
+import { showPrompt } from './composables/useDialogPrompt'
 import type { DataSource } from './types/track'
 
 interface Batch {
@@ -182,13 +186,16 @@ interface Batch {
 
 const mapRef = ref<InstanceType<typeof CesiumMap>>()
 const loader = useTrackLoader()
-const { tracks, trackCount, selectedId, isolatedTrackId, visibleTrackIds, addTracks, clearAll, setAll, isolateTrack, clearIsolation } = useTracks()
+const { tracks, trackCount, selectedId, isolatedTrackId, visibleTrackIds, addTracks, clearAll, setAll, isolateTrack, clearIsolation, addToVisibleSet } = useTracks()
 const { filteredTracks, globalTimeRange, hasActiveFilter, setUniversalTimeRange, clearAllTimeRanges } = useTrackFilter()
 const { toggle: toggleLabels } = useLabelVisibility()
 const { lineWidths, setLineWidth } = useLineWidth()
+const { setFileColor, getEffectiveFileColor } = useFileLineColor()
+const { setFilePointDotColor } = useFilePointDotColor()
 const { dotScale, setDotScale } = useDotScale()
 const { batchPanelOpen } = usePanelStates()
 const { visibility, toggle: toggleVisible } = useLayerVisibility()
+const { isFileVisible, setFileVisible } = useFileVisibility()
 const { clearAllFlags } = useFlags()
 const { activate: activatePanel, isActive } = useActivityBar()
 const { cycleTheme } = useTheme()
@@ -234,6 +241,20 @@ function trackSourceToDbSource(source: string): string {
   }
 }
 
+function dbSourceToTrackSource(source: string): DataSource {
+  switch (source) {
+    case 'ADS-B': return 'adsb'
+    case 'Radar': return 'radar'
+    case 'RadarRaw': return 'radar_raw'
+    case 'Simulation': return 'simulation'
+    default: return 'adsb'
+  }
+}
+
+function batchDisplayName(batch: Batch): string {
+  return getFileLabel(dbSourceToTrackSource(batch.source), batch.file_name)
+}
+
 const displayTracks = computed(() => {
   // Determine the candidate set
   let candidates: typeof tracks.value
@@ -264,18 +285,60 @@ const unifiedReplayTime = computed(() =>
   replay.isReplayActive.value ? replay.currentTime.value : null
 )
 
-// StatusBar source indicators — with file count info for multi-file sources
-const statusSources = computed(() => {
-  function fileInfo(src: DataSource) {
-    const srcTracks = tracks.value.filter(t => t.source === src)
-    const fileSet = new Set(srcTracks.map(t => t.fileName).filter(Boolean))
-    return { count: srcTracks.length, fileCount: fileSet.size }
+function sourceDisplayName(src: DataSource): string {
+  switch (src) {
+    case 'adsb': return 'ADS-B'
+    case 'radar': return 'Radar'
+    case 'radar_raw': return 'Raw'
+    case 'simulation': return 'Simulation'
   }
-  const adsb = fileInfo('adsb'), radar = fileInfo('radar'), raw = fileInfo('radar_raw')
+}
+
+function onToggleStatusSource(src: DataSource, fileName?: string) {
+  if (fileName !== undefined && (src === 'radar' || src === 'radar_raw')) {
+    setFileVisible(src, fileName, !isFileVisible(src, fileName))
+    return
+  }
+  toggleVisible(src)
+}
+
+// StatusBar source indicators. Radar sources are shown per imported file so
+// each customized radar class behaves like an independent layer.
+const statusSources = computed(() => {
+  function sourceInfo(src: DataSource) {
+    const srcTracks = tracks.value.filter(t => t.source === src)
+    return {
+      key: src,
+      source: src,
+      label: sourceDisplayName(src),
+      color: getEffectiveFileColor(src, ''),
+      count: srcTracks.length,
+      visible: visibility.value[src],
+    }
+  }
+
+  function radarFileItems(src: Extract<DataSource, 'radar' | 'radar_raw'>) {
+    const fileMap = new Map<string, number>()
+    for (const t of tracks.value) {
+      if (t.source !== src) continue
+      const fileName = t.fileName || ''
+      fileMap.set(fileName, (fileMap.get(fileName) || 0) + 1)
+    }
+    return Array.from(fileMap.entries()).map(([fileName, count]) => ({
+      key: `${src}::${fileName}`,
+      source: src as DataSource,
+      fileName,
+      label: getFileLabel(src, fileName),
+      color: getEffectiveFileColor(src, fileName),
+      count,
+      visible: visibility.value[src] && isFileVisible(src, fileName),
+    }))
+  }
+
   return [
-    { key: 'adsb' as DataSource, label: 'ADS-B', count: adsb.count, fileCount: adsb.fileCount, visible: visibility.value.adsb },
-    { key: 'radar' as DataSource, label: 'Radar', count: radar.count, fileCount: radar.fileCount, visible: visibility.value.radar },
-    { key: 'radar_raw' as DataSource, label: 'Raw', count: raw.count, fileCount: raw.fileCount, visible: visibility.value.radar_raw },
+    sourceInfo('adsb'),
+    ...radarFileItems('radar'),
+    ...radarFileItems('radar_raw'),
   ]
 })
 
@@ -543,6 +606,100 @@ async function restoreDeletedAndRefresh(icaos: string[], dbSource: string, fileN
   }
 }
 
+const RADAR_IMPORT_COLORS = [
+  '#00ff88',
+  '#ffcc00',
+  '#3ba7ff',
+  '#ff5f8f',
+  '#9bff3b',
+  '#ff8a3b',
+  '#c17dff',
+  '#38f2ff',
+]
+
+function normalizeHexColor(input: string | null, fallback: string): string {
+  const value = (input ?? '').trim()
+  if (/^#[0-9a-fA-F]{6}$/.test(value)) return value.toLowerCase()
+  if (/^[0-9a-fA-F]{6}$/.test(value)) return `#${value.toLowerCase()}`
+  return fallback
+}
+
+function defaultRadarImportName(source: DataSource): string {
+  const base = source === 'radar_raw' ? 'RadarRaw' : 'Radar'
+  const dbSource = trackSourceToDbSource(source)
+  const existingFiles = new Set<string>()
+  for (const t of tracks.value) {
+    if (t.source === source && t.fileName) existingFiles.add(t.fileName)
+  }
+  for (const b of batches.value) {
+    if (b.source === dbSource && b.file_name) existingFiles.add(b.file_name)
+  }
+  const nextIndex = existingFiles.size + 1
+  let candidate = nextIndex <= 1 ? base : `${base}${nextIndex}`
+  let suffix = nextIndex
+  while (existingFiles.has(candidate)) {
+    suffix += 1
+    candidate = `${base}${suffix}`
+  }
+  return candidate
+}
+
+function defaultRadarImportColor(source: DataSource): string {
+  const dbSource = trackSourceToDbSource(source)
+  const existingFiles = new Set<string>()
+  for (const t of tracks.value) {
+    if (t.source === source && t.fileName) existingFiles.add(t.fileName)
+  }
+  for (const b of batches.value) {
+    if (b.source === dbSource && b.file_name) existingFiles.add(b.file_name)
+  }
+  return RADAR_IMPORT_COLORS[existingFiles.size % RADAR_IMPORT_COLORS.length]
+}
+
+function makeUniqueImportName(source: DataSource, name: string): string {
+  const base = name.trim() || defaultRadarImportName(source)
+  const dbSource = trackSourceToDbSource(source)
+  const existingFiles = new Set<string>()
+  for (const t of tracks.value) {
+    if (t.source === source && t.fileName) existingFiles.add(t.fileName)
+  }
+  for (const b of batches.value) {
+    if (b.source === dbSource && b.file_name) existingFiles.add(b.file_name)
+  }
+  if (!existingFiles.has(base)) return base
+  let index = 2
+  let candidate = `${base}${index}`
+  while (existingFiles.has(candidate)) {
+    index += 1
+    candidate = `${base}${index}`
+  }
+  return candidate
+}
+
+async function promptRadarImportName(source: DataSource): Promise<string> {
+  const defaultName = defaultRadarImportName(source)
+  const label = await showPrompt('为本次导入的雷达数据设置显示名称：', defaultName)
+  return makeUniqueImportName(source, label?.trim() || defaultName)
+}
+
+async function configureImportedRadarFile(source: DataSource, fileName: string) {
+  if (!fileName) return
+  const defaultColor = defaultRadarImportColor(source)
+  const color = await showPrompt('为本次导入的雷达数据设置颜色（例如 #00ff88）：', defaultColor)
+  setFileLabel(source, fileName, fileName)
+  const hex = normalizeHexColor(color, defaultColor)
+  setFileColor(source, fileName, hex)
+  setFilePointDotColor(source, fileName, hex)
+}
+
+function revealImportedTracks(newTracks: import('./types/track').Track[]) {
+  if (isolatedTrackId.value) clearIsolation()
+  if (visibleTrackIds.value.size === 0) return
+  for (const t of newTracks) {
+    addToVisibleSet(trackKey(t.id, t.source, t.fileName))
+  }
+}
+
 async function handleImportAdsb() {
   errorMsg.value = ''
   try {
@@ -556,6 +713,7 @@ async function handleImportAdsb() {
       }
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      revealImportedTracks(result)
       autoApplySourceElevation(result)
       await restoreDeletedAndRefresh(result.map(t => t.id), 'ADS-B', result[0]?.fileName || '')
       await nextTick()
@@ -567,9 +725,11 @@ async function handleImportAdsb() {
 async function handleImportRadar() {
   errorMsg.value = ''
   try {
-    const result = await loader.loadRadarFile()
+    const importName = await promptRadarImportName('radar')
+    const result = await loader.loadRadarFile(importName)
     console.log('[import:Radar] loaded', result.length, 'tracks')
     if (result.length) {
+      await configureImportedRadarFile('radar', result[0]?.fileName || '')
       // Apply existing time offsets to newly imported tracks before merging
       for (const t of result) {
         const delta = getFileTimeDelta(t.source, t.fileName)
@@ -577,6 +737,7 @@ async function handleImportRadar() {
       }
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      revealImportedTracks(result)
       autoApplySourceElevation(result)
       await restoreDeletedAndRefresh(result.map(t => t.id), 'Radar', result[0]?.fileName || '')
     }
@@ -587,9 +748,11 @@ async function handleImportRadar() {
 async function handleImportRadarRaw() {
   errorMsg.value = ''
   try {
-    const result = await loader.loadRadarRawFile()
+    const importName = await promptRadarImportName('radar_raw')
+    const result = await loader.loadRadarRawFile(importName)
     console.log('[import:RadarRaw] loaded', result.length, 'tracks')
     if (result.length) {
+      await configureImportedRadarFile('radar_raw', result[0]?.fileName || '')
       // Apply existing time offsets to newly imported tracks before merging
       for (const t of result) {
         const delta = getFileTimeDelta(t.source, t.fileName)
@@ -597,6 +760,7 @@ async function handleImportRadarRaw() {
       }
       if (trackCount.value === 0) setAll(result)
       else addTracks(result)
+      revealImportedTracks(result)
       autoApplySourceElevation(result)
       await restoreDeletedAndRefresh(result.map(t => t.id), 'RadarRaw', result[0]?.fileName || '')
     }
